@@ -26,162 +26,269 @@ import {
 import { METADATA_MONTHLY_INCOME } from '../../core/models/app-metadata.model';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
-import { ButtonComponent, CardComponent, ModalComponent } from '../../shared/components';
+import { ModalComponent } from '../../shared/components';
 import { CurrencyFormatPipe } from '../../shared/pipes';
+import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
+import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
+import {
+  LucideAngularModule,
+  LucideIconProvider,
+  LUCIDE_ICONS,
+  Plus,
+  Save,
+  AlertTriangle,
+  CheckCircle2,
+} from 'lucide-angular';
+import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 
 const BUDGET_CATEGORIES: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 'Buffer'];
+
+/** Maps predefined type names to CATEGORY_DEFS IDs */
+const TYPE_TO_CAT_ID: Record<string, string> = {
+  'Housing':               'housing',
+  'Food & Groceries':      'food',
+  'Transportation':        'transport',
+  'Utilities':             'utilities',
+  'Healthcare':            'health',
+  'Entertainment':         'entertainment',
+  'Dining Out':            'dining',
+  'Shopping/Clothing':     'shopping',
+  'Savings/Emergency Fund':'savings',
+  'Investments':           'investments',
+  'Education':             'education',
+  'Personal Care':         'personal',
+  'Subscriptions':         'subscriptions',
+  'Miscellaneous':         'misc',
+};
+
+/** Maps BudgetCategory (capitalized) to group color CSS variable */
+const GROUP_COLOR_VARS: Record<BudgetCategory, string> = {
+  Needs:   '--cat-transport',
+  Wants:   '--cat-dining',
+  Savings: '--cat-savings',
+  Growth:  '--cat-education',
+  Buffer:  '--cat-misc',
+};
+
+const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 'Buffer'];
 
 @Component({
   selector: 'app-expense-limit',
   standalone: true,
-  imports: [ReactiveFormsModule, CardComponent, ButtonComponent, ModalComponent, CurrencyFormatPipe],
+  imports: [
+    ReactiveFormsModule,
+    ModalComponent,
+    CurrencyFormatPipe,
+    SectionCardComponent,
+    CategoryIconComponent,
+    LucideAngularModule,
+  ],
+  providers: [
+    {
+      provide: LUCIDE_ICONS,
+      multi: true,
+      useValue: new LucideIconProvider({ Plus, Save, AlertTriangle, CheckCircle2 }),
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="min-h-screen bg-gray-50 p-4 pb-20">
-      <h1 class="mb-4 text-xl font-semibold text-gray-900">Expense Limits</h1>
+    <div class="space-y-6">
+      <!-- Page header -->
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Expense Limits</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Set how your monthly income should be allocated across categories.
+        </p>
+      </div>
 
       <form [formGroup]="form" (ngSubmit)="onSave()" novalidate>
+
         <!-- Monthly Income -->
-        <app-card class="mb-6 block">
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">Monthly Income</h2>
-          <div>
-            <label for="monthlyIncome" class="mb-1 block text-sm font-medium text-gray-700">
-              Monthly Income (₹)
-            </label>
+        <app-section-card
+          title="Monthly Income"
+          description="Used to compute every category limit below."
+          class="mb-6 block"
+        >
+          <div class="flex items-center gap-3 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
+            <span class="text-2xl font-semibold text-muted-foreground">₹</span>
+            <label for="monthlyIncome" class="sr-only">Monthly Income</label>
             <input
               type="number"
               id="monthlyIncome"
               formControlName="monthlyIncome"
               min="0.01"
               step="0.01"
-              placeholder="Enter your monthly income"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              [class.border-red-500]="isIncomeInvalid()"
+              placeholder="0"
+              class="w-full bg-transparent text-2xl font-semibold outline-none"
             />
-            @if (isIncomeInvalid()) {
-              <p class="mt-1 text-xs text-red-600">
-                Monthly income is required and must be greater than 0.
-              </p>
-            }
+            <span class="hidden text-xs text-muted-foreground md:inline">per month</span>
           </div>
-        </app-card>
-
-        <!-- Limits Table -->
-        <app-card class="mb-4 block">
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">Spending Limits</h2>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-                  <th class="pb-2 pr-3">Type</th>
-                  <th class="pb-2 pr-3">Category</th>
-                  <th class="pb-2 pr-3 text-right">Rec. %</th>
-                  <th class="pb-2 pr-3 text-right">Your %</th>
-                  <th class="pb-2 pr-3 text-right">Amount</th>
-                  <th class="pb-2 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody formArrayName="limits">
-                @for (group of limitsArray.controls; track $index; let i = $index) {
-                  <tr class="border-b border-gray-100 last:border-0" [formGroupName]="i">
-                    <td class="py-2 pr-3">
-                      @if (isPredefined(i)) {
-                        <span class="font-medium text-gray-900">
-                          {{ group.get('type')?.value }}
-                        </span>
-                      } @else {
-                        <input
-                          type="text"
-                          formControlName="type"
-                          placeholder="Type name"
-                          class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                          [class.border-red-500]="isCustomTypeInvalid(group)"
-                        />
-                      }
-                    </td>
-                    <td class="py-2 pr-3">
-                      @if (isPredefined(i)) {
-                        <span class="text-gray-600">{{ group.get('category')?.value }}</span>
-                      } @else {
-                        <select
-                          formControlName="category"
-                          class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                        >
-                          @for (cat of budgetCategories; track cat) {
-                            <option [value]="cat">{{ cat }}</option>
-                          }
-                        </select>
-                      }
-                    </td>
-                    <td class="py-2 pr-3 text-right text-gray-500">
-                      {{ group.get('recommendedPercentage')?.value }}%
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        type="number"
-                        formControlName="userPercentage"
-                        min="0"
-                        max="100"
-                        step="0.1"
-                        class="w-20 rounded border border-gray-300 px-2 py-1 text-right text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                    </td>
-                    <td class="py-2 text-right font-medium text-gray-900">
-                      {{ group.get('calculatedAmount')?.value | currencyFormat }}
-                    </td>
-                    <td class="py-2 text-center">
-                      @if (!isPredefined(i)) {
-                        <button
-                          type="button"
-                          (click)="removeCustomType(i)"
-                          class="text-red-600 hover:text-red-800 text-xs underline"
-                          title="Remove this custom type"
-                        >
-                          Delete
-                        </button>
-                      }
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </app-card>
-
-        <!-- Running Total -->
-        <app-card class="mb-4 block">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium text-gray-700">Running Total (all %)</span>
-            <span
-              class="text-lg font-bold"
-              [class.text-red-600]="isNeedsWantsOver80()"
-              [class.text-gray-900]="!isNeedsWantsOver80()"
-            >
-              {{ runningTotal() }}%
-            </span>
-          </div>
-          @if (isNeedsWantsOver80()) {
-            <p class="mt-1 text-xs text-red-600">
-              ⚠ Needs + Wants exceeds 80% of income. Consider reducing discretionary spending.
+          @if (isIncomeInvalid()) {
+            <p class="mt-2 text-xs text-destructive">
+              Monthly income is required and must be greater than 0.
             </p>
           }
-        </app-card>
+        </app-section-card>
 
-        <!-- Add Custom Type -->
-        <div class="mb-4">
-          <app-button type="button" variant="ghost" (click)="addCustomType()">
-            + Add Custom Type
-          </app-button>
+        <!-- Spending Limits -->
+        <app-section-card
+          title="Spending Limits"
+          description="Recommended percentages are based on a 50/30/20-style framework."
+          class="mb-6 block"
+        >
+          <!-- Desktop table -->
+          <div class="hidden md:block" formArrayName="limits">
+            <div class="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.7fr_0.9fr] gap-3 border-b border-border px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span>Category</span>
+              <span>Group</span>
+              <span class="text-right">Rec.</span>
+              <span class="text-right">Your %</span>
+              <span class="text-right">Amount</span>
+            </div>
+            <ul class="mt-1">
+              @for (group of limitsArray.controls; track $index; let i = $index) {
+                <li
+                  class="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.7fr_0.9fr] items-center gap-3 border-b border-border/60 px-2 py-2.5 last:border-0"
+                  [formGroupName]="i"
+                >
+                  <!-- Category -->
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <app-category-icon [categoryId]="getCatId(i)" size="sm" />
+                    <span class="truncate text-sm font-medium">{{ group.get('type')?.value }}</span>
+                  </div>
+                  <!-- Group -->
+                  <span
+                    class="text-xs font-medium"
+                    [style.color]="'var(' + getCatColorVar(i) + ')'"
+                  >{{ group.get('category')?.value }}</span>
+                  <!-- Rec % -->
+                  <span class="text-right text-xs text-muted-foreground">
+                    {{ group.get('recommendedPercentage')?.value }}%
+                  </span>
+                  <!-- Your % input -->
+                  <div class="flex justify-end">
+                    <label [for]="'pct-desktop-' + i" class="sr-only">{{ group.get('type')?.value }} percentage</label>
+                    <input
+                      [id]="'pct-desktop-' + i"
+                      type="number"
+                      formControlName="userPercentage"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      class="w-16 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <!-- Amount -->
+                  <span class="text-right text-sm font-semibold tabular-nums">
+                    {{ group.get('calculatedAmount')?.value | currencyFormat }}
+                  </span>
+                </li>
+              }
+            </ul>
+          </div>
+
+          <!-- Mobile cards -->
+          <ul class="space-y-2.5 md:hidden" formArrayName="limits">
+            @for (group of limitsArray.controls; track $index; let i = $index) {
+              <li class="rounded-2xl border border-border bg-card/40 p-3" [formGroupName]="i">
+                <div class="flex items-center gap-3">
+                  <app-category-icon [categoryId]="getCatId(i)" size="md" />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium">{{ group.get('type')?.value }}</p>
+                    <p
+                      class="text-[11px]"
+                      [style.color]="'var(' + getCatColorVar(i) + ')'"
+                    >{{ group.get('category')?.value }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <label [for]="'pct-mobile-' + i" class="sr-only">{{ group.get('type')?.value }} percentage</label>
+                    <input
+                      [id]="'pct-mobile-' + i"
+                      type="number"
+                      formControlName="userPercentage"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      class="w-14 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm outline-none focus:border-primary"
+                    />
+                    <span class="text-xs text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-xs">
+                  <span class="text-muted-foreground">Monthly limit</span>
+                  <span class="font-semibold tabular-nums">
+                    {{ group.get('calculatedAmount')?.value | currencyFormat }}
+                  </span>
+                </div>
+              </li>
+            }
+          </ul>
+
+          <!-- Add Custom Type -->
+          <button
+            type="button"
+            (click)="addCustomType()"
+            class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary"
+          >
+            <lucide-icon [img]="plusIcon" class="h-4 w-4" /> Add Custom Type
+          </button>
+        </app-section-card>
+
+        <!-- Running Total -->
+        <app-section-card
+          title="Running Total"
+          [description]="runningTotal() === 100 ? 'Allocation balanced.' : 'Adjust until totals reach 100%.'"
+          class="mb-6 block"
+        >
+          <span action>
+            <span
+              class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+              [class]="runningTotal() === 100 ? 'bg-success/15' : 'bg-destructive/15 animate-pulse'"
+              [style.color]="runningTotal() === 100 ? 'var(--success)' : 'var(--destructive)'"
+            >
+              @if (runningTotal() === 100) {
+                <lucide-icon [img]="checkCircle2Icon" class="h-3.5 w-3.5" />
+              } @else {
+                <lucide-icon [img]="alertTriangleIcon" class="h-3.5 w-3.5" />
+              }
+              {{ runningTotal() }}%
+            </span>
+          </span>
+
+          <!-- Stacked bar -->
+          <div class="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+            @for (group of budgetGroups; track group) {
+              <div
+                [style.width.%]="getGroupPct(group)"
+                [style.background-color]="groupColor(group)"
+                [title]="group + ': ' + getGroupPct(group) + '%'"
+              ></div>
+            }
+          </div>
+
+          <!-- Legend -->
+          <ul class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-2">
+            @for (group of budgetGroups; track group) {
+              <li class="flex items-center gap-2 rounded-xl border border-border bg-card/40 px-3 py-2 text-xs">
+                <span class="h-2.5 w-2.5 rounded-full" [style.background-color]="groupColor(group)"></span>
+                <span class="font-medium">{{ group }}</span>
+                <span class="ml-auto text-muted-foreground">{{ getGroupPct(group) }}%</span>
+              </li>
+            }
+          </ul>
+        </app-section-card>
+
+        <!-- Save button -->
+        <div class="sticky bottom-24 z-30 md:static md:bottom-auto">
+          <button
+            type="submit"
+            [disabled]="runningTotal() !== 100"
+            class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
+          >
+            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> Save Limits
+          </button>
         </div>
 
-        <!-- Save Button -->
-        <app-button type="submit" variant="primary" class="w-full">
-          Save Limits
-        </app-button>
-
-        @if (saveSuccess()) {
-          <p class="mt-3 text-center text-sm text-green-600">✓ Limits saved successfully</p>
-        }
       </form>
     </div>
 
@@ -192,7 +299,7 @@ const BUDGET_CATEGORIES: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growt
       (confirmed)="onSavingsWarningConfirmed()"
       (cancelled)="showSavingsWarning.set(false)"
     >
-      <p class="text-sm text-gray-700">
+      <p class="text-sm text-muted-foreground">
         Your configured savings percentage is below 20%. Financial advisors recommend saving at
         least 20% of your income. Are you sure you want to save this configuration?
       </p>
@@ -205,6 +312,13 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   readonly expenseStore = inject(ExpenseStore);
 
   readonly budgetCategories = BUDGET_CATEGORIES;
+  readonly budgetGroups = BUDGET_GROUPS;
+
+  // Lucide icon references for template use
+  readonly plusIcon = Plus;
+  readonly saveIcon = Save;
+  readonly alertTriangleIcon = AlertTriangle;
+  readonly checkCircle2Icon = CheckCircle2;
 
   // Task 10.3: running total signal
   readonly runningTotal = signal(0);
@@ -285,6 +399,36 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   isCustomTypeInvalid(group: AbstractControl): boolean {
     const ctrl = group.get('type');
     return !!(ctrl?.invalid && ctrl?.touched);
+  }
+
+  /** Returns the CATEGORY_DEFS id for the limit at the given index */
+  getCatId(index: number): string {
+    const typeName = this.limitsArray.controls[index]?.get('type')?.value as string;
+    return TYPE_TO_CAT_ID[typeName] ?? 'misc';
+  }
+
+  /** Returns the CSS variable name (without var()) for the category color at the given index */
+  getCatColorVar(index: number): string {
+    const catId = this.getCatId(index);
+    const def = CATEGORY_DEFS.find((c) => c.id === catId);
+    return def?.colorVar ?? '--cat-misc';
+  }
+
+  /** Sums userPercentage for all limits in the given budget group */
+  getGroupPct(group: BudgetCategory): number {
+    let total = 0;
+    for (const ctrl of this.limitsArray.controls) {
+      const category = ctrl.get('category')?.value as BudgetCategory;
+      if (category === group) {
+        total += Number(ctrl.get('userPercentage')?.value) || 0;
+      }
+    }
+    return Math.round(total * 10) / 10;
+  }
+
+  /** Returns the CSS color value for the given budget group */
+  groupColor(group: BudgetCategory): string {
+    return `var(${GROUP_COLOR_VARS[group] ?? '--cat-misc'})`;
   }
 
   // Task 10.3: Needs+Wants > 80% check

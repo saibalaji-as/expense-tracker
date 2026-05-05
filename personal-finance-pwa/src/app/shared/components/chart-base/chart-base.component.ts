@@ -17,10 +17,18 @@ import { Chart, ChartData, ChartOptions, ChartType } from 'chart.js/auto';
   template: `
     <canvas
       #canvas
+      style="max-height: 100%; width: 100%;"
       [attr.aria-label]="type + ' chart'"
       role="img"
     ></canvas>
   `,
+  styles: [`
+    :host {
+      display: block;
+      height: 100%;
+      width: 100%;
+    }
+  `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChartBaseComponent implements AfterViewInit, OnChanges, OnDestroy {

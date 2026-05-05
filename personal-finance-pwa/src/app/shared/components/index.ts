@@ -6,3 +6,8 @@ export { ToastComponent } from './toast/toast.component';
 export { OfflineBannerComponent } from './offline-banner/offline-banner.component';
 export { ChartBaseComponent } from './chart-base/chart-base.component';
 export { BottomNavComponent } from './bottom-nav/bottom-nav.component';
+export { ThemeToggleComponent } from './theme-toggle/theme-toggle.component';
+export { AppShellComponent } from './app-shell/app-shell.component';
+export { CategoryIconComponent } from './category-icon/category-icon.component';
+export { ProgressRingComponent } from './progress-ring/progress-ring.component';
+export { SectionCardComponent } from './section-card/section-card.component';

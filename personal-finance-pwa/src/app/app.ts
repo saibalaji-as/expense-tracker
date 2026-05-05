@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/cor
 import { RouterOutlet } from '@angular/router';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
 import { ToastComponent } from './shared/components/toast/toast.component';
-import { BottomNavComponent } from './shared/components/bottom-nav/bottom-nav.component';
+import { AppShellComponent } from './shared/components/app-shell/app-shell.component';
 import { ExpenseStore } from './core/services/expense-store.service';
 import { GoogleSheetsService } from './core/services/google-sheets.service';
 
@@ -30,7 +30,7 @@ function waitForScripts(): Promise<void> {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, BottomNavComponent],
+  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, AppShellComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

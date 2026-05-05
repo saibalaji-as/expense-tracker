@@ -2,83 +2,164 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ChartData } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
+import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { ExpenseStore } from '../../core/services/expense-store.service';
-import { CardComponent, ChartBaseComponent } from '../../shared/components';
+import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
+import { CurrencyFormatPipe } from '../../shared/pipes';
+import {
+  LucideAngularModule,
+  LucideIconProvider,
+  LUCIDE_ICONS,
+  Sparkles,
+  ArrowRight,
+} from 'lucide-angular';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CardComponent, ChartBaseComponent],
+  imports: [
+    RouterLink,
+    ChartBaseComponent,
+    SectionCardComponent,
+    LucideAngularModule,
+    CurrencyFormatPipe,
+  ],
+  providers: [
+    {
+      provide: LUCIDE_ICONS,
+      multi: true,
+      useValue: new LucideIconProvider({ Sparkles, ArrowRight }),
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="min-h-screen bg-gray-50 p-4 pb-20">
-      <h1 class="mb-4 text-xl font-semibold text-gray-900">Dashboard</h1>
+    <div class="space-y-6">
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <!-- Page header row -->
+      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Dashboard</h1>
+          <p class="mt-1 text-sm text-muted-foreground">A snapshot of your financial health.</p>
+        </div>
+        <!-- Quick-stat chips -->
+        <div class="flex flex-wrap gap-2">
+          <div class="glass-card px-4 py-2.5">
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">Today</p>
+            <p class="text-sm font-semibold tabular-nums">{{ todaySpend() | currencyFormat }}</p>
+          </div>
+          <div class="glass-card px-4 py-2.5">
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">This week</p>
+            <p class="text-sm font-semibold tabular-nums">{{ weekSpend() | currencyFormat }}</p>
+          </div>
+          <div class="glass-card px-4 py-2.5">
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">Avg / day</p>
+            <p class="text-sm font-semibold tabular-nums">{{ avgPerDay() | currencyFormat }}</p>
+          </div>
+        </div>
+      </div>
 
-        <!-- YTD Daily Line Chart -->
-        <app-card>
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">Year-to-Date Daily Expenses</h2>
+      <!-- 4-chart grid -->
+      <div class="grid gap-6 md:grid-cols-2">
+
+        <!-- Year-to-date Daily Expenses -->
+        <app-section-card
+          title="Year-to-date Daily Expenses"
+          description="Daily spend across the past 30 days"
+        >
           @if (hasYtdData()) {
-            <app-chart-base type="line" [data]="ytdDailyData()" />
+            <div class="h-56">
+              <app-chart-base type="line" [data]="ytdDailyData()" />
+            </div>
           } @else {
-            <p class="py-8 text-center text-sm text-gray-500">
-              No expense data available for this year.
-            </p>
+            <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              No data available.
+            </div>
           }
-        </app-card>
+        </app-section-card>
 
-        <!-- Monthly Type Breakdown Pie Chart -->
-        <app-card>
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">This Month by Type</h2>
+        <!-- This Month by Type -->
+        <app-section-card
+          title="This Month by Type"
+          description="Where your spend is concentrated"
+        >
           @if (hasMonthlyTypeData()) {
-            <app-chart-base type="pie" [data]="monthlyTypeData()" />
+            <div class="h-56">
+              <app-chart-base type="doughnut" [data]="monthlyTypeData()" />
+            </div>
           } @else {
-            <p class="py-8 text-center text-sm text-gray-500">
-              No expense data for the current month.
-            </p>
+            <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              No data available.
+            </div>
           }
-        </app-card>
+        </app-section-card>
 
-        <!-- 6-Month Comparison Bar Chart -->
-        <app-card>
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">Last 6 Months</h2>
+        <!-- Last 6 Months -->
+        <app-section-card
+          title="Last 6 Months"
+          description="Total monthly spend"
+        >
           @if (hasSixMonthData()) {
-            <app-chart-base type="bar" [data]="sixMonthData()" />
+            <div class="h-56">
+              <app-chart-base type="bar" [data]="sixMonthData()" />
+            </div>
           } @else {
-            <p class="py-8 text-center text-sm text-gray-500">
-              No expense data for the last 6 months.
-            </p>
+            <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              No data available.
+            </div>
           }
-        </app-card>
+        </app-section-card>
 
-        <!-- Budget Rule Donut Chart -->
-        <app-card>
-          <h2 class="mb-3 text-sm font-semibold text-gray-700">Budget Rule (50/30/20)</h2>
+        <!-- Budget Rule (50/30/20) -->
+        <app-section-card
+          title="Budget Rule (50/30/20)"
+          description="Actual split across Needs, Wants, Savings"
+        >
           @if (hasBudgetRuleData()) {
-            <app-chart-base type="doughnut" [data]="budgetRuleData()" />
+            <div class="h-56">
+              <app-chart-base type="doughnut" [data]="budgetRuleData()" />
+            </div>
           } @else {
-            <p class="py-8 text-center text-sm text-gray-500">
-              No expense data to display budget breakdown.
-            </p>
+            <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              No data available.
+            </div>
           }
-        </app-card>
+        </app-section-card>
 
       </div>
+
+      <!-- CTA card — always visible -->
+      <a
+        routerLink="/daily"
+        class="glass-card flex items-center justify-between gap-4 p-4 transition-all hover:shadow-glow md:p-5"
+      >
+        <div class="flex items-center gap-3">
+          <span class="grid h-10 w-10 place-items-center rounded-xl gradient-primary text-primary-foreground">
+            <lucide-icon name="sparkles" class="h-5 w-5" />
+          </span>
+          <div>
+            <p class="text-sm font-semibold">Log a new expense</p>
+            <p class="text-xs text-muted-foreground">Quick-add today's spending in seconds.</p>
+          </div>
+        </div>
+        <lucide-icon name="arrow-right" class="h-5 w-5 text-muted-foreground" />
+      </a>
+
     </div>
   `,
 })
 export class DashboardComponent implements OnInit {
   readonly expenseStore = inject(ExpenseStore);
 
-  // Task 11.1: Four ChartData signals
+  // Chart data signals
   readonly ytdDailyData = signal<ChartData>({ datasets: [] });
   readonly monthlyTypeData = signal<ChartData>({ datasets: [] });
   readonly sixMonthData = signal<ChartData>({ datasets: [] });
@@ -90,8 +171,37 @@ export class DashboardComponent implements OnInit {
   readonly hasSixMonthData = signal(false);
   readonly hasBudgetRuleData = signal(false);
 
+  // Quick-stat computed signals
+  readonly todaySpend = computed(() =>
+    this.expenseStore.todayEntries().reduce((s, e) => s + e.amount, 0)
+  );
+
+  readonly weekSpend = computed(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 6);
+    const startStr = sevenDaysAgo.toISOString().slice(0, 10);
+    const todayStr = now.toISOString().slice(0, 10);
+    return this.expenseStore
+      .entries()
+      .filter((e) => e.date >= startStr && e.date <= todayStr)
+      .reduce((s, e) => s + e.amount, 0);
+  });
+
+  readonly avgPerDay = computed(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthEntries = this.expenseStore
+      .entries()
+      .filter((e) => e.date.startsWith(currentMonth));
+    if (monthEntries.length === 0) return 0;
+    const total = monthEntries.reduce((s, e) => s + e.amount, 0);
+    const today = new Date();
+    const dayOfMonth = today.getDate();
+    return total / dayOfMonth;
+  });
+
   constructor() {
-    // Task 11.1: effect() recomputes all chart data when entries or selectedMonth changes
+    // Recompute all chart data when entries or budgetRuleSummary changes
     effect(() => {
       const entries = this.expenseStore.entries();
       const summary = this.expenseStore.budgetRuleSummary();
@@ -126,28 +236,57 @@ export class DashboardComponent implements OnInit {
     // Load current month data if not already loaded
     const currentMonth = new Date().toISOString().slice(0, 7);
     this.expenseStore.loadMonth(currentMonth);
-    
+
     // Load limits if not already loaded and sheet is configured (needed for budget rule summary)
-    const sheetId = typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
-    if (sheetId && (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)) {
-      this.expenseStore.loadLimits().catch(err => {
+    const sheetId =
+      typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
+    if (
+      sheetId &&
+      (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)
+    ) {
+      this.expenseStore.loadLimits().catch((err) => {
         console.error('Failed to load limits:', err);
       });
     }
   }
 
-  // Task 11.2: YTD daily line chart
+  /**
+   * Resolves a CSS variable to its computed color value.
+   * Chart.js renders on <canvas> and cannot read CSS variables directly,
+   * so we must resolve them at runtime via getComputedStyle.
+   */
+  private cssVar(name: string): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  /** Maps PREDEFINED_EXPENSE_TYPES names to category IDs for color lookup */
+  private readonly TYPE_TO_CAT_ID: Record<string, string> = {
+    'Housing':                'housing',
+    'Food & Groceries':       'food',
+    'Transportation':         'transport',
+    'Utilities':              'utilities',
+    'Healthcare':             'health',
+    'Entertainment':          'entertainment',
+    'Dining Out':             'dining',
+    'Shopping/Clothing':      'shopping',
+    'Savings/Emergency Fund': 'savings',
+    'Investments':            'investments',
+    'Education':              'education',
+    'Personal Care':          'personal',
+    'Subscriptions':          'subscriptions',
+    'Miscellaneous':          'misc',
+  };
+
+  // YTD daily line chart
   computeYtdDailyData(entries: ExpenseEntry[]): ChartData {
     const currentYear = new Date().getFullYear().toString();
     const yearEntries = entries.filter((e) => e.date.startsWith(currentYear));
 
-    // Build a map of date → total
     const dailyMap = new Map<string, number>();
     for (const entry of yearEntries) {
       dailyMap.set(entry.date, (dailyMap.get(entry.date) ?? 0) + entry.amount);
     }
 
-    // Generate all days from Jan 1 to today
     const today = new Date();
     const startOfYear = new Date(today.getFullYear(), 0, 1);
     const labels: string[] = [];
@@ -161,14 +300,16 @@ export class DashboardComponent implements OnInit {
       cursor.setDate(cursor.getDate() + 1);
     }
 
+    const primaryColor = this.cssVar('--primary');
+
     return {
       labels,
       datasets: [
         {
           label: 'Daily Expenses',
           data,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderColor: primaryColor,
+          backgroundColor: primaryColor.replace(')', ' / 0.15)').replace('oklch(', 'oklch('),
           fill: true,
           tension: 0.3,
         },
@@ -176,7 +317,7 @@ export class DashboardComponent implements OnInit {
     };
   }
 
-  // Task 11.3: Monthly type breakdown pie chart
+  // Monthly type breakdown doughnut chart
   computeMonthlyTypeBreakdown(entries: ExpenseEntry[]): ChartData {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthEntries = entries.filter((e) => e.date.startsWith(currentMonth));
@@ -189,23 +330,33 @@ export class DashboardComponent implements OnInit {
     const labels = Array.from(typeMap.keys());
     const data = Array.from(typeMap.values());
 
+    // Map type names (e.g. "Housing") → category colorVar → resolved color
+    const backgroundColor = labels.map((typeName) => {
+      const catId = this.TYPE_TO_CAT_ID[typeName] ?? 'misc';
+      const def = CATEGORY_DEFS.find((c) => c.id === catId);
+      return def ? this.cssVar(def.colorVar) : this.cssVar('--cat-misc');
+    });
+
+    // Use display names from CATEGORY_DEFS where possible
+    const displayLabels = labels.map((typeName) => {
+      const catId = this.TYPE_TO_CAT_ID[typeName] ?? 'misc';
+      const def = CATEGORY_DEFS.find((c) => c.id === catId);
+      return def ? def.name : typeName;
+    });
+
     return {
-      labels,
+      labels: displayLabels,
       datasets: [
         {
           label: 'Spending by Type',
           data,
-          backgroundColor: [
-            '#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6',
-            '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6366f1',
-            '#14b8a6', '#f43f5e', '#a855f7', '#22c55e',
-          ],
+          backgroundColor,
         },
       ],
     };
   }
 
-  // Task 11.4: 6-month comparison bar chart
+  // 6-month comparison bar chart
   computeSixMonthComparison(entries: ExpenseEntry[]): ChartData {
     const months: string[] = [];
     const labels: string[] = [];
@@ -213,11 +364,8 @@ export class DashboardComponent implements OnInit {
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthKey = d.toISOString().slice(0, 7); // YYYY-MM
-      months.push(monthKey);
-      labels.push(
-        d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      );
+      months.push(d.toISOString().slice(0, 7));
+      labels.push(d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
     }
 
     const data = months.map((month) =>
@@ -232,13 +380,13 @@ export class DashboardComponent implements OnInit {
         {
           label: 'Monthly Total',
           data,
-          backgroundColor: '#3b82f6',
+          backgroundColor: this.cssVar('--primary'),
         },
       ],
     };
   }
 
-  // Task 11.5: Budget rule donut chart
+  // Budget rule doughnut chart
   computeBudgetRuleChartData(summary: BudgetRuleSummary): ChartData {
     return {
       labels: ['Needs', 'Wants', 'Savings'],
@@ -250,7 +398,11 @@ export class DashboardComponent implements OnInit {
             summary.wantsPercentage,
             summary.savingsPercentage,
           ],
-          backgroundColor: ['#3b82f6', '#f59e0b', '#10b981'],
+          backgroundColor: [
+            this.cssVar('--cat-transport'),
+            this.cssVar('--cat-dining'),
+            this.cssVar('--cat-savings'),
+          ],
         },
       ],
     };
