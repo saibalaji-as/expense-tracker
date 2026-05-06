@@ -77,6 +77,49 @@ export class SyncService {
     console.log('[SyncService] Enqueuing entry:', entry.id);
     const queueEntry: OfflineQueueEntry = {
       id: entry.id,
+      operation: 'create',
+      entry,
+      retryCount: 0,
+      enqueuedAt: new Date().toISOString(),
+    };
+
+    const db = await this.getDb();
+    await db.put(STORE_NAME, queueEntry);
+
+    // Update the queueLength signal after the write
+    const count = await db.count(STORE_NAME);
+    this._queueLength.set(count);
+    console.log('[SyncService] Queue length:', count);
+  }
+
+  // ─── Enqueue Delete Operation ─────────────────────────────────────────────────
+
+  async enqueueDelete(entryId: string): Promise<void> {
+    console.log('[SyncService] Enqueuing delete for entry:', entryId);
+    const queueEntry: OfflineQueueEntry = {
+      id: crypto.randomUUID(), // Generate a unique ID for this queue entry
+      operation: 'delete',
+      entryId,
+      retryCount: 0,
+      enqueuedAt: new Date().toISOString(),
+    };
+
+    const db = await this.getDb();
+    await db.put(STORE_NAME, queueEntry);
+
+    // Update the queueLength signal after the write
+    const count = await db.count(STORE_NAME);
+    this._queueLength.set(count);
+    console.log('[SyncService] Queue length:', count);
+  }
+
+  // ─── Enqueue Update Operation ─────────────────────────────────────────────────
+
+  async enqueueUpdate(entry: ExpenseEntry): Promise<void> {
+    console.log('[SyncService] Enqueuing update for entry:', entry.id);
+    const queueEntry: OfflineQueueEntry = {
+      id: crypto.randomUUID(), // Generate a unique ID for this queue entry
+      operation: 'update',
       entry,
       retryCount: 0,
       enqueuedAt: new Date().toISOString(),
@@ -109,18 +152,39 @@ export class SyncService {
     }
 
     try {
-      await this.sheetsService.batchUpdate(
-        getSheetId(),
-        entries.map((e) => e.entry)
-      );
+      // Separate operations by type
+      const createEntries = entries.filter(e => e.operation === 'create' && e.entry);
+      const updateEntries = entries.filter(e => e.operation === 'update' && e.entry);
+      const deleteEntries = entries.filter(e => e.operation === 'delete' && e.entryId);
 
-      console.log('[SyncService] Batch update successful, clearing queue');
+      // Process creates in batch
+      if (createEntries.length > 0) {
+        await this.sheetsService.batchUpdate(
+          getSheetId(),
+          createEntries.map((e) => e.entry!)
+        );
+        console.log('[SyncService] Batch create successful for', createEntries.length, 'entries');
+      }
+
+      // Process updates individually
+      for (const updateEntry of updateEntries) {
+        await this.sheetsService.updateExpense(getSheetId(), updateEntry.entry!);
+        console.log('[SyncService] Update successful for entry:', updateEntry.entry!.id);
+      }
+
+      // Process deletes individually
+      for (const deleteEntry of deleteEntries) {
+        await this.sheetsService.deleteExpense(getSheetId(), deleteEntry.entryId!);
+        console.log('[SyncService] Delete successful for entry:', deleteEntry.entryId);
+      }
+
+      console.log('[SyncService] All operations successful, clearing queue');
       // Success: delete all flushed entries from the store
       for (const queueEntry of entries) {
         await db.delete(STORE_NAME, queueEntry.id);
       }
     } catch (err) {
-      console.error('[SyncService] Batch update failed:', err);
+      console.error('[SyncService] Flush failed:', err);
       // Failure: increment retryCount for each entry and re-save
       for (const queueEntry of entries) {
         const updated: OfflineQueueEntry = {

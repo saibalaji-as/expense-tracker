@@ -57,7 +57,7 @@ export const ExpenseStore = signalStore(
       return map;
     }),
 
-    /** 50/30/20 budget rule summary for the selected month */
+    /** Budget rule summary for the selected month (Needs/Wants/Savings/Growth/Buffer) */
     budgetRuleSummary: computed((): BudgetRuleSummary => {
       const month = store.selectedMonth();
       const monthEntries = store.entries().filter((e) => e.date.startsWith(month));
@@ -70,7 +70,38 @@ export const ExpenseStore = signalStore(
       let needsTotal = 0;
       let wantsTotal = 0;
       let savingsTotal = 0;
+      let growthTotal = 0;
+      let bufferTotal = 0;
 
+      // Calculate target allocations from configured limits
+      let needsTarget = 0;
+      let wantsTarget = 0;
+      let savingsTarget = 0;
+      let growthTarget = 0;
+      let bufferTarget = 0;
+
+      for (const limit of store.limits()) {
+        const amount = (limit.userPercentage * income) / 100;
+        switch (limit.category) {
+          case 'Needs':
+            needsTarget += amount;
+            break;
+          case 'Wants':
+            wantsTarget += amount;
+            break;
+          case 'Savings':
+            savingsTarget += amount;
+            break;
+          case 'Growth':
+            growthTarget += amount;
+            break;
+          case 'Buffer':
+            bufferTarget += amount;
+            break;
+        }
+      }
+
+      // Categorize actual spending
       for (const entry of monthEntries) {
         const limit = limitMap[entry.type];
         const category = limit?.category ?? 'Buffer';
@@ -83,27 +114,39 @@ export const ExpenseStore = signalStore(
             wantsTotal += entry.amount;
             break;
           case 'Savings':
-          case 'Growth':
             savingsTotal += entry.amount;
             break;
-          // 'Buffer' entries are not counted in the 50/30/20 rule categories
+          case 'Growth':
+            growthTotal += entry.amount;
+            break;
+          case 'Buffer':
+            bufferTotal += entry.amount;
+            break;
         }
       }
 
       const needsPercentage = income > 0 ? (needsTotal / income) * 100 : 0;
       const wantsPercentage = income > 0 ? (wantsTotal / income) * 100 : 0;
       const savingsPercentage = income > 0 ? (savingsTotal / income) * 100 : 0;
+      const growthPercentage = income > 0 ? (growthTotal / income) * 100 : 0;
+      const bufferPercentage = income > 0 ? (bufferTotal / income) * 100 : 0;
 
       return {
         needsTotal,
         wantsTotal,
         savingsTotal,
+        growthTotal,
+        bufferTotal,
         needsPercentage,
         wantsPercentage,
         savingsPercentage,
-        needsTarget: income * 0.5,   // 50% of income
-        wantsTarget: income * 0.3,   // 30% of income
-        savingsTarget: income * 0.2, // 20% of income
+        growthPercentage,
+        bufferPercentage,
+        needsTarget,
+        wantsTarget,
+        savingsTarget,
+        growthTarget,
+        bufferTarget,
       };
     }),
   })),
@@ -131,15 +174,25 @@ export const ExpenseStore = signalStore(
       // ─── Task 5.5: loadMonth ─────────────────────────────────────────────
       /**
        * Fetches expenses for the given month from Google Sheets, merges them
-       * into the local entries (deduplicating by id), and updates selectedMonth.
+       * into the local entries (deduplicating by id), and optionally updates selectedMonth.
        */
-      async loadMonth(month: string): Promise<void> {
-        console.log('[ExpenseStore] loadMonth called for:', month);
+      async loadMonth(month: string, updateSelectedMonth: boolean = true): Promise<void> {
+        console.log('[ExpenseStore] loadMonth called for:', month, '| updateSelectedMonth:', updateSelectedMonth);
         if (!hasSheetId()) {
           console.warn('[ExpenseStore] loadMonth - no sheet ID configured');
           return;   // no sheet configured yet
         }
-        patchState(store, { syncStatus: 'syncing' });
+        
+        // Only update selectedMonth if explicitly requested (not for background trend loading)
+        if (updateSelectedMonth) {
+          patchState(store, { syncStatus: 'syncing', selectedMonth: month });
+          console.log('[ExpenseStore] loadMonth - selectedMonth updated to:', month);
+        } else {
+          patchState(store, { syncStatus: 'syncing' });
+          console.log('[ExpenseStore] loadMonth - loading data without updating selectedMonth');
+        }
+        console.log('[ExpenseStore] loadMonth - current entries count:', store.entries().length);
+        
         try {
           const fetched = await sheetsService.readExpenses(getSheetId(), month);
           console.log('[ExpenseStore] loadMonth - fetched', fetched.length, 'entries');
@@ -148,18 +201,24 @@ export const ExpenseStore = signalStore(
           const existingById = new Map<string, ExpenseEntry>(
             store.entries().map((e) => [e.id, e])
           );
+          console.log('[ExpenseStore] loadMonth - existing entries in map:', existingById.size);
+          
           for (const entry of fetched) {
             existingById.set(entry.id, entry);
           }
+          console.log('[ExpenseStore] loadMonth - after merge, map size:', existingById.size);
 
           const mergedEntries = Array.from(existingById.values());
           console.log('[ExpenseStore] loadMonth - merged total:', mergedEntries.length, 'entries');
+          console.log('[ExpenseStore] loadMonth - entries for month', month, ':', 
+            mergedEntries.filter(e => e.date.startsWith(month)).length);
 
           patchState(store, {
             entries: mergedEntries,
-            selectedMonth: month,
             syncStatus: 'idle',
           });
+          
+          console.log('[ExpenseStore] loadMonth - state updated, entries count:', store.entries().length);
         } catch (err) {
           console.error('[ExpenseStore] loadMonth - error:', err);
           patchState(store, { syncStatus: 'error' });
@@ -213,6 +272,28 @@ export const ExpenseStore = signalStore(
        */
       setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): void {
         patchState(store, { limits, monthlyIncome });
+      },
+
+      // ─── Delete Entry ────────────────────────────────────────────────────
+      /**
+       * Removes an expense entry from the in-memory store by its ID.
+       * Does not call any external service.
+       */
+      deleteEntry(entryId: string): void {
+        const updatedEntries = store.entries().filter((e) => e.id !== entryId);
+        patchState(store, { entries: updatedEntries });
+      },
+
+      // ─── Update Entry ────────────────────────────────────────────────────
+      /**
+       * Updates an existing expense entry in the in-memory store.
+       * Does not call any external service.
+       */
+      updateEntry(updatedEntry: ExpenseEntry): void {
+        const updatedEntries = store.entries().map((e) =>
+          e.id === updatedEntry.id ? updatedEntry : e
+        );
+        patchState(store, { entries: updatedEntries });
       },
     };
   })

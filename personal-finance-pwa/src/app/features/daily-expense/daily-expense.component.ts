@@ -19,6 +19,11 @@ import {
   Mic,
   Trash2,
   Plus,
+  Pencil,
+  X,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -69,7 +74,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp }),
     },
   ],
   template: `
@@ -107,10 +112,10 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             [size]="88"
           />
         </div>
-        <!-- Decorative gradient blob -->
+        <!-- Decorative gradient blob - contained within card -->
         <div
           aria-hidden="true"
-          class="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full opacity-40 blur-3xl"
+          class="pointer-events-none absolute -right-8 -top-8 h-48 w-48 rounded-full opacity-40 blur-3xl md:-right-16 md:-top-16 md:h-56 md:w-56"
           [style.background-image]="'var(--gradient-primary)'"
         ></div>
       </div>
@@ -124,30 +129,73 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
           description="Pick a type, enter the amount, and tap log."
           className="xl:col-span-3"
         >
+          <!-- Edit mode banner -->
+          @if (isEditMode()) {
+            <div class="mb-4 flex items-center justify-between rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3">
+              <div class="flex items-center gap-2">
+                <lucide-icon name="pencil" class="h-4 w-4 text-primary" />
+                <span class="text-sm font-medium text-primary">Editing expense</span>
+              </div>
+              <button
+                type="button"
+                (click)="cancelEdit()"
+                aria-label="Cancel editing"
+                class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary"
+              >
+                <lucide-icon name="x" class="h-4 w-4" />
+              </button>
+            </div>
+          }
+
           <form [formGroup]="form" (ngSubmit)="onSubmit()">
 
             <!-- Category chips -->
             <div>
               <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Expense Type</p>
               <div class="flex flex-wrap gap-2">
-                @for (cat of categoryDefs; track cat.id) {
+                @for (cat of visibleCategories(); track cat.id) {
                   <button
                     type="button"
                     (click)="selectCategory(cat)"
                     [attr.aria-label]="cat.name"
                     [attr.aria-pressed]="isActiveCat(cat)"
-                    class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 relative"
                     [class.border-transparent]="isActiveCat(cat)"
-                    [class.text-primary-foreground]="isActiveCat(cat)"
                     [class.shadow-glow]="isActiveCat(cat)"
                     [class.border-border]="!isActiveCat(cat)"
                     [class.bg-card\/40]="!isActiveCat(cat)"
                     [class.text-muted-foreground]="!isActiveCat(cat)"
                     [class.hover\:text-foreground]="!isActiveCat(cat)"
-                    [style.background-color]="isActiveCat(cat) ? 'var(' + cat.colorVar + ')' : null"
+                    [class.text-foreground]="isActiveCat(cat)"
+                    [class.font-semibold]="isActiveCat(cat)"
                   >
-                    <app-category-icon [categoryId]="cat.id" size="sm" />
-                    {{ cat.name }}
+                    @if (isActiveCat(cat)) {
+                      <span 
+                        class="absolute inset-0 rounded-full opacity-15"
+                        [style.background-color]="'var(' + cat.colorVar + ')'"
+                      ></span>
+                    }
+                    <span class="relative z-10 flex items-center gap-2">
+                      <app-category-icon [categoryId]="cat.id" size="sm" />
+                      {{ cat.name }}
+                    </span>
+                  </button>
+                }
+                
+                <!-- Show More/Less Button -->
+                @if (hasMoreCategories()) {
+                  <button
+                    type="button"
+                    (click)="showAllCategories.set(!showAllCategories())"
+                    class="inline-flex items-center gap-1 rounded-full border border-border bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:text-foreground hover:border-primary/30 min-h-[44px]"
+                  >
+                    @if (showAllCategories()) {
+                      <lucide-icon name="chevron-up" class="h-3 w-3" />
+                      <span>Show less</span>
+                    } @else {
+                      <lucide-icon name="chevron-down" class="h-3 w-3" />
+                      <span>Show more</span>
+                    }
                   </button>
                 }
               </div>
@@ -238,8 +286,13 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               [disabled]="!(form.get('amount')?.value)"
               class="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <lucide-icon name="plus" class="h-4 w-4" />
-              Log {{ selectedCategoryDef().name }}
+              @if (isEditMode()) {
+                <lucide-icon name="pencil" class="h-4 w-4" />
+                Update {{ selectedCategoryDef().name }}
+              } @else {
+                <lucide-icon name="plus" class="h-4 w-4" />
+                Log {{ selectedCategoryDef().name }}
+              }
             </button>
 
           </form>
@@ -251,48 +304,94 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
           [description]="expenseStore.todayEntries().length + ' logged'"
           className="xl:col-span-2"
         >
+          <!-- Date selector header -->
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <lucide-icon name="calendar" class="h-4 w-4 text-muted-foreground" />
+              <span class="text-sm font-medium">{{ selectedDateLabel() }}</span>
+              @if (!isToday()) {
+                <button
+                  type="button"
+                  (click)="goToToday()"
+                  class="text-xs text-primary hover:underline"
+                >
+                  Go to today
+                </button>
+              }
+            </div>
+            <input
+              type="date"
+              [value]="selectedDate()"
+              (change)="onDateChange($event)"
+              [max]="maxDate"
+              class="rounded-lg border border-border bg-card/60 px-3 py-1.5 text-xs outline-none focus:border-primary transition-all"
+            />
+          </div>
+
           <ul class="space-y-2.5">
-            @for (entry of expenseStore.todayEntries(); track entry.id) {
-              <li class="group relative flex items-center gap-2 overflow-hidden rounded-2xl border border-border bg-card/40 p-3 transition-all hover:border-primary/30">
+            @for (entry of selectedDateEntries(); track entry.id) {
+              <li class="group relative flex items-center gap-2 overflow-hidden rounded-2xl border border-border bg-card/40 p-3 transition-all hover:border-primary/30 cursor-pointer">
                 <!-- Left color stripe -->
                 <span
                   class="absolute inset-y-0 left-0 w-1"
                   [style.background-color]="'var(' + getCatColorVar(entry.type) + ')'"
                 ></span>
-                <!-- Category icon — add left margin to clear the stripe -->
-                <div class="ml-2 shrink-0">
-                  <app-category-icon [categoryId]="getCatId(entry.type)" />
-                </div>
-                <!-- Info -->
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium">{{ getCatName(entry.type) }}</p>
-                  <p class="truncate text-xs text-muted-foreground">
-                    {{ entry.timestamp.slice(11, 16) }}{{ entry.comment ? ' · ' + entry.comment : '' }}
-                  </p>
-                </div>
-                <!-- Amount + savings -->
-                <div class="shrink-0 text-right">
-                  <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
-                  <p class="text-[10px] text-muted-foreground">lim {{ entry.limit | currencyFormat }}</p>
-                  @if (entry.savings > 0) {
-                    <p class="text-[10px] font-medium" [style.color]="'var(--success)'">
-                      +{{ entry.savings | currencyFormat }}
-                    </p>
-                  }
-                </div>
-                <!-- Delete button: always visible on touch, hover-reveal on pointer devices -->
-                <button
-                  type="button"
-                  (click)="deleteEntry(entry)"
-                  aria-label="Delete entry"
-                  class="shrink-0 grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
+                <!-- Clickable area for detail view -->
+                <div 
+                  class="min-w-0 flex-1 flex items-center gap-2 overflow-hidden"
+                  (click)="viewDetail(entry)"
                 >
-                  <lucide-icon name="trash-2" class="h-4 w-4" />
-                </button>
+                  <!-- Category icon — add left margin to clear the stripe -->
+                  <div class="ml-2 shrink-0">
+                    <app-category-icon [categoryId]="getCatId(entry.type)" />
+                  </div>
+                  <!-- Info -->
+                  <div class="min-w-0 flex-1 overflow-hidden">
+                    <p class="truncate text-sm font-medium">{{ getCatName(entry.type) }}</p>
+                    <p class="truncate text-xs text-muted-foreground break-all w-[calc(100vw-280px)]">
+                      {{ entry.timestamp.slice(11, 16) }}@if (entry.comment) {<span> · {{ entry.comment }}</span>}
+                    </p>
+                  </div>
+                  <!-- Amount + savings -->
+                  <div class="shrink-0 text-right">
+                    <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
+                    <p class="text-[10px] text-muted-foreground">lim {{ entry.limit | currencyFormat }}</p>
+                    @if (entry.savings > 0) {
+                      <p class="text-[10px] font-medium" [style.color]="'var(--success)'">
+                        +{{ entry.savings | currencyFormat }}
+                      </p>
+                    }
+                  </div>
+                </div>
+                <!-- Action buttons: vertical stack, always visible on touch, hover-reveal on pointer devices -->
+                <div class="shrink-0 flex flex-col gap-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
+                  <!-- Edit button -->
+                  <button
+                    type="button"
+                    (click)="editEntry(entry); $event.stopPropagation()"
+                    aria-label="Edit entry"
+                    class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <lucide-icon name="pencil" class="h-4 w-4" />
+                  </button>
+                  <!-- Delete button -->
+                  <button
+                    type="button"
+                    (click)="deleteEntry(entry); $event.stopPropagation()"
+                    aria-label="Delete entry"
+                    class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <lucide-icon name="trash-2" class="h-4 w-4" />
+                  </button>
+                </div>
               </li>
             } @empty {
               <li class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                No entries yet today. Log your first expense above.
+                @if (isToday()) {
+                  No entries yet today. Log your first expense above.
+                } @else {
+                  No entries for {{ selectedDateLabel() }}.
+                }
               </li>
             }
           </ul>
@@ -300,6 +399,101 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
       </div>
     </div>
+
+    <!-- Expense Detail Popup -->
+    @if (isViewingDetail()) {
+      <div 
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        (click)="closeDetail()"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="detail-title"
+      >
+        <div 
+          class="relative w-full max-w-md max-h-[80vh] flex flex-col rounded-3xl border border-border bg-card shadow-2xl"
+          (click)="$event.stopPropagation()"
+        >
+          @if (viewingEntry(); as entry) {
+            <!-- Compact Header with all metadata -->
+            <div class="shrink-0 border-b border-border p-4">
+              <!-- Title row -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <app-category-icon [categoryId]="getCatId(entry.type)" size="sm" />
+                  <h2 id="detail-title" class="text-base font-semibold">{{ getCatName(entry.type) }}</h2>
+                </div>
+                <button
+                  type="button"
+                  (click)="closeDetail()"
+                  aria-label="Close details"
+                  class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                >
+                  <lucide-icon name="x" class="h-4 w-4" />
+                </button>
+              </div>
+              
+              <!-- Metadata grid -->
+              <div class="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Amount</p>
+                  <p class="font-semibold">{{ entry.amount | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Limit</p>
+                  <p class="font-semibold">{{ entry.limit | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Savings</p>
+                  <p 
+                    class="font-semibold"
+                    [style.color]="entry.savings >= 0 ? 'var(--success)' : 'var(--destructive)'"
+                  >
+                    {{ entry.savings >= 0 ? '+' : '' }}{{ entry.savings | currencyFormat }}
+                  </p>
+                </div>
+              </div>
+              
+              <!-- Date/Time -->
+              <div class="mt-2 text-[10px] text-muted-foreground">
+                {{ entry.date }} at {{ entry.timestamp.slice(11, 16) }}
+              </div>
+            </div>
+
+            <!-- Comment Section (scrollable, takes maximum space) -->
+            <div class="flex-1 overflow-y-auto p-4">
+              <p class="text-xs font-medium text-muted-foreground mb-2">Comment</p>
+              @if (entry.comment) {
+                <p class="text-sm leading-relaxed break-words">{{ entry.comment }}</p>
+              } @else {
+                <div class="flex items-center justify-center h-32 rounded-2xl border border-dashed border-border bg-card/20">
+                  <p class="text-xs text-muted-foreground">No comment added</p>
+                </div>
+              }
+            </div>
+
+            <!-- Action Buttons (fixed at bottom) -->
+            <div class="shrink-0 flex gap-2 p-4 border-t border-border">
+              <button
+                type="button"
+                (click)="editFromDetail(entry)"
+                class="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-primary bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary transition-all hover:bg-primary/20"
+              >
+                <lucide-icon name="pencil" class="h-4 w-4" />
+                Edit
+              </button>
+              <button
+                type="button"
+                (click)="deleteFromDetail(entry)"
+                class="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-destructive bg-destructive/10 px-4 py-2.5 text-sm font-medium text-destructive transition-all hover:bg-destructive/20"
+              >
+                <lucide-icon name="trash-2" class="h-4 w-4" />
+                Delete
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    }
   `,
 })
 export class DailyExpenseComponent implements OnInit, OnDestroy {
@@ -323,6 +517,67 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Offline toast signal ─────────────────────────────────────────────────
   readonly offlineToast = signal(false);
+
+  // ─── Edit mode state ──────────────────────────────────────────────────────
+  readonly editingEntry = signal<ExpenseEntry | null>(null);
+  readonly isEditMode = computed(() => this.editingEntry() !== null);
+
+  // ─── Detail view state ────────────────────────────────────────────────────
+  readonly viewingEntry = signal<ExpenseEntry | null>(null);
+  readonly isViewingDetail = computed(() => this.viewingEntry() !== null);
+
+  // ─── Selected date state ──────────────────────────────────────────────────
+  readonly selectedDate = signal<string>(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
+  readonly isToday = computed(() => this.selectedDate() === new Date().toISOString().slice(0, 10));
+  
+  // ─── Entries for selected date ───────────────────────────────────────────
+  readonly selectedDateEntries = computed(() => {
+    const date = this.selectedDate();
+    return this.expenseStore.entries().filter((e) => e.date === date);
+  });
+
+  // ─── Date label for display ──────────────────────────────────────────────
+  readonly selectedDateLabel = computed(() => {
+    if (this.isToday()) return 'Today';
+    const date = new Date(this.selectedDate());
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (this.selectedDate() === yesterday.toISOString().slice(0, 10)) {
+      return 'Yesterday';
+    }
+    
+    return date.toLocaleDateString(undefined, { 
+      month: 'short', 
+      day: 'numeric',
+      year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined 
+    });
+  });
+
+  // ─── Max date for date picker (today) ─────────────────────────────────────
+  readonly maxDate = new Date().toISOString().slice(0, 10);
+
+  // ─── Category expansion state ─────────────────────────────────────────────
+  readonly showAllCategories = signal(false);
+  readonly visibleCategories = computed(() => {
+    const selected = this.form.get('expenseType')?.value;
+    const allCats = [...this.categoryDefs];
+    
+    // If a category is selected, move it to the front
+    if (selected) {
+      const selectedIndex = allCats.findIndex(cat => cat.name === selected);
+      if (selectedIndex > -1) {
+        const [selectedCat] = allCats.splice(selectedIndex, 1);
+        allCats.unshift(selectedCat);
+      }
+    }
+    
+    // Show first 4 or all based on expansion state
+    return this.showAllCategories() ? allCats : allCats.slice(0, 4);
+  });
+  
+  readonly hasMoreCategories = computed(() => this.categoryDefs.length > 4);
 
   // ─── Voice recognition ────────────────────────────────────────────────────
   readonly isRecording = signal(false);
@@ -479,6 +734,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Select category from chip ────────────────────────────────────────────
   selectCategory(cat: { name: string }): void {
     this.form.get('expenseType')?.setValue(cat.name);
+    // Auto-collapse categories after selection
+    this.showAllCategories.set(false);
   }
 
   // ─── Helper: format ISO timestamp for display ─────────────────────────────
@@ -493,6 +750,19 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const editingEntry = this.editingEntry();
+    
+    if (editingEntry) {
+      // Update existing entry
+      this.updateEntry(editingEntry);
+    } else {
+      // Create new entry
+      this.createEntry();
+    }
+  }
+
+  // ─── Create new entry ─────────────────────────────────────────────────────
+  private createEntry(): void {
     const id = crypto.randomUUID();
     const date = new Date().toISOString().slice(0, 10);
     const timestamp = new Date().toISOString();
@@ -534,6 +804,123 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     }
 
     this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+  }
+
+  // ─── Update existing entry ────────────────────────────────────────────────
+  private updateEntry(originalEntry: ExpenseEntry): void {
+    const type = this.form.get('expenseType')?.value ?? '';
+    const amount = this.form.get('amount')?.value ?? 0;
+    const limit = this.form.get('limit')?.value ?? 0;
+    const savings = (limit ?? 0) - (amount ?? 0);
+    const comment = this.form.get('comment')?.value || undefined;
+
+    const updatedEntry: ExpenseEntry = {
+      ...originalEntry,
+      amount: amount as number,
+      type: type as string,
+      limit: limit as number,
+      savings,
+      comment,
+      timestamp: new Date().toISOString(), // Update timestamp
+    };
+
+    this.expenseStore.updateEntry(updatedEntry);
+    this.syncService.enqueueUpdate(updatedEntry);
+
+    if (this.syncService.isOnline()) {
+      this.syncService.flushQueue().catch(err => {
+        console.error('[DailyExpense] Failed to sync update:', err);
+      });
+    } else {
+      this.offlineToast.set(true);
+      if (this.offlineToastTimer) {
+        clearTimeout(this.offlineToastTimer);
+      }
+      this.offlineToastTimer = setTimeout(() => {
+        this.offlineToast.set(false);
+        this.offlineToastTimer = undefined;
+      }, 4000);
+    }
+
+    this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+    this.editingEntry.set(null);
+  }
+
+  // ─── Edit entry ───────────────────────────────────────────────────────────
+  editEntry(entry: ExpenseEntry): void {
+    console.log('[DailyExpense] Editing entry:', entry.id);
+    
+    // Set editing state
+    this.editingEntry.set(entry);
+    
+    // Populate form with entry data
+    this.form.patchValue({
+      expenseType: entry.type,
+      amount: entry.amount,
+      limit: entry.limit,
+      comment: entry.comment || '',
+    });
+
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ─── Cancel edit ──────────────────────────────────────────────────────────
+  cancelEdit(): void {
+    this.editingEntry.set(null);
+    this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+  }
+
+  // ─── View detail ──────────────────────────────────────────────────────────
+  viewDetail(entry: ExpenseEntry): void {
+    console.log('[DailyExpense] Viewing detail for entry:', entry.id);
+    this.viewingEntry.set(entry);
+  }
+
+  // ─── Close detail ─────────────────────────────────────────────────────────
+  closeDetail(): void {
+    this.viewingEntry.set(null);
+  }
+
+  // ─── Edit from detail ─────────────────────────────────────────────────────
+  editFromDetail(entry: ExpenseEntry): void {
+    this.closeDetail();
+    this.editEntry(entry);
+  }
+
+  // ─── Delete from detail ───────────────────────────────────────────────────
+  deleteFromDetail(entry: ExpenseEntry): void {
+    this.closeDetail();
+    this.deleteEntry(entry);
+  }
+
+  // ─── Date navigation ──────────────────────────────────────────────────────
+  onDateChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const newDate = input.value; // YYYY-MM-DD format
+    console.log('[DailyExpense] Date changed to:', newDate);
+    this.selectedDate.set(newDate);
+    
+    // Load the month if not already loaded
+    const month = newDate.slice(0, 7); // YYYY-MM
+    if (month !== this.expenseStore.selectedMonth()) {
+      this.expenseStore.loadMonth(month).catch(err => {
+        console.error('[DailyExpense] Failed to load month:', err);
+      });
+    }
+  }
+
+  goToToday(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    this.selectedDate.set(today);
+    
+    // Ensure current month is loaded
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    if (currentMonth !== this.expenseStore.selectedMonth()) {
+      this.expenseStore.loadMonth(currentMonth).catch(err => {
+        console.error('[DailyExpense] Failed to load current month:', err);
+      });
+    }
   }
 
   // ─── Voice recording ──────────────────────────────────────────────────────
@@ -579,10 +966,33 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Delete entry ─────────────────────────────────────────────────────────
   deleteEntry(entry: ExpenseEntry): void {
-    if (!confirm(`Delete expense: ${entry.type} - ${entry.amount}?`)) {
+    if (!confirm(`Delete expense: ${entry.type} - ₹${entry.amount}?`)) {
       return;
     }
-    console.log('[DailyExpense] Delete not fully implemented - needs store method');
-    alert('Delete functionality will be implemented in the next update');
+
+    console.log('[DailyExpense] Deleting entry:', entry.id);
+
+    // Remove from local store immediately
+    this.expenseStore.deleteEntry(entry.id);
+
+    // Queue the delete operation for sync
+    this.syncService.enqueueDelete(entry.id);
+
+    // If online, attempt to sync immediately
+    if (this.syncService.isOnline()) {
+      this.syncService.flushQueue().catch(err => {
+        console.error('[DailyExpense] Failed to sync delete:', err);
+      });
+    } else {
+      // Show offline toast
+      this.offlineToast.set(true);
+      if (this.offlineToastTimer) {
+        clearTimeout(this.offlineToastTimer);
+      }
+      this.offlineToastTimer = setTimeout(() => {
+        this.offlineToast.set(false);
+        this.offlineToastTimer = undefined;
+      }, 4000);
+    }
   }
 }

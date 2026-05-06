@@ -11,3 +11,4 @@ export { AppShellComponent } from './app-shell/app-shell.component';
 export { CategoryIconComponent } from './category-icon/category-icon.component';
 export { ProgressRingComponent } from './progress-ring/progress-ring.component';
 export { SectionCardComponent } from './section-card/section-card.component';
+export { SparklineComponent } from './sparkline/sparkline.component';

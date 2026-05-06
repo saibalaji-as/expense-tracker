@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import {
   LucideAngularModule,
@@ -12,6 +12,7 @@ import {
   Settings,
 } from 'lucide-angular';
 import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
+import { AuthService } from '../../../core/services/auth.service';
 
 interface NavItem {
   path: string;
@@ -32,7 +33,7 @@ interface NavItem {
     },
   ],
   template: `
-    <div class="min-h-screen flex flex-col">
+    <div class="min-h-screen flex flex-col overflow-x-hidden">
 
       <!-- Desktop top nav (hidden on mobile) -->
       <header class="sticky top-0 z-40 hidden md:block">
@@ -49,19 +50,21 @@ interface NavItem {
 
             <!-- Nav links -->
             <nav class="flex flex-1 items-center justify-center gap-1" aria-label="Main navigation">
-              @for (item of navItems; track item.path) {
-                <a
-                  [routerLink]="item.path"
-                  routerLinkActive
-                  #rla="routerLinkActive"
-                  [routerLinkActiveOptions]="{ exact: false }"
-                  [class]="rla.isActive
-                    ? 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all bg-primary text-primary-foreground shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-                    : 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'"
-                >
-                  <lucide-icon [img]="item.icon" class="h-4 w-4" aria-hidden="true" />
-                  {{ item.label }}
-                </a>
+              @if (authService.isAuthenticated()) {
+                @for (item of navItems; track item.path) {
+                  <a
+                    [routerLink]="item.path"
+                    routerLinkActive
+                    #rla="routerLinkActive"
+                    [routerLinkActiveOptions]="{ exact: false }"
+                    [class]="rla.isActive
+                      ? 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all bg-primary text-primary-foreground shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                      : 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'"
+                  >
+                    <lucide-icon [img]="item.icon" class="h-4 w-4" aria-hidden="true" />
+                    {{ item.label }}
+                  </a>
+                }
               }
             </nav>
 
@@ -84,13 +87,14 @@ interface NavItem {
       </header>
 
       <!-- Main content -->
-      <main class="flex-1 pb-28 md:pb-12">
+      <main [class]="'flex-1 overflow-x-hidden ' + (authService.isAuthenticated() ? 'pb-28 md:pb-12' : 'pb-12')">
         <div class="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
           <ng-content />
         </div>
       </main>
 
       <!-- Mobile bottom tab bar -->
+      @if (authService.isAuthenticated()) {
       <nav class="fixed inset-x-0 bottom-0 z-50 md:hidden" aria-label="Mobile navigation">
         <div class="mx-auto mb-3 max-w-md px-3">
           <div class="glass-card flex items-center justify-around p-2">
@@ -118,11 +122,13 @@ interface NavItem {
           </div>
         </div>
       </nav>
+      }
 
     </div>
   `,
 })
 export class AppShellComponent {
+  readonly authService = inject(AuthService);
   readonly navItems: NavItem[] = [
     { path: '/daily',     label: 'Daily',     icon: CalendarDays },
     { path: '/monthly',   label: 'Monthly',   icon: CalendarRange },

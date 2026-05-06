@@ -183,11 +183,16 @@ export class GoogleSheetsService {
 
       const rows: string[][] = response.result.values ?? [];
       console.log('[GoogleSheetsService] readExpenses - fetched', rows.length, 'rows from sheet');
+      console.log('[GoogleSheetsService] readExpenses - first 3 rows:', rows.slice(0, 3));
 
       const filtered = rows.filter((row) => row.length >= 7 && row[0]?.startsWith(month));
       console.log('[GoogleSheetsService] readExpenses - filtered to', filtered.length, 'rows for month', month);
+      console.log('[GoogleSheetsService] readExpenses - first filtered row:', filtered[0]);
 
-      return filtered.map((row) => this.deserializeExpenseEntry(row));
+      const deserialized = filtered.map((row) => this.deserializeExpenseEntry(row));
+      console.log('[GoogleSheetsService] readExpenses - first deserialized entry:', deserialized[0]);
+      
+      return deserialized;
     } catch (error: any) {
       console.error('[GoogleSheetsService] readExpenses - error:', error);
       this.handleError(error, 'readExpenses');
@@ -254,6 +259,127 @@ export class GoogleSheetsService {
       this.handleError(error, 'batchUpdate');
       throw error;
     }
+  }
+
+  // ─── Delete Expense ───────────────────────────────────────────────────────────
+
+  async deleteExpense(sheetId: string, entryId: string): Promise<void> {
+    console.log('[GoogleSheetsService] deleteExpense called for entry:', entryId);
+    try {
+      await this.ensureReady();
+      await this.#applyToken();
+
+      // First, read all expenses to find the row index
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: 'expenses!A2:H',
+      });
+
+      const rows: string[][] = response.result.values ?? [];
+      console.log('[GoogleSheetsService] deleteExpense - fetched', rows.length, 'rows');
+
+      // Find the row index (0-based in the array, but we need sheet row number)
+      const rowIndex = rows.findIndex((row) => row[6] === entryId); // Column G (index 6) contains the ID
+
+      if (rowIndex === -1) {
+        console.warn('[GoogleSheetsService] deleteExpense - entry not found:', entryId);
+        return; // Entry not found, nothing to delete
+      }
+
+      // Calculate the actual sheet row number (add 2: 1 for header, 1 for 0-based to 1-based)
+      const sheetRowNumber = rowIndex + 2;
+      console.log('[GoogleSheetsService] deleteExpense - deleting row:', sheetRowNumber);
+
+      // Delete the row using batchUpdate with DeleteDimensionRequest
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        resource: {
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId: await this.getSheetIdByName(sheetId, 'expenses'),
+                  dimension: 'ROWS',
+                  startIndex: sheetRowNumber - 1, // 0-based for API
+                  endIndex: sheetRowNumber, // Exclusive end
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      console.log('[GoogleSheetsService] deleteExpense - successfully deleted entry:', entryId);
+    } catch (error: any) {
+      console.error('[GoogleSheetsService] deleteExpense error:', error);
+      this.handleError(error, 'deleteExpense');
+    }
+  }
+
+  // ─── Update Expense ───────────────────────────────────────────────────────────
+
+  async updateExpense(sheetId: string, entry: ExpenseEntry): Promise<void> {
+    console.log('[GoogleSheetsService] updateExpense called for entry:', entry.id);
+    try {
+      await this.ensureReady();
+      await this.#applyToken();
+
+      // First, read all expenses to find the row index
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: 'expenses!A2:H',
+      });
+
+      const rows: string[][] = response.result.values ?? [];
+      console.log('[GoogleSheetsService] updateExpense - fetched', rows.length, 'rows');
+
+      // Find the row index (0-based in the array, but we need sheet row number)
+      const rowIndex = rows.findIndex((row) => row[6] === entry.id); // Column G (index 6) contains the ID
+
+      if (rowIndex === -1) {
+        console.warn('[GoogleSheetsService] updateExpense - entry not found, creating new:', entry.id);
+        // If not found, create it as a new entry
+        await this.writeExpense(sheetId, entry);
+        return;
+      }
+
+      // Calculate the actual sheet row number (add 2: 1 for header, 1 for 0-based to 1-based)
+      const sheetRowNumber = rowIndex + 2;
+      console.log('[GoogleSheetsService] updateExpense - updating row:', sheetRowNumber);
+
+      // Update the row
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `expenses!A${sheetRowNumber}:H${sheetRowNumber}`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [this.serializeExpenseEntry(entry)],
+        },
+      });
+
+      console.log('[GoogleSheetsService] updateExpense - successfully updated entry:', entry.id);
+    } catch (error: any) {
+      console.error('[GoogleSheetsService] updateExpense error:', error);
+      this.handleError(error, 'updateExpense');
+    }
+  }
+
+  // ─── Helper: Get Sheet ID by Name ────────────────────────────────────────────
+
+  private async getSheetIdByName(spreadsheetId: string, sheetName: string): Promise<number> {
+    const response = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId,
+    });
+
+    const sheet = response.result.sheets?.find(
+      (s: any) => s.properties?.title === sheetName
+    );
+
+    if (!sheet) {
+      throw new Error(`Sheet "${sheetName}" not found in spreadsheet`);
+    }
+
+    return sheet.properties.sheetId;
   }
 
   // ─── Task 4.7: readLimits / writeLimits ──────────────────────────────────────

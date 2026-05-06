@@ -49,7 +49,7 @@ interface BeforeInstallPromptEvent extends Event {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-6">
+    <div class="space-y-8">
       <!-- Page header -->
       <div>
         <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Settings</h1>
@@ -57,7 +57,7 @@ interface BeforeInstallPromptEvent extends Event {
       </div>
 
       <!-- Appearance -->
-      <app-section-card
+      <app-section-card 
         title="Appearance"
         description="Switch between the playful light mode and premium glass dark mode."
       >
@@ -100,7 +100,7 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Google Sheets Connection -->
-      <app-section-card title="Google Sheets Connection">
+      <app-section-card  title="Google Sheets Connection">
         <!-- Action slot: animated Connected pill -->
         <span action class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style="background-color: color-mix(in oklab, var(--success) 15%, transparent); color: var(--success);">
           <span class="relative grid h-2 w-2 place-items-center">
@@ -185,15 +185,15 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Push Notifications -->
-      <app-section-card title="Push Notifications" description="Get a friendly nudge to log expenses.">
+      <app-section-card  title="Push Notifications" description="Get a friendly nudge every hour to log expenses.">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <span class="grid h-10 w-10 place-items-center rounded-xl bg-accent text-accent-foreground">
               <lucide-icon [img]="bellIcon" class="h-5 w-5" />
             </span>
             <div>
-              <p class="text-sm font-medium">Daily reminders</p>
-              <p class="text-xs text-muted-foreground">We'll ping you once a day at 9pm.</p>
+              <p class="text-sm font-medium">Hourly reminders</p>
+              <p class="text-xs text-muted-foreground">Get a nudge every hour if you haven't logged expenses.</p>
             </div>
           </div>
 
@@ -204,15 +204,15 @@ interface BeforeInstallPromptEvent extends Event {
             [attr.aria-checked]="notificationService.isEnabled()"
             (click)="onNotificationToggleClick()"
             [class]="
-              'relative h-6 w-11 rounded-full transition-colors ' +
+              'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
               (notificationService.isEnabled() ? 'bg-primary' : 'bg-muted')
             "
-            aria-label="Toggle daily reminders"
+            aria-label="Toggle hourly reminders"
           >
             <span
               [class]="
-                'absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-all ' +
-                (notificationService.isEnabled() ? 'left-[22px]' : 'left-0.5')
+                'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                (notificationService.isEnabled() ? 'translate-x-5' : 'translate-x-0')
               "
             ></span>
           </button>
@@ -220,7 +220,7 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Data Management -->
-      <app-section-card title="Data Management" description="Export your data or clear local cache.">
+      <app-section-card  title="Data Management" description="Export your data or clear local cache.">
         <button
           type="button"
           (click)="onExportCsv()"

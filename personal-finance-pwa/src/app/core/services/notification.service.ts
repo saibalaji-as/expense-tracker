@@ -1,19 +1,15 @@
 import { Injectable, Signal, inject, signal } from '@angular/core';
 import { SwPush } from '@angular/service-worker';
 import { Router } from '@angular/router';
-import { ExpenseStore } from './expense-store.service';
 
-// VAPID public key placeholder — replace with a real key in production
-const VAPID_PUBLIC_KEY = '';
-
-// localStorage keys
+// localStorage keys (kept for reading legacy state on first load)
 const LS_ENABLED = 'pf_notif_enabled';
 const LS_INTERVAL = 'pf_notif_interval';
 const DEFAULT_INTERVAL_MINUTES = 60;
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
-  // ─── Task 13.1: Signals ───────────────────────────────────────────────────────
+  // ─── Public signals ───────────────────────────────────────────────────────────
 
   readonly permissionState: Signal<NotificationPermission>;
   readonly isEnabled: Signal<boolean>;
@@ -34,163 +30,218 @@ export class NotificationService {
       : DEFAULT_INTERVAL_MINUTES
   );
 
-  /** Handle for the active setInterval, so we can clear and restart it. */
-  private intervalHandle: ReturnType<typeof setInterval> | null = null;
+  /** Reference to the registered reminder service worker. */
+  private reminderSw: ServiceWorkerRegistration | null = null;
+
+  /**
+   * In-tab fallback: setInterval handle used when the reminder SW is not
+   * available (e.g. dev mode, unsupported browser).
+   */
+  private fallbackIntervalHandle: ReturnType<typeof setInterval> | null = null;
 
   private readonly swPush = inject(SwPush);
   private readonly router = inject(Router);
-  private readonly expenseStore = inject(ExpenseStore);
 
   constructor() {
     this.permissionState = this._permissionState.asReadonly();
     this.isEnabled = this._isEnabled.asReadonly();
     this.intervalMinutes = this._intervalMinutes.asReadonly();
 
-    // ─── Task 13.7: Subscribe to notification clicks ──────────────────────────
+    // Handle notification clicks from Angular's SW push (ngsw)
     this.swPush.notificationClicks.subscribe(() => {
-      this.router.navigate(['/daily']).catch(() => {
-        // Navigation errors are non-critical; ignore
-      });
+      this.router.navigate(['/daily']).catch(() => {});
     });
 
-    // Resume the interval if notifications were previously enabled
-    if (this._isEnabled() && this._permissionState() === 'granted') {
-      this.#scheduleInterval(this._intervalMinutes());
-    }
+    // Register the reminder SW and restore previous state
+    this.#init().catch(() => {});
   }
 
-  // ─── Task 13.2: requestPermission ────────────────────────────────────────────
+  // ─── Public API ───────────────────────────────────────────────────────────────
 
   async requestPermission(): Promise<void> {
-    if (this._permissionState() === 'granted') {
+    if (this._permissionState() === 'granted') return;
+
+    if (typeof Notification === 'undefined') {
+      this._permissionState.set('denied');
       return;
     }
 
     try {
-      await this.swPush.requestSubscription({ serverPublicKey: VAPID_PUBLIC_KEY });
-      this._permissionState.set('granted');
+      const result = await Notification.requestPermission();
+      this._permissionState.set(result);
+      if (result !== 'granted') {
+        this._isEnabled.set(false);
+        this.#persistEnabled(false);
+      }
     } catch {
-      // Denied or error — disable notifications
       this._permissionState.set('denied');
       this._isEnabled.set(false);
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LS_ENABLED, 'false');
-      }
+      this.#persistEnabled(false);
     }
   }
-
-  // ─── Task 13.3: enable ────────────────────────────────────────────────────────
 
   async enable(intervalMinutes: number): Promise<void> {
     if (this._permissionState() !== 'granted') {
       await this.requestPermission();
     }
-
-    // If permission was denied during requestPermission, bail out
-    if (this._permissionState() === 'denied') {
-      return;
-    }
-
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LS_ENABLED, 'true');
-      localStorage.setItem(LS_INTERVAL, intervalMinutes.toString());
-    }
+    if (this._permissionState() !== 'granted') return;
 
     this._isEnabled.set(true);
     this._intervalMinutes.set(intervalMinutes);
-    this.#scheduleInterval(intervalMinutes);
-  }
+    this.#persistEnabled(true);
+    this.#persistInterval(intervalMinutes);
 
-  // ─── Task 13.4: disable ───────────────────────────────────────────────────────
+    await this.#sendConfig(true, intervalMinutes);
+  }
 
   async disable(): Promise<void> {
-    this.#clearInterval();
     this._isEnabled.set(false);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LS_ENABLED, 'false');
-    }
+    this.#persistEnabled(false);
+    this.#clearFallbackInterval();
+    await this.#sendConfig(false, this._intervalMinutes());
   }
-
-  // ─── Task 13.5: updateInterval ────────────────────────────────────────────────
 
   updateInterval(minutes: number): void {
     const clamped = Math.min(480, Math.max(15, minutes));
     this._intervalMinutes.set(clamped);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LS_INTERVAL, clamped.toString());
-    }
-
-    // Restart the interval immediately with the new value
+    this.#persistInterval(clamped);
     if (this._isEnabled()) {
-      this.#scheduleInterval(clamped);
+      this.#sendConfig(true, clamped).catch(() => {});
     }
   }
 
-  // ─── Task 13.6: Notification check logic ─────────────────────────────────────
+  // ─── Initialisation ───────────────────────────────────────────────────────────
 
-  private async checkAndNotify(): Promise<void> {
-    const intervalMs = this._intervalMinutes() * 60 * 1000;
-    const cutoff = Date.now() - intervalMs;
+  async #init(): Promise<void> {
+    if (!('serviceWorker' in navigator)) {
+      // No SW support — use in-tab fallback if already enabled
+      if (this._isEnabled() && this._permissionState() === 'granted') {
+        this.#startFallbackInterval(this._intervalMinutes());
+      }
+      return;
+    }
 
-    const entries = this.expenseStore.entries();
-    const hasRecentEntry = entries.some((entry) => {
-      const ts = new Date(entry.timestamp).getTime();
-      return ts >= cutoff;
+    try {
+      // Register our dedicated reminder service worker
+      this.reminderSw = await navigator.serviceWorker.register('/reminder-sw.js', {
+        scope: '/',
+      });
+
+      // Wait for it to become active
+      await this.#waitForActive(this.reminderSw);
+
+      // Restore previous enabled state into the SW
+      if (this._isEnabled() && this._permissionState() === 'granted') {
+        await this.#sendConfig(true, this._intervalMinutes());
+      } else {
+        await this.#sendConfig(false, this._intervalMinutes());
+      }
+
+      // Tell the SW to check right now in case we missed a notification
+      // while the app was closed
+      this.#postToSw({ type: 'REMINDER_CHECK_NOW' });
+    } catch {
+      // SW registration failed (e.g. dev server without HTTPS) — fall back
+      if (this._isEnabled() && this._permissionState() === 'granted') {
+        this.#startFallbackInterval(this._intervalMinutes());
+      }
+    }
+  }
+
+  // ─── SW communication ─────────────────────────────────────────────────────────
+
+  async #sendConfig(enabled: boolean, intervalMinutes: number): Promise<void> {
+    const sent = this.#postToSw({
+      type: 'REMINDER_CONFIG',
+      payload: { enabled, intervalMinutes },
     });
 
-    if (!hasRecentEntry) {
-      await this.#dispatchNotification();
+    if (!sent) {
+      // SW not available — manage in-tab fallback
+      this.#clearFallbackInterval();
+      if (enabled && this._permissionState() === 'granted') {
+        this.#startFallbackInterval(intervalMinutes);
+      }
     }
   }
 
-  async #dispatchNotification(): Promise<void> {
-    const title = 'Spenza';
-    const options: NotificationOptions = {
-      body: "Don't forget to log your expenses!",
-      icon: '/icons/icon-192x192.png',
-    };
-
-    // Try the service worker registration first (works in PWA context)
-    try {
-      if (
-        typeof self !== 'undefined' &&
-        'serviceWorker' in navigator &&
-        navigator.serviceWorker.controller
-      ) {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification(title, options);
-        return;
-      }
-    } catch {
-      // Fall through to Notification API fallback
-    }
-
-    // Fallback: use the Notification API directly
-    try {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(title, options);
-      }
-    } catch {
-      // Notification dispatch failed — silently ignore
-    }
+  /**
+   * Posts a message to the reminder SW's active worker.
+   * Returns true if the message was sent, false if no active worker exists.
+   */
+  #postToSw(message: object): boolean {
+    const sw = this.reminderSw?.active ?? navigator.serviceWorker?.controller;
+    if (!sw) return false;
+    sw.postMessage(message);
+    return true;
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────────────
-
-  #scheduleInterval(minutes: number): void {
-    this.#clearInterval();
-    const ms = minutes * 60 * 1000;
-    this.intervalHandle = setInterval(() => {
-      this.checkAndNotify().catch(() => {
-        // Notification errors are non-critical; ignore
+  /** Waits until the SW registration has an active worker. */
+  #waitForActive(reg: ServiceWorkerRegistration): Promise<void> {
+    if (reg.active) return Promise.resolve();
+    return new Promise((resolve) => {
+      const worker = reg.installing ?? reg.waiting;
+      if (!worker) { resolve(); return; }
+      worker.addEventListener('statechange', function handler() {
+        if (worker.state === 'activated') {
+          worker.removeEventListener('statechange', handler);
+          resolve();
+        }
       });
-    }, ms);
+    });
   }
 
-  #clearInterval(): void {
-    if (this.intervalHandle !== null) {
-      clearInterval(this.intervalHandle);
-      this.intervalHandle = null;
+  // ─── In-tab fallback (no SW / dev mode) ──────────────────────────────────────
+
+  /**
+   * Wall-clock based fallback for environments without a service worker.
+   * Checks every minute whether `intervalMinutes` have elapsed since the
+   * last notification (tracked in localStorage).
+   */
+  #startFallbackInterval(intervalMinutes: number): void {
+    this.#clearFallbackInterval();
+    this.#fallbackCheck(intervalMinutes);
+    this.fallbackIntervalHandle = setInterval(() => {
+      this.#fallbackCheck(intervalMinutes);
+    }, 60 * 1000);
+  }
+
+  #clearFallbackInterval(): void {
+    if (this.fallbackIntervalHandle !== null) {
+      clearInterval(this.fallbackIntervalHandle);
+      this.fallbackIntervalHandle = null;
+    }
+  }
+
+  #fallbackCheck(intervalMinutes: number): void {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+    const lastStr = localStorage.getItem('pf_last_notified_at');
+    const lastNotifiedAt = lastStr ? parseInt(lastStr, 10) : 0;
+    const elapsed = Date.now() - lastNotifiedAt;
+    const threshold = intervalMinutes * 60 * 1000;
+
+    if (elapsed >= threshold) {
+      localStorage.setItem('pf_last_notified_at', String(Date.now()));
+      new Notification('Spenza 💸', {
+        body: "Don't forget to log your expenses!",
+        icon: '/icons/icon-192x192.png',
+        tag: 'spenza-reminder',
+      });
+    }
+  }
+
+  // ─── Persistence helpers ──────────────────────────────────────────────────────
+
+  #persistEnabled(value: boolean): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LS_ENABLED, String(value));
+    }
+  }
+
+  #persistInterval(value: number): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LS_INTERVAL, String(value));
     }
   }
 }

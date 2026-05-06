@@ -46,6 +46,36 @@ function computeBudgetRuleSummary(
   let needsTotal = 0;
   let wantsTotal = 0;
   let savingsTotal = 0;
+  let growthTotal = 0;
+  let bufferTotal = 0;
+
+  // Calculate target allocations from configured limits
+  let needsTarget = 0;
+  let wantsTarget = 0;
+  let savingsTarget = 0;
+  let growthTarget = 0;
+  let bufferTarget = 0;
+
+  for (const limit of limits) {
+    const amount = (limit.userPercentage * income) / 100;
+    switch (limit.category) {
+      case 'Needs':
+        needsTarget += amount;
+        break;
+      case 'Wants':
+        wantsTarget += amount;
+        break;
+      case 'Savings':
+        savingsTarget += amount;
+        break;
+      case 'Growth':
+        growthTarget += amount;
+        break;
+      case 'Buffer':
+        bufferTarget += amount;
+        break;
+    }
+  }
 
   for (const entry of monthEntries) {
     const limit = limitMap[entry.type];
@@ -59,27 +89,39 @@ function computeBudgetRuleSummary(
         wantsTotal += entry.amount;
         break;
       case 'Savings':
-      case 'Growth':
         savingsTotal += entry.amount;
         break;
-      // Buffer entries are not counted
+      case 'Growth':
+        growthTotal += entry.amount;
+        break;
+      case 'Buffer':
+        bufferTotal += entry.amount;
+        break;
     }
   }
 
   const needsPercentage = income > 0 ? (needsTotal / income) * 100 : 0;
   const wantsPercentage = income > 0 ? (wantsTotal / income) * 100 : 0;
   const savingsPercentage = income > 0 ? (savingsTotal / income) * 100 : 0;
+  const growthPercentage = income > 0 ? (growthTotal / income) * 100 : 0;
+  const bufferPercentage = income > 0 ? (bufferTotal / income) * 100 : 0;
 
   return {
     needsTotal,
     wantsTotal,
     savingsTotal,
+    growthTotal,
+    bufferTotal,
     needsPercentage,
     wantsPercentage,
     savingsPercentage,
-    needsTarget: income * 0.5,
-    wantsTarget: income * 0.3,
-    savingsTarget: income * 0.2,
+    growthPercentage,
+    bufferPercentage,
+    needsTarget,
+    wantsTarget,
+    savingsTarget,
+    growthTarget,
+    bufferTarget,
   };
 }
 
@@ -262,11 +304,11 @@ describe('Property 12: Budget Rule Category Proportions', () => {
         ),
         ([entries, limits, income, month]) => {
           const summary = computeBudgetRuleSummary(entries, limits, month, income);
-          const categorizedTotal = summary.needsTotal + summary.wantsTotal + summary.savingsTotal;
+          const categorizedTotal = summary.needsTotal + summary.wantsTotal + summary.savingsTotal + summary.growthTotal + summary.bufferTotal;
           const totalSpent = filterByMonth(entries, month).reduce((sum, e) => sum + e.amount, 0);
 
-          // Categorized total must be <= total spent (Buffer entries are excluded)
-          expect(categorizedTotal).toBeLessThanOrEqual(totalSpent + 0.001);
+          // Categorized total must equal total spent (all entries are now categorized)
+          expect(Math.abs(categorizedTotal - totalSpent)).toBeLessThan(0.001);
         }
       ),
       { numRuns: 100 }
@@ -331,6 +373,8 @@ describe('Property 12: Budget Rule Category Proportions', () => {
           expect(summary.needsPercentage).toBe(0);
           expect(summary.wantsPercentage).toBe(0);
           expect(summary.savingsPercentage).toBe(0);
+          expect(summary.growthPercentage).toBe(0);
+          expect(summary.bufferPercentage).toBe(0);
         }
       ),
       { numRuns: 100 }
@@ -458,6 +502,8 @@ describe('Unit: budgetRuleSummary with zero income', () => {
     expect(summary.needsPercentage).toBe(0);
     expect(summary.wantsPercentage).toBe(0);
     expect(summary.savingsPercentage).toBe(0);
+    expect(summary.growthPercentage).toBe(0);
+    expect(summary.bufferPercentage).toBe(0);
   });
 
   it('returns zero targets when monthlyIncome is 0', () => {
@@ -465,6 +511,8 @@ describe('Unit: budgetRuleSummary with zero income', () => {
     expect(summary.needsTarget).toBe(0);
     expect(summary.wantsTarget).toBe(0);
     expect(summary.savingsTarget).toBe(0);
+    expect(summary.growthTarget).toBe(0);
+    expect(summary.bufferTarget).toBe(0);
   });
 });
 

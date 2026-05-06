@@ -35,13 +35,13 @@ import { AuthService } from '../../core/services/auth.service';
     },
   ],
   template: `
-    <div class="min-h-[50vh] flex items-center justify-center p-6">
+    <div class="min-h-[50vh] flex items-center justify-center p-6 overflow-x-hidden">
       <div class="w-full max-w-6xl">
         <!-- Desktop: two-column grid -->
         <div class="grid gap-12 md:grid-cols-2">
           
           <!-- Hero section -->
-          <div class="relative flex flex-col justify-center">
+          <div class="relative flex flex-col justify-center overflow-hidden">
             <!-- Logo -->
             <div class="flex items-center gap-3 mb-8">
               <span class="grid h-16 w-16 place-items-center rounded-2xl gradient-primary text-primary-foreground shadow-glow">
@@ -103,10 +103,10 @@ import { AuthService } from '../../core/services/auth.service';
               </button>
             }
 
-            <!-- Decorative blob -->
+            <!-- Decorative blob - contained within parent -->
             <div 
               aria-hidden="true"
-              class="absolute -right-16 -top-16 h-64 w-64 rounded-full opacity-30 blur-3xl gradient-primary pointer-events-none" 
+              class="absolute -right-8 -top-8 h-48 w-48 rounded-full opacity-30 blur-3xl gradient-primary pointer-events-none md:-right-16 md:-top-16 md:h-64 md:w-64" 
             ></div>
           </div>
 

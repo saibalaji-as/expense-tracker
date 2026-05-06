@@ -2,10 +2,16 @@ export interface BudgetRuleSummary {
   needsTotal: number;
   wantsTotal: number;
   savingsTotal: number;
+  growthTotal: number;
+  bufferTotal: number;
   needsPercentage: number;
   wantsPercentage: number;
   savingsPercentage: number;
-  needsTarget: number;   // 50% of income
-  wantsTarget: number;   // 30% of income
-  savingsTarget: number; // 20% of income
+  growthPercentage: number;
+  bufferPercentage: number;
+  needsTarget: number;   // Target allocation from income
+  wantsTarget: number;   // Target allocation from income
+  savingsTarget: number; // Target allocation from income
+  growthTarget: number;  // Target allocation from income
+  bufferTarget: number;  // Target allocation from income
 }

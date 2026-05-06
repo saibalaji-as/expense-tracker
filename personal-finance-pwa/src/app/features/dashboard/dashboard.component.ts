@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { ChartData } from 'chart.js/auto';
+import { ChartData, ChartOptions } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
@@ -76,7 +76,7 @@ import {
           description="Daily spend across the past 30 days"
         >
           @if (hasYtdData()) {
-            <div class="h-56">
+            <div class="h-64 pt-2">
               <app-chart-base type="line" [data]="ytdDailyData()" />
             </div>
           } @else {
@@ -92,8 +92,23 @@ import {
           description="Where your spend is concentrated"
         >
           @if (hasMonthlyTypeData()) {
-            <div class="h-56">
-              <app-chart-base type="doughnut" [data]="monthlyTypeData()" />
+            <div class="space-y-4">
+              <div class="h-48">
+                <app-chart-base type="doughnut" [data]="monthlyTypeData()" [options]="doughnutOptions" />
+              </div>
+              <!-- Custom Legend -->
+              <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                @for (item of monthlyTypeLegend(); track item.label) {
+                  <div class="flex items-center gap-2">
+                    <span 
+                      class="h-2.5 w-2.5 rounded-full shrink-0"
+                      [style.background-color]="item.color"
+                    ></span>
+                    <span class="truncate text-muted-foreground">{{ item.label }}</span>
+                    <span class="ml-auto font-semibold tabular-nums">{{ item.value | currencyFormat }}</span>
+                  </div>
+                }
+              </div>
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -124,8 +139,23 @@ import {
           description="Actual split across Needs, Wants, Savings"
         >
           @if (hasBudgetRuleData()) {
-            <div class="h-56">
-              <app-chart-base type="doughnut" [data]="budgetRuleData()" />
+            <div class="space-y-4">
+              <div class="h-48">
+                <app-chart-base type="doughnut" [data]="budgetRuleData()" [options]="doughnutOptions" />
+              </div>
+              <!-- Custom Legend -->
+              <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                @for (item of budgetRuleLegend(); track item.label) {
+                  <div class="flex items-center gap-2">
+                    <span 
+                      class="h-2.5 w-2.5 rounded-full shrink-0"
+                      [style.background-color]="item.color"
+                    ></span>
+                    <span class="truncate text-muted-foreground">{{ item.label }}</span>
+                    <span class="ml-auto font-semibold tabular-nums">{{ item.value }}%</span>
+                  </div>
+                }
+              </div>
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -164,6 +194,12 @@ export class DashboardComponent implements OnInit {
   readonly monthlyTypeData = signal<ChartData>({ datasets: [] });
   readonly sixMonthData = signal<ChartData>({ datasets: [] });
   readonly budgetRuleData = signal<ChartData>({ datasets: [] });
+  
+  // Legend data for monthly type chart
+  readonly monthlyTypeLegend = signal<Array<{ label: string; value: number; color: string }>>([]);
+  
+  // Legend data for budget rule chart
+  readonly budgetRuleLegend = signal<Array<{ label: string; value: number; color: string }>>([]);
 
   // Empty-state helpers
   readonly hasYtdData = signal(false);
@@ -200,6 +236,11 @@ export class DashboardComponent implements OnInit {
     return total / dayOfMonth;
   });
 
+  // Doughnut chart options with cutout for donut effect
+  readonly doughnutOptions: any = {
+    cutout: '65%',
+  };
+
   constructor() {
     // Recompute all chart data when entries or budgetRuleSummary changes
     effect(() => {
@@ -212,8 +253,9 @@ export class DashboardComponent implements OnInit {
         (ytd.datasets[0]?.data as number[])?.some((v) => v > 0) ?? false
       );
 
-      const monthly = this.computeMonthlyTypeBreakdown(entries);
+      const { chartData: monthly, legend: monthlyLegend } = this.computeMonthlyTypeBreakdown(entries);
       this.monthlyTypeData.set(monthly);
+      this.monthlyTypeLegend.set(monthlyLegend);
       this.hasMonthlyTypeData.set(
         ((monthly.datasets[0]?.data as number[])?.length ?? 0) > 0
       );
@@ -224,8 +266,9 @@ export class DashboardComponent implements OnInit {
         (sixMonth.datasets[0]?.data as number[])?.some((v) => v > 0) ?? false
       );
 
-      const budgetRule = this.computeBudgetRuleChartData(summary);
+      const { chartData: budgetRule, legend: budgetRuleLegend } = this.computeBudgetRuleChartData(summary);
       this.budgetRuleData.set(budgetRule);
+      this.budgetRuleLegend.set(budgetRuleLegend);
       this.hasBudgetRuleData.set(
         summary.needsTotal > 0 || summary.wantsTotal > 0 || summary.savingsTotal > 0
       );
@@ -279,28 +322,34 @@ export class DashboardComponent implements OnInit {
 
   // YTD daily line chart
   computeYtdDailyData(entries: ExpenseEntry[]): ChartData {
-    const currentYear = new Date().getFullYear().toString();
-    const yearEntries = entries.filter((e) => e.date.startsWith(currentYear));
+    // Show last 30 days instead of full year for better readability
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 29); // 30 days including today
 
     const dailyMap = new Map<string, number>();
-    for (const entry of yearEntries) {
-      dailyMap.set(entry.date, (dailyMap.get(entry.date) ?? 0) + entry.amount);
+    for (const entry of entries) {
+      const entryDate = new Date(entry.date);
+      if (entryDate >= thirtyDaysAgo && entryDate <= today) {
+        dailyMap.set(entry.date, (dailyMap.get(entry.date) ?? 0) + entry.amount);
+      }
     }
 
-    const today = new Date();
-    const startOfYear = new Date(today.getFullYear(), 0, 1);
     const labels: string[] = [];
     const data: number[] = [];
 
-    const cursor = new Date(startOfYear);
+    const cursor = new Date(thirtyDaysAgo);
     while (cursor <= today) {
       const dateStr = cursor.toISOString().slice(0, 10);
-      labels.push(dateStr);
+      // Show day of month as label (1, 3, 5, etc.)
+      labels.push(cursor.getDate().toString());
       data.push(dailyMap.get(dateStr) ?? 0);
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    const primaryColor = this.cssVar('--primary');
+    // Use a vibrant purple/blue color for the line
+    const lineColor = 'rgb(99, 102, 241)'; // Indigo-500
+    const gradientFillColor = 'rgba(99, 102, 241, 0.15)';
 
     return {
       labels,
@@ -308,17 +357,26 @@ export class DashboardComponent implements OnInit {
         {
           label: 'Daily Expenses',
           data,
-          borderColor: primaryColor,
-          backgroundColor: primaryColor.replace(')', ' / 0.15)').replace('oklch(', 'oklch('),
+          borderColor: lineColor,
+          backgroundColor: gradientFillColor,
           fill: true,
-          tension: 0.3,
+          tension: 0.4, // Smoother curves
+          borderWidth: 2.5,
+          pointRadius: 0, // Hide points for cleaner look
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: lineColor,
+          pointHoverBorderColor: '#fff',
+          pointHoverBorderWidth: 2,
         },
       ],
     };
   }
 
   // Monthly type breakdown doughnut chart
-  computeMonthlyTypeBreakdown(entries: ExpenseEntry[]): ChartData {
+  computeMonthlyTypeBreakdown(entries: ExpenseEntry[]): { 
+    chartData: ChartData; 
+    legend: Array<{ label: string; value: number; color: string }> 
+  } {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthEntries = entries.filter((e) => e.date.startsWith(currentMonth));
 
@@ -344,15 +402,28 @@ export class DashboardComponent implements OnInit {
       return def ? def.name : typeName;
     });
 
+    // Create legend data
+    const legend = displayLabels.map((label, index) => ({
+      label,
+      value: data[index],
+      color: backgroundColor[index],
+    }));
+
     return {
-      labels: displayLabels,
-      datasets: [
-        {
-          label: 'Spending by Type',
-          data,
-          backgroundColor,
-        },
-      ],
+      chartData: {
+        labels: displayLabels,
+        datasets: [
+          {
+            label: 'Spending by Type',
+            data,
+            backgroundColor,
+            borderWidth: 3,
+            borderColor: 'rgba(255, 255, 255, 1)',
+            spacing: 2,
+          },
+        ],
+      },
+      legend,
     };
   }
 
@@ -387,24 +458,48 @@ export class DashboardComponent implements OnInit {
   }
 
   // Budget rule doughnut chart
-  computeBudgetRuleChartData(summary: BudgetRuleSummary): ChartData {
+  computeBudgetRuleChartData(summary: BudgetRuleSummary): {
+    chartData: ChartData;
+    legend: Array<{ label: string; value: number; color: string }>;
+  } {
+    const labels = ['Needs', 'Wants', 'Savings', 'Growth', 'Buffer'];
+    const data = [
+      summary.needsPercentage,
+      summary.wantsPercentage,
+      summary.savingsPercentage,
+      summary.growthPercentage,
+      summary.bufferPercentage,
+    ];
+    const backgroundColor = [
+      this.cssVar('--cat-transport'),
+      this.cssVar('--cat-dining'),
+      this.cssVar('--cat-savings'),
+      this.cssVar('--cat-education'),
+      this.cssVar('--cat-misc'),
+    ];
+
+    // Create legend data
+    const legend = labels.map((label, index) => ({
+      label,
+      value: Math.round(data[index]),
+      color: backgroundColor[index],
+    }));
+
     return {
-      labels: ['Needs', 'Wants', 'Savings'],
-      datasets: [
-        {
-          label: 'Budget Rule',
-          data: [
-            summary.needsPercentage,
-            summary.wantsPercentage,
-            summary.savingsPercentage,
-          ],
-          backgroundColor: [
-            this.cssVar('--cat-transport'),
-            this.cssVar('--cat-dining'),
-            this.cssVar('--cat-savings'),
-          ],
-        },
-      ],
+      chartData: {
+        labels,
+        datasets: [
+          {
+            label: 'Budget Rule',
+            data,
+            backgroundColor,
+            borderWidth: 3,
+            borderColor: 'rgba(255, 255, 255, 1)',
+            spacing: 2,
+          },
+        ],
+      },
+      legend,
     };
   }
 }
