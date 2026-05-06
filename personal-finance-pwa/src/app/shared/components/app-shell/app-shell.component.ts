@@ -5,7 +5,6 @@ import {
   LucideIconData,
   LucideIconProvider,
   LUCIDE_ICONS,
-  Wallet,
   CalendarDays,
   CalendarRange,
   SlidersHorizontal,
@@ -29,7 +28,7 @@ interface NavItem {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Wallet, CalendarDays, CalendarRange, SlidersHorizontal, LayoutDashboard, Settings }),
+      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, LayoutDashboard, Settings }),
     },
   ],
   template: `
@@ -41,12 +40,10 @@ interface NavItem {
           <div class="mx-auto flex h-16 max-w-7xl items-center gap-6 px-6">
 
             <!-- Logo -->
-            <a routerLink="/daily" class="flex items-center gap-2">
-              <span class="grid h-9 w-9 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
-                <lucide-icon [img]="walletIcon" class="h-5 w-5" aria-hidden="true" />
-              </span>
+            <a routerLink="/daily" class="flex items-center">
+              <img src="/spenza-logo.svg" alt="Spenza Logo" class="h-10 w-10 object-contain" />
               <span class="text-lg font-semibold tracking-tight">
-                Spen<span class="gradient-text">Za</span>
+                Spen<span class="gradient-text">za</span>
               </span>
             </a>
 
@@ -77,11 +74,9 @@ interface NavItem {
       <header class="sticky top-0 z-40 md:hidden">
         <div class="flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl">
           <a routerLink="/daily" class="flex items-center gap-2">
-            <span class="grid h-8 w-8 place-items-center rounded-lg gradient-primary text-primary-foreground shadow-glow">
-              <lucide-icon [img]="walletIcon" class="h-4 w-4" aria-hidden="true" />
-            </span>
+            <img src="/spenza-logo.svg" alt="Spenza Logo" class="h-8 w-8 object-contain" />
             <span class="text-base font-semibold tracking-tight">
-              Spen<span class="gradient-text">Za</span>
+              Spen<span class="gradient-text">za</span>
             </span>
           </a>
           <app-theme-toggle />
@@ -128,8 +123,6 @@ interface NavItem {
   `,
 })
 export class AppShellComponent {
-  readonly walletIcon = Wallet;
-
   readonly navItems: NavItem[] = [
     { path: '/daily',     label: 'Daily',     icon: CalendarDays },
     { path: '/monthly',   label: 'Monthly',   icon: CalendarRange },

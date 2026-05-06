@@ -75,6 +75,11 @@
     radial-gradient(at 90% 10%, oklch(0.92 0.08 200 / 0.5) 0px, transparent 50%),
     radial-gradient(at 50% 100%, oklch(0.94 0.06 155 / 0.5) 0px, transparent 50%);
 
+  /* Logo colors (light theme) */
+  --logo-primary: oklch(0.55 0.22 280);
+  --logo-primary-glow: oklch(0.65 0.24 305);
+  --logo-accent: oklch(0.60 0.22 290);
+
   --shadow-sm: 0 1px 2px 0 oklch(0.20 0.04 265 / 0.05);
   --shadow-md: 0 4px 12px -2px oklch(0.20 0.04 265 / 0.08), 0 2px 4px -2px oklch(0.20 0.04 265 / 0.05);
   --shadow-lg: 0 16px 40px -10px oklch(0.20 0.04 265 / 0.15), 0 4px 12px -4px oklch(0.20 0.04 265 / 0.08);
@@ -135,6 +140,11 @@
   --cat-personal: oklch(0.74 0.22 325);
   --cat-subscriptions: oklch(0.78 0.14 210);
   --cat-misc: oklch(0.70 0.02 260);
+
+  /* Logo colors (dark theme) */
+  --logo-primary: oklch(0.72 0.20 290);
+  --logo-primary-glow: oklch(0.78 0.22 310);
+  --logo-accent: oklch(0.75 0.20 300);
 
   --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
   --gradient-success: linear-gradient(135deg, oklch(0.72 0.18 155), oklch(0.78 0.14 195));

@@ -1,5 +1,5 @@
 /**
- * Category definitions for the Personal Finance PWA.
+ * Category definitions for the Spenza PWA.
  * Maps expense category IDs to Lucide icon names (kebab-case), CSS variable names,
  * budget groups, and recommended allocation percentages.
  *

@@ -8,7 +8,7 @@ import { AuthService } from '../../core/services/auth.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="flex min-h-screen flex-col items-center justify-center gap-6 p-6">
-      <h1 class="text-2xl font-semibold">Personal Finance</h1>
+      <h1 class="text-2xl font-semibold">Spenza</h1>
 
       @if (errorMessage()) {
         <div class="rounded-md bg-red-50 p-4 text-red-700" role="alert">

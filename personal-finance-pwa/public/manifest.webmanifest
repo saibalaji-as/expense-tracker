@@ -1,10 +1,10 @@
 {
-  "name": "Personal Finance",
-  "short_name": "FinanceApp",
+  "name": "Spenza",
+  "short_name": "Spenza",
   "display": "standalone",
   "scope": "/",
   "start_url": "/daily",
-  "theme_color": "#1e40af",
+  "theme_color": "#7c3aed",
   "background_color": "#ffffff",
   "icons": [
     {

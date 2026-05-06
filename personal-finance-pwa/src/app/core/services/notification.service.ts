@@ -144,7 +144,7 @@ export class NotificationService {
   }
 
   async #dispatchNotification(): Promise<void> {
-    const title = 'Personal Finance';
+    const title = 'Spenza';
     const options: NotificationOptions = {
       body: "Don't forget to log your expenses!",
       icon: '/icons/icon-192x192.png',
