@@ -17,6 +17,7 @@
 # FIREBASE_PRIVATE_KEY - Firebase service account private key
 
 # Redirect all requests to index.html for Angular routing
+# Note: /.netlify/* paths are automatically excluded by Netlify
 [[redirects]]
   from = "/*"
   to = "/index.html"
