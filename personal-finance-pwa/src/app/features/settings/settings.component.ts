@@ -185,37 +185,72 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Push Notifications -->
-      <app-section-card  title="Push Notifications" description="Get a friendly nudge every hour to log expenses.">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="grid h-10 w-10 place-items-center rounded-xl bg-accent text-accent-foreground">
-              <lucide-icon [img]="bellIcon" class="h-5 w-5" />
-            </span>
-            <div>
-              <p class="text-sm font-medium">Hourly reminders</p>
-              <p class="text-xs text-muted-foreground">Get a nudge every hour if you haven't logged expenses.</p>
+      <app-section-card  title="Push Notifications" description="Get reminders to log your expenses at your preferred interval.">
+        <div class="space-y-4">
+          <!-- Enable/Disable Toggle -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="grid h-10 w-10 place-items-center rounded-xl bg-accent text-accent-foreground">
+                <lucide-icon [img]="bellIcon" class="h-5 w-5" />
+              </span>
+              <div>
+                <p class="text-sm font-medium">Enable reminders</p>
+                <p class="text-xs text-muted-foreground">Get notifications to log your expenses.</p>
+              </div>
             </div>
+
+            <!-- iOS-style toggle -->
+            <button
+              type="button"
+              role="switch"
+              [attr.aria-checked]="notificationService.isEnabled()"
+              (click)="onNotificationToggleClick()"
+              [class]="
+                'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+                (notificationService.isEnabled() ? 'bg-primary' : 'bg-muted')
+              "
+              aria-label="Toggle reminders"
+            >
+              <span
+                [class]="
+                  'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                  (notificationService.isEnabled() ? 'translate-x-5' : 'translate-x-0')
+                "
+              ></span>
+            </button>
           </div>
 
-          <!-- iOS-style toggle -->
-          <button
-            type="button"
-            role="switch"
-            [attr.aria-checked]="notificationService.isEnabled()"
-            (click)="onNotificationToggleClick()"
-            [class]="
-              'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
-              (notificationService.isEnabled() ? 'bg-primary' : 'bg-muted')
-            "
-            aria-label="Toggle hourly reminders"
-          >
-            <span
-              [class]="
-                'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
-                (notificationService.isEnabled() ? 'translate-x-5' : 'translate-x-0')
-              "
-            ></span>
-          </button>
+          <!-- Interval Selector (shown when enabled) -->
+          @if (notificationService.isEnabled()) {
+            <div class="rounded-xl border border-border bg-card/40 p-4">
+              <label for="interval-range" class="block text-sm font-medium mb-3">
+                Reminder interval: {{ intervalControl.value }} minutes
+              </label>
+              <div class="space-y-2">
+                <input
+                  type="range"
+                  id="interval-range"
+                  [formControl]="intervalControl"
+                  (input)="onIntervalInput($event)"
+                  min="15"
+                  max="480"
+                  step="15"
+                  class="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                  aria-label="Notification interval in minutes"
+                />
+                <div class="flex justify-between text-xs text-muted-foreground">
+                  <span>15 min</span>
+                  <span>1 hour</span>
+                  <span>2 hours</span>
+                  <span>4 hours</span>
+                  <span>8 hours</span>
+                </div>
+              </div>
+              <p class="mt-2 text-xs text-muted-foreground">
+                You'll receive a reminder every {{ intervalControl.value }} minutes to log your expenses.
+              </p>
+            </div>
+          }
         </div>
       </app-section-card>
 
