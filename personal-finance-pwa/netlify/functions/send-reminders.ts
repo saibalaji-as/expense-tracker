@@ -52,6 +52,7 @@ export const handler: Handler = async (
     let sentCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    const debugInfo: any[] = [];
 
     for (const doc of usersSnapshot.docs) {
       const data = doc.data();
@@ -60,6 +61,17 @@ export const handler: Handler = async (
       // Calculate if notification is due
       const intervalMs = intervalMinutes * 60 * 1000;
       const timeSinceLastNotification = now - lastNotifiedAt;
+      const minutesSinceLast = Math.round(timeSinceLastNotification / 60000);
+      const minutesUntilNext = Math.round((intervalMs - timeSinceLastNotification) / 60000);
+
+      debugInfo.push({
+        userId: doc.id,
+        intervalMinutes,
+        lastNotifiedAt,
+        minutesSinceLastNotification: minutesSinceLast,
+        minutesUntilNext: minutesUntilNext > 0 ? minutesUntilNext : 0,
+        isDue: timeSinceLastNotification >= intervalMs
+      });
 
       if (timeSinceLastNotification >= intervalMs) {
         console.log(`Sending notification to user: ${doc.id} (last notified ${Math.round(timeSinceLastNotification / 60000)} minutes ago)`);
@@ -114,7 +126,6 @@ export const handler: Handler = async (
 
         notifications.push(notificationPromise);
       } else {
-        const minutesUntilNext = Math.round((intervalMs - timeSinceLastNotification) / 60000);
         console.log(`⏭️  Skipping user ${doc.id} (next notification in ${minutesUntilNext} minutes)`);
         skippedCount++;
       }
@@ -130,7 +141,8 @@ export const handler: Handler = async (
       sent: sentCount,
       skipped: skippedCount,
       errors: errorCount,
-      message: `Processed ${usersSnapshot.size} users: ${sentCount} sent, ${skippedCount} skipped, ${errorCount} errors`
+      message: `Processed ${usersSnapshot.size} users: ${sentCount} sent, ${skippedCount} skipped, ${errorCount} errors`,
+      debug: debugInfo
     };
 
     console.log('Reminder check complete:', summary);

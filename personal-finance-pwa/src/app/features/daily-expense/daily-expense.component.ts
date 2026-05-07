@@ -259,7 +259,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   type="text"
                   formControlName="comment"
                   placeholder="Add a note about this expense..."
-                  class="flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  class="text-black flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm outline-none focus:border-primary"
                 />
                 <button
                   type="button"

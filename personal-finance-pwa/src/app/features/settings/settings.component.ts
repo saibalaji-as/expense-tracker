@@ -28,6 +28,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Pencil,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -44,7 +45,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Copy, ExternalLink, Download, Trash2, Bell, Sun, Moon, Monitor }),
+      useValue: new LucideIconProvider({ Check, Copy, ExternalLink, Download, Trash2, Bell, Sun, Moon, Monitor, Pencil }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -185,8 +186,9 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Push Notifications -->
-      <app-section-card  title="Push Notifications" description="Get reminders to log your expenses at your preferred interval.">
+      <app-section-card class="relative z-50" title="Push Notifications" description="Get reminders to log your expenses.">
         <div class="space-y-4">
+
           <!-- Enable/Disable Toggle -->
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -198,8 +200,6 @@ interface BeforeInstallPromptEvent extends Event {
                 <p class="text-xs text-muted-foreground">Get notifications to log your expenses.</p>
               </div>
             </div>
-
-            <!-- iOS-style toggle -->
             <button
               type="button"
               role="switch"
@@ -220,37 +220,103 @@ interface BeforeInstallPromptEvent extends Event {
             </button>
           </div>
 
-          <!-- Interval Selector (shown when enabled) -->
+          <!-- Interval Row (shown when enabled) -->
           @if (notificationService.isEnabled()) {
-            <div class="rounded-xl border border-border bg-card/40 p-4">
-              <label for="interval-range" class="block text-sm font-medium mb-3">
-                Reminder interval: {{ intervalControl.value }} minutes
-              </label>
-              <div class="space-y-2">
-                <input
-                  type="range"
-                  id="interval-range"
-                  [formControl]="intervalControl"
-                  (input)="onIntervalInput($event)"
-                  min="15"
-                  max="480"
-                  step="15"
-                  class="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                  aria-label="Notification interval in minutes"
-                />
-                <div class="flex justify-between text-xs text-muted-foreground">
-                  <span>15 min</span>
-                  <span>1 hour</span>
-                  <span>2 hours</span>
-                  <span>4 hours</span>
-                  <span>8 hours</span>
+            <div class="rounded-xl border border-border bg-card/40 px-4 py-3">
+
+              <!-- View mode: label + edit button -->
+              @if (!isEditingInterval()) {
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-xs text-muted-foreground">Notification interval</p>
+                    <p class="text-sm font-medium mt-0.5">{{ intervalLabel(intervalControl.value) }}</p>
+                  </div>
+                  <button
+                    type="button"
+                    (click)="startEditInterval()"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+                    aria-label="Edit notification interval"
+                  >
+                    <lucide-icon [img]="pencilIcon" class="h-3.5 w-3.5" />
+                    Edit
+                  </button>
                 </div>
-              </div>
-              <p class="mt-2 text-xs text-muted-foreground">
-                You'll receive a reminder every {{ intervalControl.value }} minutes to log your expenses.
-              </p>
+              }
+
+              <!-- Edit mode: dropdown + save/cancel -->
+              @if (isEditingInterval()) {
+                <div class="space-y-3">
+                  <p class="text-xs text-muted-foreground">Notification interval</p>
+
+                  <!-- Custom dropdown (avoids overflow-hidden clipping) -->
+                  <div class="relative" #dropdownRef>
+                    <button
+                      type="button"
+                      (click)="toggleIntervalDropdown()"
+                      class="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                      aria-haspopup="listbox"
+                      [attr.aria-expanded]="isDropdownOpen()"
+                    >
+                      <span>{{ intervalLabel(intervalControl.value) }}</span>
+                      <svg
+                        [class]="'h-4 w-4 text-muted-foreground transition-transform ' + (isDropdownOpen() ? 'rotate-180' : '')"
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    @if (isDropdownOpen()) {
+                      <ul
+                        role="listbox"
+                        class="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-border bg-popover shadow-lg"
+                        style="background: var(--popover, hsl(var(--background)))"
+                      >
+                        @for (opt of intervalOptions; track opt.value) {
+                          <li
+                            role="option"
+                            [attr.aria-selected]="intervalControl.value === opt.value"
+                            (click)="selectIntervalOption(opt.value)"
+                            [class]="
+                              'flex cursor-pointer items-center justify-between px-3 py-2.5 text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ' +
+                              (intervalControl.value === opt.value
+                                ? 'bg-accent text-accent-foreground font-medium'
+                                : 'hover:bg-accent/50')
+                            "
+                          >
+                            {{ opt.label }}
+                            @if (intervalControl.value === opt.value) {
+                              <lucide-icon [img]="checkIcon" class="h-3.5 w-3.5 text-primary" />
+                            }
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </div>
+
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      (click)="saveInterval()"
+                      class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow"
+                    >
+                      <lucide-icon [img]="checkIcon" class="h-3.5 w-3.5" />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      (click)="cancelEditInterval()"
+                      class="inline-flex items-center rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              }
+
             </div>
           }
+
         </div>
       </app-section-card>
 
@@ -324,6 +390,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly downloadIcon = Download;
   readonly trash2Icon = Trash2;
   readonly bellIcon = Bell;
+  readonly pencilIcon = Pencil;
 
   // ─── Copy state ───────────────────────────────────────────────────────────────
   readonly copied = signal<boolean>(false);
@@ -340,6 +407,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.notificationService.intervalMinutes(),
     { nonNullable: true }
   );
+
+  // Interval editing state
+  readonly isEditingInterval = signal<boolean>(false);
+  readonly isDropdownOpen = signal<boolean>(false);
+  #pendingIntervalValue: number = this.notificationService.intervalMinutes();
+
+  // Standard interval options (minutes)
+  readonly intervalOptions = [
+    { value: 15,  label: '15 minutes (testing)' },
+    { value: 120, label: '2 hours' },
+    { value: 180, label: '3 hours' },
+    { value: 240, label: '4 hours' },
+    { value: 300, label: '5 hours' },
+  ];
 
   // ─── Task 12.4: PWA install prompt ───────────────────────────────────────────
   readonly deferredPrompt = signal<BeforeInstallPromptEvent | null>(null);
@@ -452,13 +533,45 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ─── Task 12.3: Interval input ───────────────────────────────────────────────
+  // ─── Task 12.3: Interval edit/save ───────────────────────────────────────────
+
+  startEditInterval(): void {
+    this.#pendingIntervalValue = this.intervalControl.value;
+    this.isEditingInterval.set(true);
+    this.isDropdownOpen.set(false);
+  }
+
+  toggleIntervalDropdown(): void {
+    this.isDropdownOpen.update(v => !v);
+  }
+
+  selectIntervalOption(value: number): void {
+    this.intervalControl.setValue(value);
+    this.isDropdownOpen.set(false);
+  }
+
+  saveInterval(): void {
+    const value = this.intervalControl.value;
+    this.notificationService.updateInterval(value);
+    this.isEditingInterval.set(false);
+    this.isDropdownOpen.set(false);
+  }
+
+  cancelEditInterval(): void {
+    this.intervalControl.setValue(this.#pendingIntervalValue);
+    this.isEditingInterval.set(false);
+    this.isDropdownOpen.set(false);
+  }
+
+  intervalLabel(minutes: number): string {
+    const opt = this.intervalOptions.find(o => o.value === minutes);
+    return opt ? opt.label : `${minutes} minutes`;
+  }
 
   onIntervalInput(event: Event): void {
     const value = parseInt((event.target as HTMLInputElement).value, 10);
     if (!isNaN(value)) {
       this.intervalControl.setValue(value);
-      this.notificationService.updateInterval(value);
     }
   }
 
