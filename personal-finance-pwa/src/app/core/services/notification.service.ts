@@ -1,10 +1,12 @@
 import { Injectable, Signal, inject, signal } from '@angular/core';
 import { SwPush } from '@angular/service-worker';
 import { Router } from '@angular/router';
+import { FcmService } from './fcm.service';
 
 // localStorage keys (kept for reading legacy state on first load)
 const LS_ENABLED = 'pf_notif_enabled';
 const LS_INTERVAL = 'pf_notif_interval';
+const LS_USER_ID = 'pf_user_id';
 const DEFAULT_INTERVAL_MINUTES = 60;
 
 @Injectable({ providedIn: 'root' })
@@ -41,6 +43,7 @@ export class NotificationService {
 
   private readonly swPush = inject(SwPush);
   private readonly router = inject(Router);
+  private readonly fcmService = inject(FcmService);
 
   constructor() {
     this.permissionState = this._permissionState.asReadonly();
@@ -91,6 +94,17 @@ export class NotificationService {
     this.#persistEnabled(true);
     this.#persistInterval(intervalMinutes);
 
+    // Register with FCM backend for reliable notifications
+    const userId = this.#getUserId();
+    const fcmRegistered = await this.fcmService.registerForNotifications(userId, intervalMinutes);
+    
+    if (fcmRegistered) {
+      console.log('FCM notifications enabled');
+    } else {
+      console.warn('FCM registration failed, using local notifications only');
+    }
+
+    // Keep local notifications as fallback
     await this.#sendConfig(true, intervalMinutes);
   }
 
@@ -98,6 +112,11 @@ export class NotificationService {
     this._isEnabled.set(false);
     this.#persistEnabled(false);
     this.#clearFallbackInterval();
+    
+    // Unregister from FCM
+    const userId = this.#getUserId();
+    await this.fcmService.unregister(userId);
+    
     await this.#sendConfig(false, this._intervalMinutes());
   }
 
@@ -106,6 +125,11 @@ export class NotificationService {
     this._intervalMinutes.set(clamped);
     this.#persistInterval(clamped);
     if (this._isEnabled()) {
+      // Update FCM preferences
+      const userId = this.#getUserId();
+      this.fcmService.updatePreferences(userId, clamped).catch(() => {});
+      
+      // Update local notifications
       this.#sendConfig(true, clamped).catch(() => {});
     }
   }
@@ -243,5 +267,21 @@ export class NotificationService {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(LS_INTERVAL, String(value));
     }
+  }
+
+  /**
+   * Get or generate a unique user ID for FCM token management
+   */
+  #getUserId(): string {
+    if (typeof localStorage === 'undefined') {
+      return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    let userId = localStorage.getItem(LS_USER_ID);
+    if (!userId) {
+      userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem(LS_USER_ID, userId);
+    }
+    return userId;
   }
 }

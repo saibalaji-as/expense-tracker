@@ -7,6 +7,14 @@
   
   # Directory with the built files (relative to base directory)
   publish = "dist/personal-finance-pwa/browser"
+  
+  # Netlify Functions directory
+  functions = "netlify/functions"
+
+# Environment variables (set these in Netlify Dashboard)
+# FIREBASE_PROJECT_ID - Your Firebase project ID
+# FIREBASE_CLIENT_EMAIL - Firebase service account email
+# FIREBASE_PRIVATE_KEY - Firebase service account private key
 
 # Redirect all requests to index.html for Angular routing
 [[redirects]]
@@ -39,6 +47,13 @@
   for = "/ngsw.json"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Firebase Messaging Service Worker should not be cached
+[[headers]]
+  for = "/firebase-messaging-sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
 
 # Manifest file
 [[headers]]
