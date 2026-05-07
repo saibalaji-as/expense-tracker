@@ -32,11 +32,11 @@ import { ButtonComponent } from '../button/button.component';
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="title"
-        class="fixed inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl"
+        class="fixed inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-xl bg-card p-6 shadow-xl border border-border"
         (keydown.escape)="onCancel()"
         tabindex="-1"
       >
-        <h2 class="mb-4 text-lg font-semibold text-gray-900">{{ title }}</h2>
+        <h2 class="mb-4 text-lg font-semibold text-foreground">{{ title }}</h2>
         <ng-content />
         <div class="mt-6 flex justify-end gap-3">
           <app-button variant="ghost" (click)="onCancel()">Cancel</app-button>

@@ -121,7 +121,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
       </div>
 
       <!-- Two-column grid: stacks on mobile, 50/50 on tablet, 3/5 + 2/5 on desktop -->
-      <div class="grid gap-6 md:grid-cols-2 xl:grid-cols-2">
+      <div class="grid md:grid-cols-2 xl:grid-cols-2">
 
         <!-- Log Expense SectionCard -->
         <app-section-card
@@ -259,7 +259,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   type="text"
                   formControlName="comment"
                   placeholder="Add a note about this expense..."
-                  class="text-black flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  class="flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
                 />
                 <button
                   type="button"
@@ -324,7 +324,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               [value]="selectedDate()"
               (change)="onDateChange($event)"
               [max]="maxDate"
-              class="rounded-lg border border-border bg-card/60 px-3 py-1.5 text-xs outline-none focus:border-primary transition-all"
+              class="rounded-lg border border-border bg-card/60 px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary transition-all"
             />
           </div>
 

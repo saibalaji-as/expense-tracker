@@ -121,7 +121,7 @@ interface BeforeInstallPromptEvent extends Event {
           <div class="flex flex-1 items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-2.5 focus-within:border-primary">
             <input
               type="text"
-              class="w-full bg-transparent font-mono text-xs outline-none"
+              class="w-full bg-transparent font-mono text-xs text-foreground outline-none"
               spellcheck="false"
               placeholder="Paste your spreadsheet ID here"
               [value]="spreadsheetId() ?? ''"
@@ -253,7 +253,7 @@ interface BeforeInstallPromptEvent extends Event {
                     <button
                       type="button"
                       (click)="toggleIntervalDropdown()"
-                      class="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                      class="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
                       aria-haspopup="listbox"
                       [attr.aria-expanded]="isDropdownOpen()"
                     >

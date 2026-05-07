@@ -168,6 +168,11 @@
   html {
     overflow-x: hidden;
     width: 100%;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 
   html,
@@ -185,6 +190,42 @@
     background-size: cover;
     transition: background-color 0.3s ease, color 0.3s ease;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Input / textarea / select theme fix ──────────────────────────────────
+     Browsers default inputs to color-scheme:light (white bg, dark text).
+     Override every form control to use the design-system tokens so they
+     respect both light and dark themes automatically.
+  ─────────────────────────────────────────────────────────────────────────── */
+  input,
+  textarea,
+  select {
+    background-color: transparent;
+    color: var(--foreground);
+    color-scheme: inherit;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+
+  /* Date / time inputs keep their native picker but match the theme */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    color-scheme: inherit;
+  }
+
+  /* Number input — hide browser spin arrows for cleaner look */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
   }
 }
 

@@ -175,7 +175,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                       min="0"
                       max="100"
                       step="0.1"
-                      class="w-16 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm outline-none focus:border-primary"
+                      class="w-16 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm text-foreground outline-none focus:border-primary"
                     />
                   </div>
                   <!-- Amount -->
@@ -209,7 +209,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                       min="0"
                       max="100"
                       step="0.1"
-                      class="w-14 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm outline-none focus:border-primary"
+                      class="w-14 rounded-lg border border-border bg-card/60 px-2 py-1 text-right text-sm text-foreground outline-none focus:border-primary"
                     />
                     <span class="text-xs text-muted-foreground">%</span>
                   </div>
@@ -279,7 +279,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         </app-section-card>
 
         <!-- Save button -->
-        <div class="sticky bottom-24 z-30 md:static md:bottom-auto">
+        <div class="sticky z-30 md:static md:bottom-auto">
           <button
             type="submit"
             [disabled]="runningTotal() !== 100"

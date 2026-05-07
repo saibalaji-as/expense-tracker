@@ -4,7 +4,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
   selector: 'app-card',
   standalone: true,
   template: `
-    <div class="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+    <div class="rounded-xl bg-card shadow-sm border border-border p-4">
       <ng-content />
     </div>
   `,
