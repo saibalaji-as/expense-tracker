@@ -11,10 +11,6 @@
   # Netlify Functions directory
   functions = "netlify/functions"
 
-[functions]
-  # Exclude test files from deployment
-  included_files = ["!**/*.test.ts", "!**/*.spec.ts"]
-
 # Environment variables (set these in Netlify Dashboard)
 # FIREBASE_PROJECT_ID - Your Firebase project ID
 # FIREBASE_CLIENT_EMAIL - Firebase service account email

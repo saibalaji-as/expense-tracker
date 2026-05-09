@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { resolveTimezone, shouldSendReminder } from './scheduler-utils';
+import { resolveTimezone, shouldSendReminder } from '../functions/scheduler-utils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

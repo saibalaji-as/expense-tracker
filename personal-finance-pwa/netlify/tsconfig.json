@@ -15,6 +15,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["functions/**/*"],
+  "include": ["functions/**/*", "functions-tests/scheduler-utils.test.ts"],
   "exclude": ["node_modules", "dist"]
 }
