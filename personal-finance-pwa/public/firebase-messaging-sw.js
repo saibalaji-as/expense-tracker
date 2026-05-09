@@ -29,7 +29,7 @@ messaging.onBackgroundMessage((payload) => {
     requireInteraction: false,
     vibrate: [200, 100, 200],
     data: { 
-      url: payload.data?.url || '/',
+      url: payload.data?.url || '/daily',
       dateOfArrival: Date.now()
     }
   };
@@ -47,7 +47,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        const url = event.notification.data?.url || '/';
+        const url = event.notification.data?.url || '/daily';
         
         // Check if app is already open
         for (const client of clientList) {

@@ -24,10 +24,10 @@ export class FcmService {
   /**
    * Request FCM token and register with backend
    * @param userId Unique user identifier
-   * @param intervalMinutes Notification interval in minutes
+   * @param timezone IANA timezone string (e.g. "America/New_York")
    * @returns Promise<boolean> Success status
    */
-  async registerForNotifications(userId: string, intervalMinutes: number): Promise<boolean> {
+  async registerForNotifications(userId: string, timezone: string): Promise<boolean> {
     if (!this.messaging) {
       console.warn('FCM not available');
       return false;
@@ -69,7 +69,7 @@ export class FcmService {
         body: JSON.stringify({ 
           userId, 
           fcmToken: token, 
-          intervalMinutes,
+          timezone,
           timestamp: Date.now()
         })
       });
@@ -84,33 +84,6 @@ export class FcmService {
       return true;
     } catch (error) {
       console.error('FCM registration failed:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Update reminder preferences
-   * @param userId Unique user identifier
-   * @param intervalMinutes New notification interval
-   * @returns Promise<boolean> Success status
-   */
-  async updatePreferences(userId: string, intervalMinutes: number): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.API_BASE}/update-preferences`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, intervalMinutes })
-      });
-
-      if (!response.ok) {
-        console.error('Failed to update preferences');
-        return false;
-      }
-
-      console.log('Preferences updated successfully');
-      return true;
-    } catch (error) {
-      console.error('Failed to update preferences:', error);
       return false;
     }
   }

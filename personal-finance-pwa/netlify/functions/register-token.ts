@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import * as admin from 'firebase-admin';
+import { resolveTimezone } from './scheduler-utils';
 
 // Initialize Firebase Admin SDK (singleton pattern)
 if (!admin.apps.length) {
@@ -52,39 +53,30 @@ export const handler: Handler = async (
   try {
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { userId, fcmToken, intervalMinutes, timestamp } = body;
+    const { userId, fcmToken, timezone, timestamp } = body;
 
     // Validate required fields
-    if (!userId || !fcmToken || !intervalMinutes) {
+    if (!userId || !fcmToken) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           error: 'Missing required fields',
-          required: ['userId', 'fcmToken', 'intervalMinutes']
+          required: ['userId', 'fcmToken']
         })
       };
     }
 
-    // Validate interval range (15 minutes to 8 hours)
-    if (intervalMinutes < 15 || intervalMinutes > 480) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          error: 'Invalid interval',
-          message: 'Interval must be between 15 and 480 minutes'
-        })
-      };
-    }
+    // Normalise timezone — defaults to "UTC" if absent, empty, or unrecognised
+    const resolvedTz = resolveTimezone(timezone);
 
     console.log(`Registering token for user: ${userId}`);
 
     // Store in Firestore
     await db.collection('users').doc(userId).set({
       fcmToken,
-      intervalMinutes,
-      lastNotifiedAt: 0, // Never notified yet
+      timezone: resolvedTz,
+      enabled: true,
       registeredAt: timestamp || Date.now(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()

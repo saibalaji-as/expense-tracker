@@ -1,7 +1,8 @@
 // Feature: personal-finance-pwa, Property 17: Notification interval slider-input binding
 // Feature: personal-finance-pwa, Property 19: CSV export completeness
+// Feature: time-based-hourly-reminders — Task 7.1: SettingsComponent unit tests
 import * as fc from 'fast-check';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/expense-type.constants';
 
@@ -274,5 +275,191 @@ describe('Property 19: CSV Export Completeness', () => {
       ),
       { numRuns: 50 }
     );
+  });
+});
+
+// ─── Task 7.1: SettingsComponent — simplified notification toggle ─────────────
+//
+// Requirements: 7.1, 7.2
+// These tests mirror the onNotificationToggleClick() logic from SettingsComponent
+// using pure function mirrors (same pattern as notification.service.spec.ts).
+
+/**
+ * Mirrors the SettingsComponent.onNotificationToggleClick() logic after Task 7.
+ * Calls enable() with no arguments when currently disabled,
+ * or disable() when currently enabled.
+ */
+async function onNotificationToggleClick(
+  isEnabled: boolean,
+  permissionState: NotificationPermission,
+  requestPermission: () => Promise<void>,
+  enable: () => Promise<void>,
+  disable: () => Promise<void>,
+  getPermissionState: () => NotificationPermission
+): Promise<void> {
+  if (!isEnabled) {
+    await requestPermission();
+    if (getPermissionState() === 'granted') {
+      await enable();
+    }
+  } else {
+    await disable();
+  }
+}
+
+describe('SettingsComponent — Task 7.1: onNotificationToggleClick()', () => {
+  it('calls notificationService.enable() with NO arguments when toggling on', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(undefined);
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const disable = vi.fn().mockResolvedValue(undefined);
+    let permissionState: NotificationPermission = 'granted';
+
+    await onNotificationToggleClick(
+      false, // currently disabled
+      permissionState,
+      requestPermission,
+      enable,
+      disable,
+      () => permissionState
+    );
+
+    expect(enable).toHaveBeenCalledOnce();
+    // enable() must be called with zero arguments (no intervalMinutes)
+    expect(enable).toHaveBeenCalledWith();
+  });
+
+  it('calls notificationService.disable() when toggling off', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(undefined);
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const disable = vi.fn().mockResolvedValue(undefined);
+    let permissionState: NotificationPermission = 'granted';
+
+    await onNotificationToggleClick(
+      true, // currently enabled
+      permissionState,
+      requestPermission,
+      enable,
+      disable,
+      () => permissionState
+    );
+
+    expect(disable).toHaveBeenCalledOnce();
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call enable() when permission is denied', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(undefined);
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const disable = vi.fn().mockResolvedValue(undefined);
+    // Permission remains denied after requestPermission()
+    let permissionState: NotificationPermission = 'denied';
+
+    await onNotificationToggleClick(
+      false, // currently disabled
+      permissionState,
+      requestPermission,
+      enable,
+      disable,
+      () => permissionState
+    );
+
+    expect(requestPermission).toHaveBeenCalledOnce();
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call enable() when permission is default (not yet granted)', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(undefined);
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const disable = vi.fn().mockResolvedValue(undefined);
+    // Permission stays 'default' (user dismissed the prompt)
+    let permissionState: NotificationPermission = 'default';
+
+    await onNotificationToggleClick(
+      false,
+      permissionState,
+      requestPermission,
+      enable,
+      disable,
+      () => permissionState
+    );
+
+    expect(enable).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Source-level structural checks ──────────────────────────────────────────
+// These tests read the component source file directly to verify that interval
+// picker code has been removed. This avoids Angular JIT compilation issues in
+// the Vitest environment while still providing meaningful regression coverage.
+
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+function readSettingsComponentSource(): string {
+  const filePath = resolve(__dirname, 'settings.component.ts');
+  return readFileSync(filePath, 'utf-8');
+}
+
+describe('SettingsComponent — Task 7.1: interval picker removed (Requirements 7.1, 7.2)', () => {
+  let source: string;
+
+  // Read once for all tests in this suite
+  source = readSettingsComponentSource();
+
+  it('does not contain intervalControl', () => {
+    expect(source).not.toContain('intervalControl');
+  });
+
+  it('does not contain isEditingInterval', () => {
+    expect(source).not.toContain('isEditingInterval');
+  });
+
+  it('does not contain isDropdownOpen', () => {
+    expect(source).not.toContain('isDropdownOpen');
+  });
+
+  it('does not contain intervalOptions', () => {
+    expect(source).not.toContain('intervalOptions');
+  });
+
+  it('does not contain startEditInterval', () => {
+    expect(source).not.toContain('startEditInterval');
+  });
+
+  it('does not contain saveInterval', () => {
+    expect(source).not.toContain('saveInterval');
+  });
+
+  it('does not contain intervalLabel', () => {
+    expect(source).not.toContain('intervalLabel');
+  });
+
+  it('does not contain pencilIcon', () => {
+    expect(source).not.toContain('pencilIcon');
+  });
+
+  it('does not import Pencil from lucide-angular', () => {
+    expect(source).not.toContain('Pencil');
+  });
+
+  it('does not import ReactiveFormsModule', () => {
+    expect(source).not.toContain('ReactiveFormsModule');
+  });
+
+  it('does not import FormControl', () => {
+    expect(source).not.toContain('FormControl');
+  });
+
+  it('onNotificationToggleClick calls enable() with no arguments', () => {
+    // The method body should call notificationService.enable() with no args
+    expect(source).toContain('notificationService.enable()');
+    // Must NOT pass any argument like intervalControl.value
+    expect(source).not.toContain('notificationService.enable(this.intervalControl');
+  });
+
+  it('template does not contain the interval row @if block', () => {
+    // The interval row was inside @if (notificationService.isEnabled()) — that block is gone
+    expect(source).not.toContain('Notification interval');
+    expect(source).not.toContain('isEditingInterval');
   });
 });
