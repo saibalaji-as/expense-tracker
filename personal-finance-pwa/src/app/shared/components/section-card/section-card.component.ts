@@ -11,7 +11,7 @@ import { NgClass } from '@angular/common';
   imports: [NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="glass-card my-6" [class]="className()">
+    <section class="glass-card mb-6" [class]="className()">
       @if (title()) {
         <header class="flex items-start justify-between gap-4 px-5 py-4 md:px-6 md:py-5">
           <div>

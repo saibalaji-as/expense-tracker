@@ -192,15 +192,15 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
             <!-- Category chips -->
             <div>
-              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Expense Type</p>
-              <div class="flex flex-wrap gap-2">
+              <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Expense Type</p>
+              <div class="flex flex-wrap gap-1.5">
                 @for (cat of visibleCategories(); track cat.id) {
                   <button
                     type="button"
                     (click)="selectCategory(cat)"
                     [attr.aria-label]="cat.name"
                     [attr.aria-pressed]="isActiveCat(cat)"
-                    class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 relative"
+                    class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 relative"
                     [class.border-transparent]="isActiveCat(cat)"
                     [class.shadow-glow]="isActiveCat(cat)"
                     [class.border-border]="!isActiveCat(cat)"
@@ -216,8 +216,8 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                         [style.background-color]="'var(' + cat.colorVar + ')'"
                       ></span>
                     }
-                    <span class="relative z-10 flex items-center gap-2">
-                      <app-category-icon [categoryId]="cat.id" size="sm" />
+                    <span class="relative z-10 flex items-center gap-1.5">
+                      <app-category-icon [categoryId]="cat.id" size="xs" />
                       {{ cat.name }}
                     </span>
                   </button>
@@ -228,7 +228,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   <button
                     type="button"
                     (click)="showAllCategories.set(!showAllCategories())"
-                    class="inline-flex items-center gap-1 rounded-full border border-border bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:text-foreground hover:border-primary/30 min-h-[44px]"
+                    class="inline-flex items-center gap-1 rounded-full border border-border bg-card/40 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:text-foreground hover:border-primary/30"
                   >
                     @if (showAllCategories()) {
                       <lucide-icon name="chevron-up" class="h-3 w-3" />
@@ -242,73 +242,75 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </div>
             </div>
 
-            <!-- Amount input -->
-            <div class="mt-5">
-              <label for="amount-input" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Amount</label>
-              <div class="mt-2 flex items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
-                <span class="text-2xl font-semibold text-muted-foreground">₹</span>
-                <input
-                  id="amount-input"
-                  type="number"
-                  inputmode="decimal"
-                  formControlName="amount"
-                  placeholder="0"
-                  class="w-full bg-transparent text-2xl font-semibold outline-none placeholder:text-muted-foreground/50"
-                />
+            <!-- Amount + Date — same row -->
+            <div class="mt-4 flex gap-2">
+              <!-- Amount -->
+              <div class="flex-1 min-w-0">
+                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Amount</label>
+                <div class="mt-1 flex items-center gap-1.5 rounded-xl border border-border bg-card/60 px-3 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
+                  <span class="text-base font-semibold text-muted-foreground shrink-0">₹</span>
+                  <input
+                    id="amount-input"
+                    type="number"
+                    inputmode="decimal"
+                    formControlName="amount"
+                    placeholder="0"
+                    class="w-full bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50"
+                  />
+                </div>
               </div>
-            </div>
-
-            <!-- Date input -->
-            <div class="mt-4">
-              <label for="date-input" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</label>
-              <div class="mt-2 flex items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
-                <lucide-icon name="calendar" class="h-5 w-5 text-muted-foreground" />
-                <input
-                  id="date-input"
-                  type="date"
-                  formControlName="date"
-                  [max]="maxDate"
-                  class="flex-1 bg-transparent text-sm font-medium outline-none"
-                />
-                @if (form.get('date')?.value !== maxDate) {
-                  <button
-                    type="button"
-                    (click)="setToday()"
-                    class="text-xs text-primary hover:underline"
-                  >
-                    Today
-                  </button>
-                }
+              <!-- Date -->
+              <div class="w-[44%] shrink-0">
+                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Date</label>
+                <div class="mt-1 flex items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-card/60 px-2.5 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
+                  <lucide-icon name="calendar" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    id="date-input"
+                    type="date"
+                    formControlName="date"
+                    [max]="maxDate"
+                    class="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none"
+                  />
+                  @if (form.get('date')?.value !== maxDate) {
+                    <button
+                      type="button"
+                      (click)="setToday()"
+                      class="shrink-0 text-[10px] text-primary hover:underline"
+                    >
+                      Today
+                    </button>
+                  }
+                </div>
               </div>
             </div>
 
             <!-- Live pills -->
-            <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="mt-2.5 grid grid-cols-2 gap-2">
               <!-- Remaining today -->
               <div
-                class="rounded-2xl border px-4 py-3 transition-all"
+                class="rounded-xl border px-3 py-2 transition-all"
                 [class.border-destructive\/40]="overBudget()"
                 [class.bg-destructive\/10]="overBudget()"
                 [class.text-destructive]="overBudget()"
                 [class.border-border]="!overBudget()"
                 [class.bg-card\/40]="!overBudget()"
               >
-                <p class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Remaining today</p>
-                <p class="mt-1 text-lg font-semibold" [class.text-destructive]="overBudget()">
+                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">Remaining</p>
+                <p class="mt-1 text-sm font-semibold leading-none" [class.text-destructive]="overBudget()">
                   {{ remainingAfterEntry() | currencyFormat }}
                 </p>
               </div>
               <!-- Savings (this entry) -->
-              <div class="rounded-2xl border border-border bg-card/40 px-4 py-3">
-                <p class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Savings (this entry)</p>
+              <div class="rounded-xl border border-border bg-card/40 px-3 py-2">
+                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">Savings</p>
                 <p
-                  class="mt-1 flex items-center gap-1 text-lg font-semibold"
+                  class="mt-1 flex items-center gap-1 text-sm font-semibold leading-none"
                   [style.color]="'var(--success)'"
                 >
                   @if (savings() >= 0) {
-                    <lucide-icon name="trending-up" class="h-4 w-4" />
+                    <lucide-icon name="trending-up" class="h-3 w-3" />
                   } @else {
-                    <lucide-icon name="trending-down" class="h-4 w-4" />
+                    <lucide-icon name="trending-down" class="h-3 w-3" />
                   }
                   {{ savings() | currencyFormat }}
                 </p>
@@ -316,21 +318,21 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             </div>
 
             <!-- Comment + mic -->
-            <div class="mt-4">
-              <label for="comment-input" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Comment (optional)</label>
-              <div class="mt-2 flex items-center gap-2">
+            <div class="mt-2.5">
+              <label for="comment-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Comment (optional)</label>
+              <div class="mt-1 flex items-center gap-2">
                 <input
                   id="comment-input"
                   type="text"
                   formControlName="comment"
                   placeholder="Add a note about this expense..."
-                  class="flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+                  class="flex-1 rounded-xl border border-border bg-card/60 px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
                 />
                 <button
                   type="button"
                   aria-label="Record voice note"
                   (click)="isRecording() ? stopVoiceRecording() : startVoiceRecording()"
-                  class="grid h-11 w-11 place-items-center rounded-2xl border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   [class.border-destructive]="isRecording()"
                   [class.bg-destructive\/10]="isRecording()"
                   [class.text-destructive]="isRecording()"
@@ -349,7 +351,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             <button
               type="submit"
               [disabled]="!(form.get('amount')?.value)"
-              class="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+              class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               @if (isEditMode()) {
                 <lucide-icon name="pencil" class="h-4 w-4" />
@@ -1115,7 +1117,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       comment: '' 
     });
 
-    // Scroll to Today's Entries section to show the newly added entry
+    // Switch the entries list to the date the entry was logged on,
+    // then scroll down so the user sees it immediately
+    this.selectedDate.set(date);
     this.scrollToTodaysEntries();
   }
 
@@ -1126,15 +1130,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const limit = this.form.get('limit')?.value ?? 0;
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
+    const date = this.form.get('date')?.value ?? originalEntry.date;
 
     const updatedEntry: ExpenseEntry = {
       ...originalEntry,
+      date,
       amount: amount as number,
       type: type as string,
       limit: limit as number,
       savings,
       comment,
-      timestamp: new Date().toISOString(), // Update timestamp
+      timestamp: new Date().toISOString(),
     };
 
     this.expenseStore.updateEntry(updatedEntry);
@@ -1164,7 +1170,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     });
     this.editingEntry.set(null);
 
-    // Scroll to Today's Entries section to show the updated entry
+    // Switch entries list to the entry's date and scroll to it
+    this.selectedDate.set(date);
     this.scrollToTodaysEntries();
   }
 

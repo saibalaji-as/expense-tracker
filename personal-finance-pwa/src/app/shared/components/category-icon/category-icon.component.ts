@@ -42,6 +42,7 @@ const ICON_MAP: Record<string, LucideIconData> = {
 };
 
 const SIZE_MAP = {
+  xs: { box: 'h-5 w-5 rounded-md',    icon: 'h-3 w-3' },
   sm: { box: 'h-8 w-8 rounded-lg',    icon: 'h-4 w-4' },
   md: { box: 'h-10 w-10 rounded-xl',  icon: 'h-5 w-5' },
   lg: { box: 'h-12 w-12 rounded-2xl', icon: 'h-6 w-6' },
@@ -89,7 +90,7 @@ const SIZE_MAP = {
 })
 export class CategoryIconComponent {
   readonly categoryId = input<string>('');
-  readonly size = input<'sm' | 'md' | 'lg'>('md');
+  readonly size = input<'xs' | 'sm' | 'md' | 'lg'>('md');
 
   get colorVar(): string {
     return getCategoryDef(this.categoryId()).colorVar;
