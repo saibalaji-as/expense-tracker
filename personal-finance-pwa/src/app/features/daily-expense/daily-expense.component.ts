@@ -24,6 +24,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -74,7 +75,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle }),
     },
   ],
   template: `
@@ -88,6 +89,46 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
           aria-live="polite"
         >
           Entry saved locally — will sync when online
+        </div>
+      }
+
+      <!-- Overspending warning -->
+      @if (lastMonthOverspend(); as warning) {
+        <div
+          class="rounded-2xl border border-orange-400/40 bg-orange-400/10 p-4"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div class="flex items-start gap-3">
+            <div class="shrink-0 mt-0.5">
+              <lucide-icon name="alert-triangle" class="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-sm font-semibold text-orange-900 dark:text-orange-200 mb-1">
+                ⚠️ Budget Alert: {{ getCatName(warning.type) }}
+              </h3>
+              <p class="text-sm text-orange-800 dark:text-orange-300 mb-2">
+                You overspent on <strong>{{ getCatName(warning.type) }}</strong> last month by 
+                <strong>{{ warning.overspentAmount | currencyFormat }}</strong>.
+              </p>
+              <div class="flex items-center gap-4 text-xs text-orange-700 dark:text-orange-400 mb-3">
+                <span>Last Month Spent: <strong>{{ warning.lastMonthSpent | currencyFormat }}</strong></span>
+                <span>•</span>
+                <span>Monthly Limit: <strong>{{ warning.lastMonthLimit | currencyFormat }}</strong></span>
+              </div>
+              <p class="text-xs text-orange-700 dark:text-orange-400 italic">
+                💡 Consider if this expense is necessary to avoid overspending again this month.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="dismissOverspendWarning(warning.type)"
+              aria-label="Dismiss warning"
+              class="shrink-0 grid h-6 w-6 place-items-center rounded-lg text-orange-600 dark:text-orange-400 transition-all hover:bg-orange-400/20"
+            >
+              <lucide-icon name="x" class="h-4 w-4" />
+            </button>
+          </div>
         </div>
       }
 
@@ -217,6 +258,30 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </div>
             </div>
 
+            <!-- Date input -->
+            <div class="mt-4">
+              <label for="date-input" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Date</label>
+              <div class="mt-2 flex items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
+                <lucide-icon name="calendar" class="h-5 w-5 text-muted-foreground" />
+                <input
+                  id="date-input"
+                  type="date"
+                  formControlName="date"
+                  [max]="maxDate"
+                  class="flex-1 bg-transparent text-sm font-medium outline-none"
+                />
+                @if (form.get('date')?.value !== maxDate) {
+                  <button
+                    type="button"
+                    (click)="setToday()"
+                    class="text-xs text-primary hover:underline"
+                  >
+                    Today
+                  </button>
+                }
+              </div>
+            </div>
+
             <!-- Live pills -->
             <div class="mt-4 grid grid-cols-2 gap-3">
               <!-- Remaining today -->
@@ -300,8 +365,9 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
         <!-- Today's Entries SectionCard -->
         <app-section-card
+          id="todays-entries"
           title="Today's Entries"
-          [description]="expenseStore.todayEntries().length + ' logged'"
+          [description]="expenseStore.todayEntries().length + ' logged · ' + groupedEntries().length + ' categories'"
           className="xl:col-span-2"
         >
           <!-- Date selector header -->
@@ -329,61 +395,78 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
           </div>
 
           <ul class="space-y-2.5">
-            @for (entry of selectedDateEntries(); track entry.id) {
+            @for (group of groupedEntries(); track group.type) {
               <li class="group relative flex items-center gap-2 overflow-hidden rounded-2xl border border-border bg-card/40 p-3 transition-all hover:border-primary/30 cursor-pointer">
                 <!-- Left color stripe -->
                 <span
                   class="absolute inset-y-0 left-0 w-1"
-                  [style.background-color]="'var(' + getCatColorVar(entry.type) + ')'"
+                  [style.background-color]="'var(' + getCatColorVar(group.type) + ')'"
                 ></span>
                 <!-- Clickable area for detail view -->
                 <div 
                   class="min-w-0 flex-1 flex items-center gap-2 overflow-hidden"
-                  (click)="viewDetail(entry)"
+                  (click)="viewGroupDetail(group)"
                 >
                   <!-- Category icon — add left margin to clear the stripe -->
                   <div class="ml-2 shrink-0">
-                    <app-category-icon [categoryId]="getCatId(entry.type)" />
+                    <app-category-icon [categoryId]="getCatId(group.type)" />
                   </div>
                   <!-- Info -->
                   <div class="min-w-0 flex-1 overflow-hidden">
-                    <p class="truncate text-sm font-medium">{{ getCatName(entry.type) }}</p>
-                    <p class="truncate text-xs text-muted-foreground break-all w-[calc(100vw-280px)]">
-                      {{ entry.timestamp.slice(11, 16) }}@if (entry.comment) {<span> · {{ entry.comment }}</span>}
+                    <div class="flex items-center gap-2">
+                      <p class="truncate text-sm font-medium">{{ getCatName(group.type) }}</p>
+                      @if (group.count > 1) {
+                        <span class="inline-flex items-center justify-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          {{ group.count }}×
+                        </span>
+                      }
+                    </div>
+                    <p class="truncate text-xs text-muted-foreground">
+                      @if (group.count === 1) {
+                        {{ group.entries[0].timestamp.slice(11, 16) }}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
+                      } @else {
+                        {{ group.count }} entries · Tap to view details
+                      }
                     </p>
                   </div>
                   <!-- Amount + savings -->
                   <div class="shrink-0 text-right">
-                    <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
-                    <p class="text-[10px] text-muted-foreground">lim {{ entry.limit | currencyFormat }}</p>
-                    @if (entry.savings > 0) {
+                    <p class="text-sm font-semibold">{{ group.totalAmount | currencyFormat }}</p>
+                    <p class="text-[10px] text-muted-foreground">lim {{ group.limit | currencyFormat }}</p>
+                    @if (group.totalSavings > 0) {
                       <p class="text-[10px] font-medium" [style.color]="'var(--success)'">
-                        +{{ entry.savings | currencyFormat }}
+                        +{{ group.totalSavings | currencyFormat }}
+                      </p>
+                    } @else if (group.totalSavings < 0) {
+                      <p class="text-[10px] font-medium" [style.color]="'var(--destructive)'">
+                        {{ group.totalSavings | currencyFormat }}
                       </p>
                     }
                   </div>
                 </div>
-                <!-- Action buttons: vertical stack, always visible on touch, hover-reveal on pointer devices -->
-                <div class="shrink-0 flex flex-col gap-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
-                  <!-- Edit button -->
-                  <button
-                    type="button"
-                    (click)="editEntry(entry); $event.stopPropagation()"
-                    aria-label="Edit entry"
-                    class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    <lucide-icon name="pencil" class="h-4 w-4" />
-                  </button>
-                  <!-- Delete button -->
-                  <button
-                    type="button"
-                    (click)="deleteEntry(entry); $event.stopPropagation()"
-                    aria-label="Delete entry"
-                    class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    <lucide-icon name="trash-2" class="h-4 w-4" />
-                  </button>
-                </div>
+                <!-- Action buttons: only show for single entries -->
+                @if (group.count === 1) {
+                  <div class="shrink-0 flex flex-col gap-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
+                    <!-- Edit button -->
+                    <button
+                      type="button"
+                      (click)="editEntry(group.entries[0]); $event.stopPropagation()"
+                      aria-label="Edit entry"
+                      class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <lucide-icon name="pencil" class="h-4 w-4" />
+                    </button>
+                    <!-- Delete button -->
+                    <button
+                      type="button"
+                      (click)="deleteEntry(group.entries[0]); $event.stopPropagation()"
+                      aria-label="Delete entry"
+                      class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <lucide-icon name="trash-2" class="h-4 w-4" />
+                    </button>
+                  </div>
+                }
               </li>
             } @empty {
               <li class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -413,6 +496,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
           class="relative w-full max-w-md max-h-[80vh] flex flex-col rounded-3xl border border-border bg-card shadow-2xl"
           (click)="$event.stopPropagation()"
         >
+          <!-- Single Entry View -->
           @if (viewingEntry(); as entry) {
             <!-- Compact Header with all metadata -->
             <div class="shrink-0 border-b border-border p-4">
@@ -491,6 +575,112 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </button>
             </div>
           }
+
+          <!-- Grouped Entries View -->
+          @if (viewingGroupedEntries().length > 0) {
+            @let entries = viewingGroupedEntries();
+            @let firstEntry = entries[0];
+            @let totalAmount = entries.reduce((sum, e) => sum + e.amount, 0);
+            @let actualDailyLimit = this.calculateDailyLimit(firstEntry.type);
+            @let totalSavings = actualDailyLimit - totalAmount;
+            
+            <!-- Compact Header with aggregated metadata -->
+            <div class="shrink-0 border-b border-border p-4">
+              <!-- Title row -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <app-category-icon [categoryId]="getCatId(firstEntry.type)" size="sm" />
+                  <h2 id="detail-title" class="text-base font-semibold">{{ getCatName(firstEntry.type) }}</h2>
+                  <span class="inline-flex items-center justify-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                    {{ entries.length }}×
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  (click)="closeDetail()"
+                  aria-label="Close details"
+                  class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                >
+                  <lucide-icon name="x" class="h-4 w-4" />
+                </button>
+              </div>
+              
+              <!-- Aggregated Metadata grid -->
+              <div class="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Total Amount</p>
+                  <p class="font-semibold">{{ totalAmount | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Daily Limit</p>
+                  <p class="font-semibold">{{ actualDailyLimit | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">Total Savings</p>
+                  <p 
+                    class="font-semibold"
+                    [style.color]="totalSavings >= 0 ? 'var(--success)' : 'var(--destructive)'"
+                  >
+                    {{ totalSavings >= 0 ? '+' : '' }}{{ totalSavings | currencyFormat }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Individual Entries List (scrollable) -->
+            <div class="flex-1 overflow-y-auto p-4">
+              <p class="text-xs font-medium text-muted-foreground mb-3">Individual Entries</p>
+              <div class="space-y-2">
+                @for (entry of entries; track entry.id) {
+                  <div class="rounded-2xl border border-border bg-card/40 p-3">
+                    <!-- Entry header -->
+                    <div class="flex items-start justify-between gap-2 mb-2">
+                      <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-1">
+                          <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
+                          <span 
+                            class="text-[10px] font-medium"
+                            [style.color]="entry.savings >= 0 ? 'var(--success)' : 'var(--destructive)'"
+                          >
+                            {{ entry.savings >= 0 ? '+' : '' }}{{ entry.savings | currencyFormat }}
+                          </span>
+                        </div>
+                        <p class="text-[10px] text-muted-foreground">
+                          {{ entry.timestamp.slice(11, 16) }}
+                        </p>
+                      </div>
+                      <!-- Action buttons -->
+                      <div class="flex gap-1">
+                        <button
+                          type="button"
+                          (click)="editFromDetail(entry)"
+                          aria-label="Edit entry"
+                          class="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary"
+                        >
+                          <lucide-icon name="pencil" class="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          (click)="deleteFromDetail(entry)"
+                          aria-label="Delete entry"
+                          class="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <lucide-icon name="trash-2" class="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <!-- Comment -->
+                    @if (entry.comment) {
+                      <div class="mt-2 pt-2 border-t border-border/50">
+                        <p class="text-xs text-muted-foreground mb-1">Comment:</p>
+                        <p class="text-xs leading-relaxed break-words">{{ entry.comment }}</p>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
         </div>
       </div>
     }
@@ -507,6 +697,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     expenseType: ['', Validators.required],
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]],
     limit: [{ value: 0, disabled: true }],
+    date: [new Date().toISOString().slice(0, 10), Validators.required], // Default to today
     comment: [''],
   });
 
@@ -518,13 +709,46 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Offline toast signal ─────────────────────────────────────────────────
   readonly offlineToast = signal(false);
 
+  // ─── Overspending warning state ───────────────────────────────────────────
+  private readonly acknowledgedWarnings = new Set<string>(); // Track acknowledged warnings per session
+  private readonly acknowledgedTick = signal(0); // Bump to force computed re-evaluation after dismiss
+
+  // ─── Reactive overspend check — re-runs when store data or selected type changes ──
+  private readonly selectedType = computed(() => (this.formValue() as any)?.expenseType ?? '');
+
+  readonly lastMonthOverspend = computed(() => {
+    this.acknowledgedTick(); // Subscribe to dismissal changes
+    const type = this.selectedType();
+    if (!type || this.acknowledgedWarnings.has(type)) return null;
+
+    const lastMonth = this.getPreviousMonth();
+    const limitEntry = this.expenseStore.limitMap()[type];
+    const income = this.expenseStore.monthlyIncome();
+    const monthlyLimit = limitEntry ? (limitEntry.userPercentage / 100) * income : 0;
+
+    if (monthlyLimit <= 0) return null; // Limits not loaded yet
+
+    const lastMonthEntries = this.expenseStore.entries().filter(
+      e => e.date.startsWith(lastMonth) && e.type === type
+    );
+    if (lastMonthEntries.length === 0) return null;
+
+    const lastMonthSpent = lastMonthEntries.reduce((sum, e) => sum + e.amount, 0);
+    const overspentAmount = lastMonthSpent - monthlyLimit;
+    if (overspentAmount <= 0) return null;
+
+    return { type, lastMonthSpent, lastMonthLimit: monthlyLimit, overspentAmount };
+  });
+
   // ─── Edit mode state ──────────────────────────────────────────────────────
   readonly editingEntry = signal<ExpenseEntry | null>(null);
   readonly isEditMode = computed(() => this.editingEntry() !== null);
 
   // ─── Detail view state ────────────────────────────────────────────────────
   readonly viewingEntry = signal<ExpenseEntry | null>(null);
-  readonly isViewingDetail = computed(() => this.viewingEntry() !== null);
+  readonly viewingGroupedEntries = signal<ExpenseEntry[]>([]);
+  readonly isViewingDetail = computed(() => this.viewingEntry() !== null || this.viewingGroupedEntries().length > 0);
+  readonly isViewingGroup = computed(() => this.viewingGroupedEntries().length > 1);
 
   // ─── Selected date state ──────────────────────────────────────────────────
   readonly selectedDate = signal<string>(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
@@ -534,6 +758,37 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly selectedDateEntries = computed(() => {
     const date = this.selectedDate();
     return this.expenseStore.entries().filter((e) => e.date === date);
+  });
+
+  // ─── Grouped entries by expense type ─────────────────────────────────────
+  readonly groupedEntries = computed(() => {
+    const entries = this.selectedDateEntries();
+    const groups = new Map<string, ExpenseEntry[]>();
+    
+    // Group entries by type
+    for (const entry of entries) {
+      const existing = groups.get(entry.type) || [];
+      existing.push(entry);
+      groups.set(entry.type, existing);
+    }
+    
+    // Convert to array and sort by total amount (descending)
+    return Array.from(groups.entries())
+      .map(([type, entries]) => {
+        const totalAmount = entries.reduce((sum, e) => sum + e.amount, 0);
+        const dailyLimit = this.calculateDailyLimit(type);
+        const totalSavings = dailyLimit - totalAmount;
+        
+        return {
+          type,
+          entries,
+          totalAmount,
+          totalSavings,
+          count: entries.length,
+          limit: dailyLimit,
+        };
+      })
+      .sort((a, b) => b.totalAmount - a.totalAmount);
   });
 
   // ─── Date label for display ──────────────────────────────────────────────
@@ -696,6 +951,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       console.error('[DailyExpense] Failed to load month:', err);
     });
 
+    // Load previous month data for overspending checks
+    const lastMonth = this.getPreviousMonth();
+    this.expenseStore.loadMonth(lastMonth, false).catch(err => {
+      console.error('[DailyExpense] Failed to load previous month:', err);
+    });
+
     const sheetId = typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
     if (sheetId && (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)) {
       this.expenseStore.loadLimits().catch(err => {
@@ -716,6 +977,19 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return TYPE_TO_CAT_ID[type] ?? 'misc';
   }
 
+  // ─── Helper: calculate daily limit for a category ────────────────────────
+  calculateDailyLimit(type: string): number {
+    const limitEntry = this.expenseStore.limitMap()[type];
+    const income = this.expenseStore.monthlyIncome();
+    const monthlyLimit = limitEntry ? (limitEntry.userPercentage / 100) * income : 0;
+    
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dailyLimit = Math.ceil(monthlyLimit / daysInMonth);
+    
+    return dailyLimit;
+  }
+
   // ─── Helper: map type name → CSS variable name ────────────────────────────
   getCatColorVar(type: string): string {
     return getCategoryDef(this.getCatId(type)).colorVar;
@@ -724,6 +998,36 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Helper: map type name → display name ────────────────────────────────
   getCatName(type: string): string {
     return getCategoryDef(this.getCatId(type)).name;
+  }
+
+  // ─── Helper: scroll to Today's Entries section ───────────────────────────
+  private scrollToTodaysEntries(): void {
+    // Use setTimeout to ensure DOM has updated with new entry
+    setTimeout(() => {
+      const element = document.getElementById('todays-entries');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  }
+
+  // ─── Helper: get previous month string (YYYY-MM) ─────────────────────────
+  private getPreviousMonth(): string {
+    const now = new Date();
+    // Use local year/month to avoid UTC offset shifting the month
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-indexed: 0=Jan, 4=May
+    // month - 1 handles year boundary automatically (month=0 → -1 → Dec of prev year)
+    const prev = new Date(year, month - 1, 1);
+    const y = prev.getFullYear();
+    const m = String(prev.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+
+  // ─── Dismiss overspend warning ────────────────────────────────────────────
+  dismissOverspendWarning(type: string): void {
+    this.acknowledgedWarnings.add(type);
+    this.acknowledgedTick.update(n => n + 1); // Trigger computed re-evaluation
   }
 
   // ─── Helper: check if a category chip is active ───────────────────────────
@@ -764,7 +1068,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Create new entry ─────────────────────────────────────────────────────
   private createEntry(): void {
     const id = crypto.randomUUID();
-    const date = new Date().toISOString().slice(0, 10);
+    const date = this.form.get('date')?.value ?? new Date().toISOString().slice(0, 10);
     const timestamp = new Date().toISOString();
     const type = this.form.get('expenseType')?.value ?? '';
     const amount = this.form.get('amount')?.value ?? 0;
@@ -803,7 +1107,16 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       }, 4000);
     }
 
-    this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+    this.form.reset({ 
+      expenseType: '', 
+      amount: null, 
+      limit: 0, 
+      date: new Date().toISOString().slice(0, 10), // Reset to today
+      comment: '' 
+    });
+
+    // Scroll to Today's Entries section to show the newly added entry
+    this.scrollToTodaysEntries();
   }
 
   // ─── Update existing entry ────────────────────────────────────────────────
@@ -842,8 +1155,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       }, 4000);
     }
 
-    this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+    this.form.reset({ 
+      expenseType: '', 
+      amount: null, 
+      limit: 0, 
+      date: new Date().toISOString().slice(0, 10), 
+      comment: '' 
+    });
     this.editingEntry.set(null);
+
+    // Scroll to Today's Entries section to show the updated entry
+    this.scrollToTodaysEntries();
   }
 
   // ─── Edit entry ───────────────────────────────────────────────────────────
@@ -858,6 +1180,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       expenseType: entry.type,
       amount: entry.amount,
       limit: entry.limit,
+      date: entry.date,
       comment: entry.comment || '',
     });
 
@@ -868,18 +1191,50 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Cancel edit ──────────────────────────────────────────────────────────
   cancelEdit(): void {
     this.editingEntry.set(null);
-    this.form.reset({ expenseType: '', amount: null, limit: 0, comment: '' });
+    this.form.reset({ 
+      expenseType: '', 
+      amount: null, 
+      limit: 0, 
+      date: new Date().toISOString().slice(0, 10), 
+      comment: '' 
+    });
+  }
+
+  // ─── Set date to today ────────────────────────────────────────────────────
+  setToday(): void {
+    this.form.get('date')?.setValue(new Date().toISOString().slice(0, 10));
   }
 
   // ─── View detail ──────────────────────────────────────────────────────────
   viewDetail(entry: ExpenseEntry): void {
     console.log('[DailyExpense] Viewing detail for entry:', entry.id);
     this.viewingEntry.set(entry);
+    this.viewingGroupedEntries.set([]);
+  }
+
+  // ─── View group detail ────────────────────────────────────────────────────
+  viewGroupDetail(group: { type: string; entries: ExpenseEntry[]; totalAmount: number; totalSavings: number; count: number; limit: number }): void {
+    console.log('[DailyExpense] Viewing group detail for type:', group.type, 'with', group.count, 'entries');
+    
+    if (group.count === 1) {
+      // Single entry - show single entry view
+      this.viewingEntry.set(group.entries[0]);
+      this.viewingGroupedEntries.set([]);
+    } else {
+      // Multiple entries - show grouped view
+      // Sort entries by timestamp (most recent first)
+      const sortedEntries = [...group.entries].sort((a, b) => 
+        b.timestamp.localeCompare(a.timestamp)
+      );
+      this.viewingEntry.set(null);
+      this.viewingGroupedEntries.set(sortedEntries);
+    }
   }
 
   // ─── Close detail ─────────────────────────────────────────────────────────
   closeDetail(): void {
     this.viewingEntry.set(null);
+    this.viewingGroupedEntries.set([]);
   }
 
   // ─── Edit from detail ─────────────────────────────────────────────────────
