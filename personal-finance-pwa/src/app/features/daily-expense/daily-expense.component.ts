@@ -79,12 +79,12 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     },
   ],
   template: `
-    <div class="space-y-6">
+    <div>
 
       <!-- Offline toast -->
       @if (offlineToast()) {
         <div
-          class="rounded-2xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300"
+          class="mb-4 rounded-2xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300"
           role="alert"
           aria-live="polite"
         >
@@ -95,7 +95,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
       <!-- Overspending warning -->
       @if (lastMonthOverspend(); as warning) {
         <div
-          class="rounded-2xl border border-orange-400/40 bg-orange-400/10 p-4"
+          class="mb-4 rounded-2xl border border-orange-400/40 bg-orange-400/10 p-4"
           role="alert"
           aria-live="assertive"
         >
@@ -133,17 +133,19 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
       }
 
       <!-- Hero glass card -->
-      <div class="glass-card relative overflow-hidden p-5 md:p-8">
+      <div class="mb-4 glass-card relative overflow-hidden p-5 md:p-8">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <p class="text-xs font-medium uppercase tracking-widest text-muted-foreground">Today</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{{ dateStr }}</h1>
+            <p class="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              {{ isToday() ? 'Today' : selectedDateLabel() }}
+            </p>
+            <h1 class="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{{ dateStr() }}</h1>
             <p class="mt-2 text-sm text-muted-foreground">
               You've spent
               <span class="font-semibold text-foreground">{{ totalToday() | currencyFormat }}</span>
               of
               <span class="font-semibold text-foreground">{{ dailyBudget() | currencyFormat }}</span>
-              today.
+              {{ isToday() ? 'today' : 'on this day' }}.
             </p>
           </div>
           <app-progress-ring
@@ -162,7 +164,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
       </div>
 
       <!-- Two-column grid: stacks on mobile, 50/50 on tablet, 3/5 + 2/5 on desktop -->
-      <div class="grid md:grid-cols-2 xl:grid-cols-2">
+      <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-2">
 
         <!-- Log Expense SectionCard -->
         <app-section-card
@@ -260,7 +262,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 </div>
               </div>
               <!-- Date -->
-              <div class="w-[44%] shrink-0">
+              <div class="w-[50%] shrink-0">
                 <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Date</label>
                 <div class="mt-1 flex items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-card/60 px-2.5 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <lucide-icon name="calendar" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -368,8 +370,8 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
         <!-- Today's Entries SectionCard -->
         <app-section-card
           id="todays-entries"
-          title="Today's Entries"
-          [description]="expenseStore.todayEntries().length + ' logged · ' + groupedEntries().length + ' categories'"
+          [title]="entriesSectionTitle()"
+          [description]="selectedDateEntries().length + ' logged · ' + groupedEntries().length + ' categories'"
           className="xl:col-span-2"
         >
           <!-- Date selector header -->
@@ -815,6 +817,11 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Max date for date picker (today) ─────────────────────────────────────
   readonly maxDate = new Date().toISOString().slice(0, 10);
 
+  // ─── Section card title for entries ──────────────────────────────────────
+  readonly entriesSectionTitle = computed(() =>
+    this.isToday() ? "Today's Entries" : `${this.selectedDateLabel()}'s Entries`
+  );
+
   // ─── Category expansion state ─────────────────────────────────────────────
   readonly showAllCategories = signal(false);
   readonly visibleCategories = computed(() => {
@@ -840,11 +847,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly isRecording = signal(false);
   private recognition: any = null;
 
-  // ─── Date string for hero ─────────────────────────────────────────────────
-  readonly dateStr = new Date().toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
+  // ─── Date string for hero — reactive to selectedDate ─────────────────────
+  readonly dateStr = computed(() => {
+    const date = new Date(this.selectedDate() + 'T00:00:00'); // local time
+    return date.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
   });
 
   // ─── Reactive form value signal ───────────────────────────────────────────
@@ -890,9 +900,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return Math.max(0, (limit ?? 0) - (amount ?? 0));
   });
 
-  // ─── Total spent today (all categories) ──────────────────────────────────
+  // ─── Total spent for selected date (all categories) ─────────────────────
   readonly totalToday = computed(() =>
-    this.expenseStore.todayEntries().reduce((sum, e) => sum + e.amount, 0)
+    this.selectedDateEntries().reduce((sum, e) => sum + e.amount, 0)
   );
 
   // ─── Daily budget (monthly income / 30) ──────────────────────────────────

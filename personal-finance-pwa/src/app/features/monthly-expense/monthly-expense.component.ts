@@ -65,9 +65,9 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-6">
+    <div>
       <!-- Page Header -->
-      <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Monthly Expenses</h1>
           <p class="mt-1 text-sm text-muted-foreground">A bird's-eye view of how this month is going.</p>
@@ -93,7 +93,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       </div>
 
       <!-- KPI Cards -->
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="mb-4 grid gap-4 sm:grid-cols-3">
         <!-- Total Spent -->
         <div class="glass-card relative overflow-hidden p-5">
           <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total Spent</p>
@@ -210,7 +210,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       </div>
 
       <!-- Budget Rule Breakdown -->
-      <div class="grid gap-6">
+      <div class="mb-4 grid grid-cols-1 gap-6">
         <app-section-card
           title="Budget Rule Breakdown"
           description="Spending by Needs / Wants / Savings / Growth / Buffer"
@@ -249,7 +249,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       </div>
 
       <!-- Category Breakdown -->
-      <div class="grid gap-6">
+      <div class="grid grid-cols-1 gap-6">
         <app-section-card
           title="Category Breakdown"
           description="How each category compares to its limit"

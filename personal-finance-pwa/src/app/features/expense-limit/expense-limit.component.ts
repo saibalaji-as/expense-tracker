@@ -92,9 +92,9 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-6">
+    <div>
       <!-- Page header -->
-      <div>
+      <div class="mb-4">
         <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Expense Limits</h1>
         <p class="mt-1 text-sm text-muted-foreground">
           Set how your monthly income should be allocated across categories.

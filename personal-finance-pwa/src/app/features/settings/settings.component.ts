@@ -49,7 +49,7 @@ interface BeforeInstallPromptEvent extends Event {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-8">
+    <div class="grid grid-cols-1 gap-6">
       <!-- Page header -->
       <div>
         <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Settings</h1>
@@ -112,7 +112,7 @@ interface BeforeInstallPromptEvent extends Event {
 
         <p class="text-xs text-muted-foreground">
           Found in your spreadsheet URL:
-          <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit</code>
+          <code class="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit</code>
         </p>
 
         <div class="mt-3 flex flex-col gap-2 sm:flex-row">

@@ -42,16 +42,15 @@ import {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-6">
-
+    <div>
       <!-- Page header row -->
-      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
           <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Dashboard</h1>
           <p class="mt-1 text-sm text-muted-foreground">A snapshot of your financial health.</p>
         </div>
         <!-- Quick-stat chips -->
-        <div class="flex flex-wrap gap-2">
+        <div class="grid grid-cols-3 gap-3">
           <div class="glass-card px-4 py-2.5">
             <p class="text-[10px] uppercase tracking-widest text-muted-foreground">Today</p>
             <p class="text-sm font-semibold tabular-nums">{{ todaySpend() | currencyFormat }}</p>
@@ -68,7 +67,7 @@ import {
       </div>
 
       <!-- 4-chart grid -->
-      <div class="grid gap-6 md:grid-cols-2">
+      <div class="mb-4 grid grid-cols-1 gap-6 md:grid-cols-2">
 
         <!-- Year-to-date Daily Expenses -->
         <app-section-card
