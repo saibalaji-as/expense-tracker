@@ -11,12 +11,14 @@ const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 // Scopes required for Google Sheets API access
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
-const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+// Use full drive scope to allow access to shared files (required for family mode partner access)
+// drive.file scope only allows access to files created by the app, not shared files
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 // Always request all required scopes — drive.appdata for config file,
-// drive.file for family shared backup, spreadsheets for Sheets import.
-const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_FILE_SCOPE}`;
-const SCOPE_VERSION = '5'; // v5 = all three scopes always
+// drive for family shared backup (includes shared file access), spreadsheets for Sheets import.
+const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
+const SCOPE_VERSION = '6'; // v6 = full drive scope instead of drive.file
 
 export function computeScopes(_mode: BackupMode | null): string {
   return ALL_SCOPES;
@@ -182,7 +184,7 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async #nativeSignIn(): Promise<void> {
-    const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_FILE_SCOPE];
+    const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
 
     const result = await SocialLogin.login({
       provider: 'google',
