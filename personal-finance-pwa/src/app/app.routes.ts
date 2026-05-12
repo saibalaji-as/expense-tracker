@@ -56,6 +56,7 @@ export const routes: Routes = [
       import('./features/mode-selection/mode-selection.component').then(
         (m) => m.ModeSelectionComponent
       ),
+    canActivate: [authGuard],
   },
   {
     path: 'family-setup',
@@ -63,6 +64,7 @@ export const routes: Routes = [
       import('./features/family-setup/family-setup.component').then(
         (m) => m.FamilySetupComponent
       ),
+    canActivate: [authGuard],
   },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },

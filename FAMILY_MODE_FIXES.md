@@ -41,7 +41,21 @@
 
 ---
 
-### 3. ✅ Enhanced Debug Logging
+### 3. ✅ Config Not Saving (No Config File ID)
+**Problem**: Partner could access family-setup without being authenticated, causing "No config file ID — cannot save to Drive" errors.
+
+**Root Cause**: The `family-setup` and `mode-select` routes had no auth guard, allowing unauthenticated access. The config file is only created after sign-in when `loadFromDrive()` is called.
+
+**Solution**: Added `authGuard` to both `family-setup` and `mode-select` routes.
+
+**Files Changed**:
+- `app.routes.ts`: Added `canActivate: [authGuard]` to both routes
+
+**Impact**: Users must sign in before accessing these routes, ensuring config file exists before trying to save.
+
+---
+
+### 4. ✅ Enhanced Debug Logging
 **Problem**: Hard to diagnose data loading issues.
 
 **Solution**: Added comprehensive console logging to track:
@@ -55,7 +69,26 @@
 
 ---
 
-## How the Config System Works
+## Correct Partner Setup Flow
+
+### First Time Setup (New Partner):
+1. Partner opens the app
+2. **Sign in with Google** (auth/callback page)
+3. After sign-in, redirected to **Mode Selection** (because mode is null)
+4. Select **"Family / Shared"**
+5. Select **"I am a Partner"**
+6. **Enter the File ID** shared by owner
+7. Click **"Connect"**
+8. Config is saved to Drive ✅
+9. Redirected to app with data ✅
+
+### Subsequent Sign-ins (Returning Partner):
+1. Partner opens the app
+2. **Sign in with Google**
+3. Config is loaded from Drive (mode: family, sharedFileId: xxx)
+4. **Directly to app** with data ✅
+
+---
 
 ### Config File Location
 Each user has their own `spenza-config.json` file stored in their Google Drive `appDataFolder`:
@@ -211,12 +244,17 @@ When a user signs in:
    - Added `setMode('family')` in `onOwnerReuseExisting()`
    - Added `setMode('family')` in `#createAndFinish()`
 
-3. **expense-store.service.ts**
+3. **app.routes.ts**
+   - Added `canActivate: [authGuard]` to `mode-select` route
+   - Added `canActivate: [authGuard]` to `family-setup` route
+
+4. **expense-store.service.ts**
    - Enhanced debug logging in `loadFromDrive()`
 
-4. **Documentation**
+5. **Documentation**
    - Created `debug-family-mode.md`
    - Created `FAMILY_MODE_FIXES.md` (this file)
+   - Created `verify-family-mode.js`
 
 ---
 
