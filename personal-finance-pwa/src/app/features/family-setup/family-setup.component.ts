@@ -213,6 +213,7 @@ export class FamilySetupComponent {
   async onOwnerReuseExisting(): Promise<void> {
     const fileId = this.existingFileFound();
     if (!fileId) return;
+    await this.backupModeService.setMode('family');
     await this.backupModeService.setSharedFileId(fileId);
     await this.backupModeService.setOwnerRole('owner');
     this.createdFileId.set(fileId);
@@ -241,6 +242,8 @@ export class FamilySetupComponent {
     try {
       // Validate by reading the file
       await this.googleDriveService.readBackupFile(fileId);
+      // Set mode first, then shared file ID and role
+      await this.backupModeService.setMode('family');
       await this.backupModeService.setSharedFileId(fileId);
       await this.backupModeService.setOwnerRole('partner');
       await this.router.navigate(['/daily']);
@@ -299,6 +302,7 @@ export class FamilySetupComponent {
       console.warn('[FamilySetup] Could not copy private backup to shared file:', err);
     }
 
+    await this.backupModeService.setMode('family');
     await this.backupModeService.setSharedFileId(newFileId);
     await this.backupModeService.setOwnerRole('owner');
     this.createdFileId.set(newFileId);

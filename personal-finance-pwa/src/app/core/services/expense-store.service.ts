@@ -351,13 +351,26 @@ export const ExpenseStore = signalStore(
             }
             console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId);
             const doc = await googleDriveService.readBackupFile(fileId);
-            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
+            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length, '| monthlyIncome:', doc.metadata.monthlyIncome);
+            console.log('[ExpenseStore] loadFromDrive — document structure:', {
+              version: doc.version,
+              lastUpdated: doc.lastUpdated,
+              hasExpenses: doc.expenses.length > 0,
+              hasLimits: doc.limits.length > 0,
+              currency: doc.metadata.currency
+            });
             patchState(store, {
               entries: doc.expenses,
               limits: doc.limits,
               monthlyIncome: doc.metadata.monthlyIncome,
               driveFileId: fileId,
               syncStatus: 'idle',
+            });
+            console.log('[ExpenseStore] loadFromDrive — state updated. Store now has:', {
+              entriesCount: store.entries().length,
+              limitsCount: store.limits().length,
+              monthlyIncome: store.monthlyIncome(),
+              driveFileId: store.driveFileId()
             });
             console.log('[ExpenseStore] loadFromDrive — done (family backup loaded)');
           } else {
