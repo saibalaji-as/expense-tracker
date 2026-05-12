@@ -1,5 +1,37 @@
 <app-offline-banner />
 <app-toast />
-<app-shell>
-  <router-outlet />
-</app-shell>
+
+@if (isLoading() || loadingError()) {
+  <div class="loading-screen" [class.fade-out]="!isLoading() && !loadingError()">
+    <div class="loading-content">
+      <!-- Logo -->
+      <div class="logo-container">
+        <svg class="logo" viewBox="0 0 100 100" aria-label="Spenza Logo">
+          <circle cx="50" cy="50" r="45" class="logo-circle" />
+          <path d="M30,50 Q50,30 70,50 T70,70" class="logo-accent" />
+        </svg>
+      </div>
+      
+      <!-- App Name -->
+      <h1 class="app-name">Spenza</h1>
+      
+      <!-- Loading State -->
+      @if (isLoading() && !loadingError()) {
+        <div class="spinner"></div>
+        <p class="status-text">Loading your data…</p>
+      }
+      
+      <!-- Error State -->
+      @if (loadingError()) {
+        <p class="error-text">{{ loadingError() }}</p>
+        <button class="retry-button" (click)="retryLoading()">
+          Retry
+        </button>
+      }
+    </div>
+  </div>
+} @else {
+  <app-shell>
+    <router-outlet />
+  </app-shell>
+}

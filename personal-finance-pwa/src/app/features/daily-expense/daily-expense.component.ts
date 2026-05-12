@@ -28,6 +28,7 @@ import {
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
+import { StorageService } from '../../core/services/storage.service';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models';
 import { CurrencyFormatPipe } from '../../shared/pipes/currency-format.pipe';
@@ -695,6 +696,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly expenseStore = inject(ExpenseStore);
   readonly syncService = inject(SyncService);
   private readonly fb = inject(FormBuilder);
+  private readonly storageService = inject(StorageService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
@@ -930,7 +932,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private offlineToastTimer?: ReturnType<typeof setTimeout>;
 
   // ─── Type-selection logic ─────────────────────────────────────────────────
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
     const expenseTypeControl = this.form.get('expenseType');
     const limitControl = this.form.get('limit');
 
@@ -958,23 +960,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       });
     }
 
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    this.expenseStore.loadMonth(currentMonth).catch(err => {
-      console.error('[DailyExpense] Failed to load month:', err);
-    });
-
-    // Load previous month data for overspending checks
-    const lastMonth = this.getPreviousMonth();
-    this.expenseStore.loadMonth(lastMonth, false).catch(err => {
-      console.error('[DailyExpense] Failed to load previous month:', err);
-    });
-
-    const sheetId = typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
-    if (sheetId && (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)) {
-      this.expenseStore.loadLimits().catch(err => {
-        console.error('Failed to load limits:', err);
-      });
-    }
+    // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
   }
 
   ngOnDestroy(): void {
@@ -1276,23 +1262,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     // Load the month if not already loaded
     const month = newDate.slice(0, 7); // YYYY-MM
     if (month !== this.expenseStore.selectedMonth()) {
-      this.expenseStore.loadMonth(month).catch(err => {
-        console.error('[DailyExpense] Failed to load month:', err);
-      });
+      // Data is already in the store from Drive bootstrap; just update the selected month filter
+      this.expenseStore.setSelectedMonth(month);
     }
   }
 
   goToToday(): void {
     const today = new Date().toISOString().slice(0, 10);
     this.selectedDate.set(today);
-    
-    // Ensure current month is loaded
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    if (currentMonth !== this.expenseStore.selectedMonth()) {
-      this.expenseStore.loadMonth(currentMonth).catch(err => {
-        console.error('[DailyExpense] Failed to load current month:', err);
-      });
-    }
   }
 
   // ─── Voice recording ──────────────────────────────────────────────────────

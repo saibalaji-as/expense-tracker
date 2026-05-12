@@ -463,3 +463,248 @@ describe('SettingsComponent — Task 7.1: interval picker removed (Requirements 
     expect(source).not.toContain('isEditingInterval');
   });
 });
+
+
+// ─── Task 12.3: Mode switch flow ─────────────────────────────────────────────
+//
+// Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 13.1, 13.2, 13.3, 13.4, 13.5
+//
+// These tests mirror the mode switch logic from SettingsComponent using pure
+// function mirrors to avoid Angular JIT compilation issues in Vitest.
+
+type BackupMode = 'single' | 'family' | null;
+type OwnerRole = 'owner' | 'partner' | null;
+
+interface ModeSwitchState {
+  isSwitchModeModalOpen: boolean;
+  isOwnerSwitchWarningOpen: boolean;
+  executeModeSwitch: boolean; // tracks whether #executeModeSwitch was called
+}
+
+/**
+ * Mirrors SettingsComponent.onSwitchBackupMode()
+ */
+function onSwitchBackupMode(state: ModeSwitchState): void {
+  state.isSwitchModeModalOpen = true;
+}
+
+/**
+ * Mirrors SettingsComponent.onSwitchModeCancelled()
+ */
+function onSwitchModeCancelled(state: ModeSwitchState): void {
+  state.isSwitchModeModalOpen = false;
+}
+
+/**
+ * Mirrors SettingsComponent.onSwitchModeConfirmed()
+ * Requirement 13.5: secondary warning only shown when mode=family, role=owner, AND sharedFileId is non-null
+ */
+function onSwitchModeConfirmed(
+  state: ModeSwitchState,
+  mode: BackupMode,
+  ownerRole: OwnerRole,
+  sharedFileId: string | null
+): void {
+  state.isSwitchModeModalOpen = false;
+  if (mode === 'family' && ownerRole === 'owner' && !!sharedFileId) {
+    state.isOwnerSwitchWarningOpen = true;
+  } else {
+    state.executeModeSwitch = true;
+  }
+}
+
+/**
+ * Mirrors SettingsComponent.onOwnerSwitchWarningCancelled()
+ */
+function onOwnerSwitchWarningCancelled(state: ModeSwitchState): void {
+  state.isOwnerSwitchWarningOpen = false;
+}
+
+/**
+ * Mirrors SettingsComponent.onOwnerSwitchWarningConfirmed()
+ */
+function onOwnerSwitchWarningConfirmed(state: ModeSwitchState): void {
+  state.isOwnerSwitchWarningOpen = false;
+  state.executeModeSwitch = true;
+}
+
+function makeState(): ModeSwitchState {
+  return { isSwitchModeModalOpen: false, isOwnerSwitchWarningOpen: false, executeModeSwitch: false };
+}
+
+describe('SettingsComponent — Task 12.3: mode switch flow', () => {
+
+  // Requirement 8.2: "Switch backup mode" button opens primary confirmation dialog
+  it('onSwitchBackupMode opens the primary confirmation modal', () => {
+    const state = makeState();
+    onSwitchBackupMode(state);
+    expect(state.isSwitchModeModalOpen).toBe(true);
+  });
+
+  // Requirement 8.5: cancel leaves state unchanged
+  it('onSwitchModeCancelled closes the modal without executing switch', () => {
+    const state = makeState();
+    onSwitchBackupMode(state);
+    onSwitchModeCancelled(state);
+    expect(state.isSwitchModeModalOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(false);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+  });
+
+  // Requirement 8.3 / 13.1: Owner in family mode with sharedFileId → secondary warning shown
+  it('onSwitchModeConfirmed shows secondary warning for Owner in family mode with sharedFileId', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'owner', 'file-id-123');
+    expect(state.isSwitchModeModalOpen).toBe(false);
+    expect(state.isOwnerSwitchWarningOpen).toBe(true);
+    expect(state.executeModeSwitch).toBe(false);
+  });
+
+  // Requirement 13.5: Owner in family mode with null sharedFileId → skip secondary warning
+  it('onSwitchModeConfirmed skips secondary warning when sharedFileId is null', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'owner', null);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Requirement 13.5: Owner in family mode with empty sharedFileId → skip secondary warning
+  it('onSwitchModeConfirmed skips secondary warning when sharedFileId is empty string', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'owner', '');
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Partner in family mode → no secondary warning, execute immediately
+  it('onSwitchModeConfirmed executes switch immediately for Partner in family mode', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'partner', 'file-id-123');
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Single user mode → no secondary warning, execute immediately
+  it('onSwitchModeConfirmed executes switch immediately for single user mode', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'single', null, null);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Requirement 13.4: Owner can cancel secondary warning and remain in family mode
+  it('onOwnerSwitchWarningCancelled closes warning without executing switch', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'owner', 'file-id-123');
+    expect(state.isOwnerSwitchWarningOpen).toBe(true);
+    onOwnerSwitchWarningCancelled(state);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(false);
+  });
+
+  // Requirement 13.3: After secondary warning confirmed, execute mode switch
+  it('onOwnerSwitchWarningConfirmed executes mode switch', () => {
+    const state = makeState();
+    onSwitchModeConfirmed(state, 'family', 'owner', 'file-id-123');
+    onOwnerSwitchWarningConfirmed(state);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Property test: secondary warning shown iff mode=family AND role=owner AND sharedFileId non-null
+  it('property: secondary warning condition is exactly mode=family AND role=owner AND sharedFileId non-null', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<BackupMode>('single', 'family', null),
+        fc.constantFrom<OwnerRole>('owner', 'partner', null),
+        fc.oneof(fc.constant(null), fc.constant(''), fc.string({ minLength: 1, maxLength: 30 })),
+        (mode, ownerRole, sharedFileId) => {
+          const state = makeState();
+          onSwitchModeConfirmed(state, mode, ownerRole, sharedFileId);
+
+          const shouldShowWarning = mode === 'family' && ownerRole === 'owner' && !!sharedFileId;
+          expect(state.isOwnerSwitchWarningOpen).toBe(shouldShowWarning);
+          expect(state.executeModeSwitch).toBe(!shouldShowWarning);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  // Requirement 8.4: full flow — confirm primary + confirm secondary → execute switch
+  it('full flow: primary confirm → secondary confirm → execute switch', () => {
+    const state = makeState();
+    onSwitchBackupMode(state);
+    expect(state.isSwitchModeModalOpen).toBe(true);
+
+    onSwitchModeConfirmed(state, 'family', 'owner', 'file-id-abc');
+    expect(state.isSwitchModeModalOpen).toBe(false);
+    expect(state.isOwnerSwitchWarningOpen).toBe(true);
+
+    onOwnerSwitchWarningConfirmed(state);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(true);
+  });
+
+  // Requirement 8.5: full flow — cancel at primary → no switch
+  it('full flow: primary cancel → no switch, no secondary warning', () => {
+    const state = makeState();
+    onSwitchBackupMode(state);
+    onSwitchModeCancelled(state);
+    expect(state.isSwitchModeModalOpen).toBe(false);
+    expect(state.isOwnerSwitchWarningOpen).toBe(false);
+    expect(state.executeModeSwitch).toBe(false);
+  });
+
+  // Requirement 13.4: full flow — confirm primary → cancel secondary → no switch
+  it('full flow: primary confirm → secondary cancel → no switch', () => {
+    const state = makeState();
+    onSwitchBackupMode(state);
+    onSwitchModeConfirmed(state, 'family', 'owner', 'file-id-abc');
+    onOwnerSwitchWarningCancelled(state);
+    expect(state.executeModeSwitch).toBe(false);
+  });
+});
+
+// ─── Source-level check: sharedFileId guard is present ───────────────────────
+
+describe('SettingsComponent — Task 12.3: source-level checks', () => {
+  let source: string;
+  source = readSettingsComponentSource();
+
+  it('onSwitchModeConfirmed checks sharedFileId before showing secondary warning', () => {
+    // The condition must include sharedFileId check (Requirement 13.5)
+    expect(source).toContain('sharedFileId()');
+  });
+
+  it('secondary warning modal is present in template', () => {
+    expect(source).toContain('isOwnerSwitchWarningOpen()');
+    expect(source).toContain('onOwnerSwitchWarningConfirmed()');
+    expect(source).toContain('onOwnerSwitchWarningCancelled()');
+  });
+
+  it('primary confirmation modal is present in template', () => {
+    expect(source).toContain('isSwitchModeModalOpen()');
+    expect(source).toContain('onSwitchModeConfirmed()');
+    expect(source).toContain('onSwitchModeCancelled()');
+  });
+
+  it('#executeModeSwitch calls clearAll, signOut, and navigates to /auth/callback', () => {
+    expect(source).toContain('clearAll()');
+    expect(source).toContain('signOut()');
+    expect(source).toContain('/auth/callback');
+  });
+
+  it('secondary warning contains the correct partner access message', () => {
+    expect(source).toContain('Your partner can still access the shared file until you remove their access in Google Drive.');
+  });
+
+  it('secondary warning contains Open file in Google Drive link', () => {
+    expect(source).toContain('Open file in Google Drive');
+    expect(source).toContain('drive.google.com/file/d/');
+  });
+
+  it('primary confirmation contains the correct warning message', () => {
+    expect(source).toContain('Switching modes will disconnect you from your current backup. Your existing data will not be deleted from Google Drive. Continue?');
+  });
+});

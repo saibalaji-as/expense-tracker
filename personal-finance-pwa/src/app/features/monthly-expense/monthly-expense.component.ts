@@ -17,6 +17,7 @@ import {
   ArrowUpRight,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
+import { StorageService } from '../../core/services/storage.service';
 import { ChartBaseComponent, SectionCardComponent, CategoryIconComponent, SparklineComponent } from '../../shared/components';
 import { CurrencyFormatPipe } from '../../shared/pipes';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
@@ -298,6 +299,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
 })
 export class MonthlyExpenseComponent implements OnInit {
   readonly expenseStore = inject(ExpenseStore);
+  private readonly storageService = inject(StorageService);
 
   /** Expose CATEGORY_DEFS for template iteration */
   readonly categoryDefs = CATEGORY_DEFS;
@@ -483,39 +485,16 @@ export class MonthlyExpenseComponent implements OnInit {
     });
   });
 
-  ngOnInit(): void {
-    // Load current month
-    this.expenseStore.loadMonth(this.selectedMonth());
-    
-    // Load previous month for trend calculation (don't update selectedMonth)
-    this.expenseStore.loadMonth(this.previousMonth(), false).catch(err => {
-      console.log('[MonthlyExpense] Previous month data not available:', err);
-    });
-
-    const sheetId = typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
-    if (sheetId && (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)) {
-      this.expenseStore.loadLimits().catch(err => {
-        console.error('Failed to load limits:', err);
-      });
-    }
+  async ngOnInit(): Promise<void> {
+    // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
   }
 
   prevMonth(): void {
     this.monthOffset.update(o => o - 1);
-    this.expenseStore.loadMonth(this.selectedMonth());
-    // Load previous month for trend (don't update selectedMonth)
-    this.expenseStore.loadMonth(this.previousMonth(), false).catch(err => {
-      console.log('[MonthlyExpense] Previous month data not available:', err);
-    });
   }
 
   nextMonth(): void {
     this.monthOffset.update(o => o + 1);
-    this.expenseStore.loadMonth(this.selectedMonth());
-    // Load previous month for trend (don't update selectedMonth)
-    this.expenseStore.loadMonth(this.previousMonth(), false).catch(err => {
-      console.log('[MonthlyExpense] Previous month data not available:', err);
-    });
   }
 
   /** Sum of all entries for a given category ID */

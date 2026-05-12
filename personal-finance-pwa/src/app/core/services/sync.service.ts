@@ -2,16 +2,12 @@ import { Injectable, signal, Signal } from '@angular/core';
 import { openDB, IDBPDatabase } from 'idb';
 import { ExpenseEntry, OfflineQueueEntry } from '../models';
 import { GoogleSheetsService } from './google-sheets.service';
+import { StorageService } from './storage.service';
 
 const DB_NAME = 'pf-pwa-db';
 const STORE_NAME = 'offline-queue';
 const DB_VERSION = 1;
 const MAX_RETRY_COUNT = 5;
-
-/** Reads the spreadsheet ID saved by the user in Settings. */
-function getSheetId(): string {
-  return (typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null) ?? '';
-}
 
 @Injectable({ providedIn: 'root' })
 export class SyncService {
@@ -29,7 +25,10 @@ export class SyncService {
   /** Lazily-opened IndexedDB promise — shared across all calls. */
   private dbPromise: Promise<IDBPDatabase> | null = null;
 
-  constructor(private readonly sheetsService: GoogleSheetsService) {
+  constructor(
+    private readonly sheetsService: GoogleSheetsService,
+    private readonly storageService: StorageService,
+  ) {
     this.isOnline = this._isOnline.asReadonly();
     this.queueLength = this._queueLength.asReadonly();
 
@@ -138,7 +137,8 @@ export class SyncService {
 
   async flushQueue(): Promise<void> {
     console.log('[SyncService] flushQueue called');
-    if (!getSheetId()) {
+    const sheetId = await this.storageService.get('pf_sheet_id') ?? '';
+    if (!sheetId) {
       console.warn('[SyncService] No sheet ID configured, skipping flush');
       return;   // no sheet configured yet
     }
@@ -160,7 +160,7 @@ export class SyncService {
       // Process creates in batch
       if (createEntries.length > 0) {
         await this.sheetsService.batchUpdate(
-          getSheetId(),
+          sheetId,
           createEntries.map((e) => e.entry!)
         );
         console.log('[SyncService] Batch create successful for', createEntries.length, 'entries');
@@ -168,13 +168,13 @@ export class SyncService {
 
       // Process updates individually
       for (const updateEntry of updateEntries) {
-        await this.sheetsService.updateExpense(getSheetId(), updateEntry.entry!);
+        await this.sheetsService.updateExpense(sheetId, updateEntry.entry!);
         console.log('[SyncService] Update successful for entry:', updateEntry.entry!.id);
       }
 
       // Process deletes individually
       for (const deleteEntry of deleteEntries) {
-        await this.sheetsService.deleteExpense(getSheetId(), deleteEntry.entryId!);
+        await this.sheetsService.deleteExpense(sheetId, deleteEntry.entryId!);
         console.log('[SyncService] Delete successful for entry:', deleteEntry.entryId);
       }
 

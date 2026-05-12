@@ -13,6 +13,7 @@ import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { ExpenseStore } from '../../core/services/expense-store.service';
+import { StorageService } from '../../core/services/storage.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
 import { CurrencyFormatPipe } from '../../shared/pipes';
 import {
@@ -187,6 +188,7 @@ import {
 })
 export class DashboardComponent implements OnInit {
   readonly expenseStore = inject(ExpenseStore);
+  private readonly storageService = inject(StorageService);
 
   // Chart data signals
   readonly ytdDailyData = signal<ChartData>({ datasets: [] });
@@ -274,22 +276,8 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  ngOnInit(): void {
-    // Load current month data if not already loaded
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    this.expenseStore.loadMonth(currentMonth);
-
-    // Load limits if not already loaded and sheet is configured (needed for budget rule summary)
-    const sheetId =
-      typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
-    if (
-      sheetId &&
-      (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)
-    ) {
-      this.expenseStore.loadLimits().catch((err) => {
-        console.error('Failed to load limits:', err);
-      });
-    }
+  async ngOnInit(): Promise<void> {
+    // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
   }
 
   /**

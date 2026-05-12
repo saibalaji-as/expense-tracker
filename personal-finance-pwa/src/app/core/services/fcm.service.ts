@@ -1,12 +1,18 @@
 import { Injectable } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage, Messaging } from 'firebase/messaging';
 import { firebaseConfig } from '../config/firebase.config';
+import { environment } from '../../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class FcmService {
   private messaging: Messaging | null = null;
-  private readonly API_BASE = '/.netlify/functions';
+  // On native (Android/iOS), use the absolute Netlify URL from environment config.
+  // On web, use the relative path so local dev and Netlify deployment both work.
+  private readonly API_BASE = Capacitor.isNativePlatform()
+    ? environment.netlifyFunctionsUrl
+    : '/.netlify/functions';
 
   constructor() {
     // Only initialize in browser environment

@@ -1,5 +1,6 @@
 import { computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
+import { Subject } from 'rxjs';
 import {
   BudgetRuleSummary,
   ExpenseEntry,
@@ -7,6 +8,13 @@ import {
   METADATA_MONTHLY_INCOME,
 } from '../models';
 import { GoogleSheetsService } from './google-sheets.service';
+import { StorageService } from './storage.service';
+import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
+import { BackupModeService } from './backup-mode.service';
+
+// ─── Drive Error Subject ──────────────────────────────────────────────────────
+
+export const driveError$ = new Subject<DriveApiError | DriveParseError>();
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 
@@ -17,6 +25,7 @@ interface ExpenseState {
   selectedMonth: string; // YYYY-MM
   syncStatus: 'idle' | 'syncing' | 'error';
   isOffline: boolean;
+  driveFileId: string | null;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -24,7 +33,7 @@ interface ExpenseState {
 export const ExpenseStore = signalStore(
   { providedIn: 'root' },
 
-  // ─── Task 5.1: State ───────────────────────────────────────────────────────
+  // ─── Task 5.1 / 6.1: State ────────────────────────────────────────────────
   withState<ExpenseState>({
     entries: [],
     limits: [],
@@ -32,6 +41,7 @@ export const ExpenseStore = signalStore(
     selectedMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
     syncStatus: 'idle',
     isOffline: false,
+    driveFileId: null,
   }),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
@@ -151,38 +161,37 @@ export const ExpenseStore = signalStore(
     }),
   })),
 
-  // ─── Task 5.4 – 5.7: Methods ──────────────────────────────────────────────
-  withMethods((store, sheetsService = inject(GoogleSheetsService)) => {
-    // Read the spreadsheet ID from localStorage at store initialisation time.
-    // Updated whenever the user saves a new ID in Settings.
-    const getSheetId = (): string =>
-      (typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null) ?? '';
-
-    /** Returns true when a sheet ID has been configured. */
-    const hasSheetId = (): boolean => getSheetId().length > 0;
-
-    return {
-      // ─── Task 5.4: addEntry ──────────────────────────────────────────────
+  // ─── Task 5.4 – 5.7 / 6.2 / 6.5 / 6.7: Methods ──────────────────────────
+  withMethods((store,
+    sheetsService = inject(GoogleSheetsService),
+    storageService = inject(StorageService),
+    googleDriveService = inject(GoogleDriveService),
+    backupModeService = inject(BackupModeService),
+  ) => {
+    const methods = {
+      // ─── Task 5.4 / 6.7: addEntry ─────────────────────────────────────────
       /**
-       * Synchronously prepends a new expense entry to the in-memory store.
-       * Does not call any external service.
+       * Synchronously prepends a new expense entry to the in-memory store,
+       * then persists the updated state to Google Drive.
        */
       addEntry(entry: ExpenseEntry): void {
         patchState(store, { entries: [entry, ...store.entries()] });
+        void methods.persistToDrive();
       },
 
-      // ─── Task 5.5: loadMonth ─────────────────────────────────────────────
+      // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
       /**
        * Fetches expenses for the given month from Google Sheets, merges them
        * into the local entries (deduplicating by id), and optionally updates selectedMonth.
        */
       async loadMonth(month: string, updateSelectedMonth: boolean = true): Promise<void> {
         console.log('[ExpenseStore] loadMonth called for:', month, '| updateSelectedMonth:', updateSelectedMonth);
-        if (!hasSheetId()) {
+        const sheetId = await storageService.get('pf_sheet_id') ?? '';
+        if (!sheetId) {
           console.warn('[ExpenseStore] loadMonth - no sheet ID configured');
           return;   // no sheet configured yet
         }
-        
+
         // Only update selectedMonth if explicitly requested (not for background trend loading)
         if (updateSelectedMonth) {
           patchState(store, { syncStatus: 'syncing', selectedMonth: month });
@@ -192,9 +201,9 @@ export const ExpenseStore = signalStore(
           console.log('[ExpenseStore] loadMonth - loading data without updating selectedMonth');
         }
         console.log('[ExpenseStore] loadMonth - current entries count:', store.entries().length);
-        
+
         try {
-          const fetched = await sheetsService.readExpenses(getSheetId(), month);
+          const fetched = await sheetsService.readExpenses(sheetId, month);
           console.log('[ExpenseStore] loadMonth - fetched', fetched.length, 'entries');
 
           // Merge: build a map of existing entries by id, then overlay fetched ones
@@ -202,7 +211,7 @@ export const ExpenseStore = signalStore(
             store.entries().map((e) => [e.id, e])
           );
           console.log('[ExpenseStore] loadMonth - existing entries in map:', existingById.size);
-          
+
           for (const entry of fetched) {
             existingById.set(entry.id, entry);
           }
@@ -210,14 +219,14 @@ export const ExpenseStore = signalStore(
 
           const mergedEntries = Array.from(existingById.values());
           console.log('[ExpenseStore] loadMonth - merged total:', mergedEntries.length, 'entries');
-          console.log('[ExpenseStore] loadMonth - entries for month', month, ':', 
+          console.log('[ExpenseStore] loadMonth - entries for month', month, ':',
             mergedEntries.filter(e => e.date.startsWith(month)).length);
 
           patchState(store, {
             entries: mergedEntries,
             syncStatus: 'idle',
           });
-          
+
           console.log('[ExpenseStore] loadMonth - state updated, entries count:', store.entries().length);
         } catch (err) {
           console.error('[ExpenseStore] loadMonth - error:', err);
@@ -225,22 +234,23 @@ export const ExpenseStore = signalStore(
         }
       },
 
-      // ─── Task 5.6: loadLimits ────────────────────────────────────────────
+      // ─── Task 5.6: loadLimits ─────────────────────────────────────────────
       /**
        * Fetches expense limits and metadata (monthly income) from Google Sheets
        * and updates the store state.
        */
       async loadLimits(): Promise<void> {
         console.log('[ExpenseStore] loadLimits called');
-        if (!hasSheetId()) {
+        const sheetId = await storageService.get('pf_sheet_id') ?? '';
+        if (!sheetId) {
           console.warn('[ExpenseStore] loadLimits - no sheet ID configured');
           return;   // no sheet configured yet
         }
-        console.log('[ExpenseStore] loadLimits - fetching from sheet:', getSheetId());
+        console.log('[ExpenseStore] loadLimits - fetching from sheet:', sheetId);
         try {
           const [limits, metadata] = await Promise.all([
-            sheetsService.readLimits(getSheetId()),
-            sheetsService.readMetadata(getSheetId()),
+            sheetsService.readLimits(sheetId),
+            sheetsService.readMetadata(sheetId),
           ]);
 
           const monthlyIncome = parseFloat(metadata[METADATA_MONTHLY_INCOME] ?? '0') || 0;
@@ -253,7 +263,7 @@ export const ExpenseStore = signalStore(
         }
       },
 
-      // ─── Task 5.7: clearLocalData ────────────────────────────────────────
+      // ─── Task 5.7: clearLocalData ─────────────────────────────────────────
       /**
        * Resets all local state to its initial empty values.
        */
@@ -267,34 +277,169 @@ export const ExpenseStore = signalStore(
       },
 
       /**
+       * Updates the selected month filter without making any remote API calls.
+       */
+      setSelectedMonth(month: string): void {
+        patchState(store, { selectedMonth: month });
+      },
+
+      /**
+       * Bulk-imports data from a Google Sheets migration.
+       * Sets all entries, limits, and income in one patchState, then persists
+       * to Drive once — avoids N individual write calls.
+       */
+      importFromSheets(entries: ExpenseEntry[], limits: ExpenseLimit[], monthlyIncome: number): void {
+        patchState(store, { entries, limits, monthlyIncome });
+        void methods.persistToDrive();
+      },
+
+      /**
        * Directly updates limits and monthly income in the store
-       * without making any remote API calls.
+       * without making any remote API calls, then persists to Drive.
        */
       setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): void {
         patchState(store, { limits, monthlyIncome });
+        void methods.persistToDrive();
       },
 
-      // ─── Delete Entry ────────────────────────────────────────────────────
+      // ─── Task 6.7: deleteEntry ────────────────────────────────────────────
       /**
-       * Removes an expense entry from the in-memory store by its ID.
-       * Does not call any external service.
+       * Removes an expense entry from the in-memory store by its ID,
+       * then persists the updated state to Google Drive.
        */
       deleteEntry(entryId: string): void {
         const updatedEntries = store.entries().filter((e) => e.id !== entryId);
         patchState(store, { entries: updatedEntries });
+        void methods.persistToDrive();
       },
 
-      // ─── Update Entry ────────────────────────────────────────────────────
+      // ─── Task 6.7: updateEntry ────────────────────────────────────────────
       /**
-       * Updates an existing expense entry in the in-memory store.
-       * Does not call any external service.
+       * Updates an existing expense entry in the in-memory store,
+       * then persists the updated state to Google Drive.
        */
       updateEntry(updatedEntry: ExpenseEntry): void {
         const updatedEntries = store.entries().map((e) =>
           e.id === updatedEntry.id ? updatedEntry : e
         );
         patchState(store, { entries: updatedEntries });
+        void methods.persistToDrive();
+      },
+
+      // ─── Task 6.2: loadFromDrive ──────────────────────────────────────────
+      /**
+       * Bootstraps the store from Google Drive. In family mode, reads directly
+       * from the shared file ID. In single/null mode, uses the find-or-create
+       * flow against appDataFolder.
+       */
+      async loadFromDrive(): Promise<void> {
+        console.log('[ExpenseStore] loadFromDrive — start');
+        patchState(store, { syncStatus: 'syncing' });
+
+        const mode = backupModeService.getMode();
+        console.log('[ExpenseStore] loadFromDrive — mode:', mode);
+
+        try {
+          if (mode === 'family') {
+            // Family mode: read directly from the shared file ID — no find/create
+            const fileId = backupModeService.getSharedFileId();
+            if (!fileId) {
+              console.warn('[ExpenseStore] loadFromDrive — family mode but no sharedFileId, emitting FAMILY_SETUP_INCOMPLETE');
+              patchState(store, { syncStatus: 'error' });
+              driveError$.next({ status: 0, message: 'FAMILY_SETUP_INCOMPLETE', operation: 'loadFromDrive' } as DriveApiError);
+              return;
+            }
+            console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId);
+            const doc = await googleDriveService.readBackupFile(fileId);
+            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
+            patchState(store, {
+              entries: doc.expenses,
+              limits: doc.limits,
+              monthlyIncome: doc.metadata.monthlyIncome,
+              driveFileId: fileId,
+              syncStatus: 'idle',
+            });
+            console.log('[ExpenseStore] loadFromDrive — done (family backup loaded)');
+          } else {
+            // Single user mode (or null): existing find-or-create flow using appDataFolder
+            console.log('[ExpenseStore] loadFromDrive — single mode, calling findBackupFile...');
+            let fileId = await googleDriveService.findBackupFile();
+            console.log('[ExpenseStore] loadFromDrive — findBackupFile result:', fileId);
+
+            if (fileId === null) {
+              console.log('[ExpenseStore] loadFromDrive — no backup found, creating new file...');
+              fileId = await googleDriveService.createBackupFile();
+              console.log('[ExpenseStore] loadFromDrive — created backup file, id:', fileId);
+              patchState(store, {
+                entries: [],
+                limits: [],
+                monthlyIncome: 0,
+                driveFileId: fileId,
+                syncStatus: 'idle',
+              });
+              console.log('[ExpenseStore] loadFromDrive — done (new empty backup)');
+              return;
+            }
+
+            console.log('[ExpenseStore] loadFromDrive — reading backup file...');
+            const doc = await googleDriveService.readBackupFile(fileId);
+            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
+            patchState(store, {
+              entries: doc.expenses,
+              limits: doc.limits,
+              monthlyIncome: doc.metadata.monthlyIncome,
+              driveFileId: fileId,
+              syncStatus: 'idle',
+            });
+            console.log('[ExpenseStore] loadFromDrive — done (existing backup loaded)');
+          }
+        } catch (err) {
+          console.error('[ExpenseStore] loadFromDrive — ERROR:', err);
+          patchState(store, { syncStatus: 'error' });
+          driveError$.next(err as DriveApiError | DriveParseError);
+        }
+      },
+
+      // ─── Task 5.1: patchDriveFileId ──────────────────────────────────────
+      /**
+       * Updates the driveFileId in store state after a file rotation.
+       * Called by SettingsComponent after creating a new shared file.
+       */
+      patchDriveFileId(newFileId: string): void {
+        patchState(store, { driveFileId: newFileId });
+      },
+
+      // ─── Task 6.5: persistToDrive ─────────────────────────────────────────
+      /**
+       * Serializes the current store state and writes it to the Drive backup
+       * file. No-op if driveFileId has not yet been set (i.e., loadFromDrive
+       * has not completed).
+       */
+      async persistToDrive(): Promise<void> {
+        const fileId = store.driveFileId();
+        if (!fileId) {
+          console.warn('[ExpenseStore] persistToDrive called before driveFileId is set — skipping');
+          return;
+        }
+        try {
+          const doc = {
+            version: '1.0',
+            lastUpdated: new Date().toISOString(),
+            metadata: {
+              monthlyIncome: store.monthlyIncome(),
+              currency: 'INR',
+            },
+            expenses: store.entries(),
+            limits: store.limits(),
+          };
+          await googleDriveService.writeBackupFile(fileId, doc);
+        } catch (err) {
+          patchState(store, { syncStatus: 'error' });
+          driveError$.next(err as DriveApiError | DriveParseError);
+        }
       },
     };
+
+    return methods;
   })
 );

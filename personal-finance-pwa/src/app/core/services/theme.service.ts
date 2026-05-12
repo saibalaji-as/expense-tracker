@@ -1,4 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { StorageService } from './storage.service';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
@@ -17,15 +18,9 @@ export class ThemeService {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
-  constructor() {
-    // Load persisted preference from localStorage
-    const saved = localStorage.getItem('pf-theme') as 'light' | 'dark' | 'system' | null;
-    if (saved === 'light' || saved === 'dark' || saved === 'system') {
-      this._theme.set(saved);
-    }
-
-    // Apply theme immediately on init
-    this.applyTheme();
+  constructor(private readonly storageService: StorageService) {
+    // Restore persisted preference asynchronously
+    this.#restoreTheme();
 
     // Listen for system color scheme changes and re-apply when in 'system' mode
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -36,11 +31,23 @@ export class ThemeService {
   }
 
   /**
-   * Updates the theme preference, persists it to localStorage, and applies it.
+   * Restores the persisted theme from storage and applies it.
+   * Defaults to 'system' when the stored value is absent or unrecognised.
    */
-  setTheme(t: 'light' | 'dark' | 'system'): void {
+  async #restoreTheme(): Promise<void> {
+    const saved = await this.storageService.get('pf-theme');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') {
+      this._theme.set(saved);
+    }
+    this.applyTheme();
+  }
+
+  /**
+   * Updates the theme preference, persists it to storage, and applies it.
+   */
+  async setTheme(t: 'light' | 'dark' | 'system'): Promise<void> {
     this._theme.set(t);
-    localStorage.setItem('pf-theme', t);
+    await this.storageService.set('pf-theme', t);
     this.applyTheme();
   }
 

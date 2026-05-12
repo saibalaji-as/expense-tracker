@@ -340,18 +340,21 @@ describe('Property 12: Budget Rule Category Proportions', () => {
           let expectedNeeds = 0;
           let expectedWants = 0;
           let expectedSavings = 0;
+          let expectedGrowth = 0;
 
           for (const entry of monthEntries) {
             const limit = limits.find(l => l.type === entry.type);
             const category = limit?.category ?? 'Buffer';
             if (category === 'Needs') expectedNeeds += entry.amount;
             else if (category === 'Wants') expectedWants += entry.amount;
-            else if (category === 'Savings' || category === 'Growth') expectedSavings += entry.amount;
+            else if (category === 'Savings') expectedSavings += entry.amount;
+            else if (category === 'Growth') expectedGrowth += entry.amount;
           }
 
           expect(summary.needsTotal).toBeCloseTo(expectedNeeds, 3);
           expect(summary.wantsTotal).toBeCloseTo(expectedWants, 3);
           expect(summary.savingsTotal).toBeCloseTo(expectedSavings, 3);
+          expect(summary.growthTotal).toBeCloseTo(expectedGrowth, 3);
         }
       ),
       { numRuns: 100 }

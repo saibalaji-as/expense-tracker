@@ -50,6 +50,20 @@ export const routes: Routes = [
         (m) => m.AuthCallbackComponent
       ),
   },
+  {
+    path: 'mode-select',
+    loadComponent: () =>
+      import('./features/mode-selection/mode-selection.component').then(
+        (m) => m.ModeSelectionComponent
+      ),
+  },
+  {
+    path: 'family-setup',
+    loadComponent: () =>
+      import('./features/family-setup/family-setup.component').then(
+        (m) => m.FamilySetupComponent
+      ),
+  },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },
 ];

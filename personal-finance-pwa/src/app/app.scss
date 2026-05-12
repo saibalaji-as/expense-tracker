@@ -1,0 +1,172 @@
+// Enhanced Loading Screen Styles
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: var(--background);
+  background-image: var(--gradient-mesh);
+  transition: opacity 300ms ease-out;
+  
+  &.fade-out {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  max-width: 400px;
+  text-align: center;
+}
+
+.logo-container {
+  width: 5rem;
+  height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 4px 12px var(--primary-glow));
+  
+  .logo-circle {
+    fill: var(--logo-primary);
+    stroke: var(--logo-primary-glow);
+    stroke-width: 2;
+  }
+  
+  .logo-accent {
+    fill: none;
+    stroke: var(--logo-accent);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+}
+
+.app-name {
+  font-size: 2rem;
+  font-weight: 700;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.spinner {
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid transparent;
+  border-top-color: var(--primary);
+  border-right-color: var(--primary-glow);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 0.01ms;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-text {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.error-text {
+  font-size: 0.9375rem;
+  color: var(--destructive);
+  margin: 0;
+  font-weight: 500;
+}
+
+.retry-button {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  background-color: color-mix(in oklab, var(--card) 40%, transparent);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+  
+  &:hover {
+    border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+  }
+  
+  &:active {
+    border-color: var(--primary);
+  }
+  
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+// Responsive adjustments for mobile (320px-768px)
+@media (max-width: 768px) {
+  .loading-content {
+    gap: 1.25rem;
+    padding: 1.5rem;
+  }
+  
+  .logo-container {
+    width: 4rem;
+    height: 4rem;
+  }
+  
+  .app-name {
+    font-size: 1.75rem;
+  }
+  
+  .spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}
+
+// Responsive adjustments for desktop (769px and above)
+@media (min-width: 769px) {
+  .loading-content {
+    gap: 1.5rem;
+    padding: 2rem;
+  }
+  
+  .logo-container {
+    width: 5rem;
+    height: 5rem;
+  }
+  
+  .app-name {
+    font-size: 2rem;
+  }
+  
+  .spinner {
+    width: 3rem;
+    height: 3rem;
+  }
+}

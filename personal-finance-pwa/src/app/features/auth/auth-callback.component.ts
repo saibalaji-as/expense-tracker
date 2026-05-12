@@ -13,6 +13,8 @@ import {
   Cloud,
 } from 'lucide-angular';
 import { AuthService } from '../../core/services/auth.service';
+import { ExpenseStore } from '../../core/services/expense-store.service';
+import { BackupModeService } from '../../core/services/backup-mode.service';
 
 @Component({
   selector: 'app-auth-callback',
@@ -130,6 +132,8 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class AuthCallbackComponent {
   private readonly authService = inject(AuthService);
+  private readonly expenseStore = inject(ExpenseStore);
+  private readonly backupModeService = inject(BackupModeService);
   private readonly router = inject(Router);
 
   readonly errorMessage = signal<string | null>(null);
@@ -164,6 +168,24 @@ export class AuthCallbackComponent {
 
     try {
       await this.authService.signIn();
+      await this.backupModeService.loadFromDrive();
+
+      // Check if a backup mode has been selected yet.
+      // If not (new user or after a mode switch), go to mode selection first.
+      const mode = this.backupModeService.getMode();
+      if (mode === null) {
+        await this.router.navigate(['/mode-select']);
+        return;
+      }
+
+      // Family mode with no file ID means setup is incomplete
+      if (mode === 'family' && !this.backupModeService.getSharedFileId()) {
+        await this.router.navigate(['/family-setup']);
+        return;
+      }
+
+      // Mode is set — bootstrap Drive data and navigate to the app
+      await this.expenseStore.loadFromDrive();
       await this.router.navigate(['/daily']);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Sign-in failed. Please try again.';

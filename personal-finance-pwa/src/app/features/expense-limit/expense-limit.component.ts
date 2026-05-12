@@ -26,6 +26,7 @@ import {
 import { METADATA_MONTHLY_INCOME } from '../../core/models/app-metadata.model';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
+import { StorageService } from '../../core/services/storage.service';
 import { ModalComponent } from '../../shared/components';
 import { CurrencyFormatPipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
@@ -310,6 +311,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
   private readonly sheetsService = inject(GoogleSheetsService);
   readonly expenseStore = inject(ExpenseStore);
+  private readonly storageService = inject(StorageService);
 
   readonly budgetCategories = BUDGET_CATEGORIES;
   readonly budgetGroups = BUDGET_GROUPS;
@@ -362,7 +364,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
     // Task 10.2: Subscribe to form value changes to recalculate amounts
     this.subscription = this.form.valueChanges.subscribe(() => {
       this.recalculateAmounts();
@@ -372,15 +374,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     // Populate immediately in case data is already in the store
     this.#populateFromStore();
 
-    // Load limits if not already loaded and sheet is configured
-    const sheetId = typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null;
-    console.log('[ExpenseLimitComponent] ngOnInit - sheetId:', sheetId, '| limits:', this.expenseStore.limits().length, '| income:', this.expenseStore.monthlyIncome());
-    if (sheetId && (this.expenseStore.limits().length === 0 || this.expenseStore.monthlyIncome() === 0)) {
-      console.log('[ExpenseLimitComponent] Loading limits...');
-      this.expenseStore.loadLimits().catch(err => {
-        console.error('Failed to load limits:', err);
-      });
-    }
+    // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
   }
 
   ngOnDestroy(): void {
@@ -560,22 +554,6 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
 
   private async executeSave(): Promise<void> {
     const income = Number(this.form.get('monthlyIncome')?.value) || 0;
-    const sheetId =
-      (typeof localStorage !== 'undefined' ? localStorage.getItem('pf_sheet_id') : null) ?? '';
-
-    if (!sheetId) {
-      // No sheet configured — update store only (no remote write)
-      const limits: ExpenseLimit[] = this.limitsArray.controls.map((ctrl) => ({
-        type: ctrl.get('type')?.value as string,
-        category: ctrl.get('category')?.value as BudgetCategory,
-        recommendedPercentage: Number(ctrl.get('recommendedPercentage')?.value) || 0,
-        userPercentage: Number(ctrl.get('userPercentage')?.value) || 0,
-      }));
-      this.expenseStore.setLimitsAndIncome(limits, income);
-      this.saveSuccess.set(true);
-      setTimeout(() => this.saveSuccess.set(false), 3000);
-      return;
-    }
 
     const limits: ExpenseLimit[] = this.limitsArray.controls.map((ctrl) => ({
       type: ctrl.get('type')?.value as string,
@@ -584,14 +562,9 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
       userPercentage: Number(ctrl.get('userPercentage')?.value) || 0,
     }));
 
-    try {
-      await this.sheetsService.writeLimits(sheetId, limits);
-      await this.sheetsService.writeMetadata(sheetId, METADATA_MONTHLY_INCOME, income.toString());
-      this.expenseStore.setLimitsAndIncome(limits, income);
-      this.saveSuccess.set(true);
-      setTimeout(() => this.saveSuccess.set(false), 3000);
-    } catch {
-      // Error is emitted on apiError$ and handled globally
-    }
+    // setLimitsAndIncome automatically persists to Google Drive
+    this.expenseStore.setLimitsAndIncome(limits, income);
+    this.saveSuccess.set(true);
+    setTimeout(() => this.saveSuccess.set(false), 3000);
   }
 }
