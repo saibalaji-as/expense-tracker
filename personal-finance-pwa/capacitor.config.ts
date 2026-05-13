@@ -4,6 +4,16 @@ const config: CapacitorConfig = {
   appId: 'com.spenza.app',
   appName: 'Spenza',
   webDir: 'dist/personal-finance-pwa/browser',
+  android: {
+    allowMixedContent: false,
+    captureInput: true,
+    webContentsDebuggingEnabled: false, // Set to true only for debugging
+    backgroundColor: '#ffffff',
+    // Enable smooth scrolling
+    overScrollMode: 'never',
+    // Improve touch responsiveness
+    scrollbarStyle: 'outsideOverlay',
+  },
   plugins: {
     SocialLogin: {
       providers: {
@@ -12,6 +22,14 @@ const config: CapacitorConfig = {
         apple: false,
         twitter: false,
       },
+    },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
+    LocalNotifications: {
+      smallIcon: 'ic_launcher',
+      iconColor: '#488AFF',
+      sound: 'beep.wav',
     },
   },
 };

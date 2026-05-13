@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary brand color -->
+    <color name="colorPrimary">#488AFF</color>
+    <color name="colorPrimaryDark">#3171E0</color>
+    <color name="colorAccent">#488AFF</color>
+    
+    <!-- Notification colors -->
+    <color name="notificationColor">#488AFF</color>
+</resources>

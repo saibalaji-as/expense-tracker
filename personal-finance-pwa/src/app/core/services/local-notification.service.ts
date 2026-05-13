@@ -175,7 +175,19 @@ export class LocalNotificationService {
   async scheduleDailyReminder(hour: number, minute: number): Promise<void> {
     try {
       if (this.isNativePlatform) {
-        // Native platform: use Capacitor plugin with repeating schedule
+        // Calculate the next occurrence of the specified time
+        const now = new Date();
+        const scheduledTime = new Date();
+        scheduledTime.setHours(hour, minute, 0, 0);
+        
+        // If the time has already passed today, schedule for tomorrow
+        if (scheduledTime <= now) {
+          scheduledTime.setDate(scheduledTime.getDate() + 1);
+        }
+        
+        console.log(`[LocalNotificationService] Scheduling daily reminder for ${scheduledTime.toLocaleString()}`);
+        
+        // Native platform: use Capacitor plugin with specific date/time
         await LocalNotifications.schedule({
           notifications: [
             {
@@ -183,7 +195,8 @@ export class LocalNotificationService {
               title: 'Expense Reminder',
               body: "Don't forget to log today's expenses 💰",
               schedule: {
-                on: { hour, minute },
+                at: scheduledTime,
+                repeats: true,
                 every: 'day'
               },
               extra: {
@@ -192,7 +205,7 @@ export class LocalNotificationService {
             }
           ]
         });
-        console.log(`[LocalNotificationService] Daily reminder scheduled for ${hour}:${minute}`);
+        console.log(`[LocalNotificationService] Daily reminder scheduled successfully`);
       } else {
         // Web platform: use setTimeout with browser Notification API
         await this.scheduleWebDailyReminder(hour, minute);
@@ -200,6 +213,41 @@ export class LocalNotificationService {
     } catch (error) {
       console.error('[LocalNotificationService] Failed to schedule daily reminder:', error);
       // Don't throw - allow app to continue
+    }
+  }
+
+  /**
+   * Schedule a test notification (fires in 10 seconds)
+   * Used for testing the notification system
+   */
+  async scheduleTestNotification(): Promise<void> {
+    try {
+      if (this.isNativePlatform) {
+        const testTime = new Date(Date.now() + 10000); // 10 seconds from now
+        
+        console.log(`[LocalNotificationService] Scheduling test notification for ${testTime.toLocaleString()}`);
+        
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: 999, // Test notification ID
+              title: 'Test Notification',
+              body: 'This is a test notification. It works! 🎉',
+              schedule: {
+                at: testTime
+              },
+              extra: {
+                route: '/daily'
+              }
+            }
+          ]
+        });
+        console.log(`[LocalNotificationService] Test notification scheduled successfully`);
+      } else {
+        console.log('[LocalNotificationService] Test notification only works on native platforms');
+      }
+    } catch (error) {
+      console.error('[LocalNotificationService] Failed to schedule test notification:', error);
     }
   }
 
@@ -677,11 +725,13 @@ export class LocalNotificationService {
    * Initialize the notification service
    * 
    * Bootstraps the notification service on app startup by:
-   * 1. Loading notification preferences from storage
-   * 2. Checking current permission status
-   * 3. Scheduling daily reminder and monthly nudge if enabled and permission granted
-   * 4. Setting up notification tap listeners
-   * 5. Subscribing to budget threshold events from ExpenseStore
+   * 1. Checking current permission status (without requesting)
+   * 2. Setting up notification tap listeners
+   * 3. Subscribing to budget threshold events from ExpenseStore
+   * 
+   * NOTE: Notifications are NOT automatically scheduled on startup to avoid
+   * blocking the app with permission dialogs. Scheduling happens when the user
+   * explicitly enables notifications in Settings.
    * 
    * This method should be called during app initialization (via APP_INITIALIZER).
    * 
@@ -697,31 +747,14 @@ export class LocalNotificationService {
     try {
       console.log('[LocalNotificationService] Initializing service...');
 
-      // Step 1: Check current permission status
+      // Step 1: Check current permission status (without requesting)
       await this.checkPermissionStatus();
       console.log('[LocalNotificationService] Permission status:', this.permissionStatus());
 
-      // Step 2: Load notification preferences from storage
-      const preferences = await this.storageService.getNotificationPreferences();
-      console.log('[LocalNotificationService] Loaded preferences:', preferences);
-
-      // Step 3: Schedule notifications if enabled and permission granted
-      if (this.permissionStatus() === 'granted' && preferences.dailyReminderEnabled) {
-        console.log('[LocalNotificationService] Scheduling daily reminder and monthly nudge...');
-        await this.scheduleDailyReminder(preferences.reminderHour, preferences.reminderMinute);
-        await this.scheduleMonthlyNudge();
-        console.log('[LocalNotificationService] Notifications scheduled successfully');
-      } else {
-        console.log('[LocalNotificationService] Notifications not scheduled:', {
-          permissionGranted: this.permissionStatus() === 'granted',
-          reminderEnabled: preferences.dailyReminderEnabled
-        });
-      }
-
-      // Step 4: Setup notification tap listener
+      // Step 2: Setup notification tap listener
       this.setupNotificationListener();
 
-      // Step 5: Subscribe to budget threshold events from ExpenseStore
+      // Step 3: Subscribe to budget threshold events from ExpenseStore
       try {
         budgetThresholdExceeded$.subscribe(async (event) => {
           console.log('[LocalNotificationService] Budget threshold exceeded:', event);

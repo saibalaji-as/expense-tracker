@@ -38,6 +38,7 @@
     "@capacitor/core": "^8.3.3",
     "@capacitor/local-notifications": "^8.1.0",
     "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8.0.4",
     "@capgo/capacitor-social-login": "^8.3.21",
     "@ngrx/signals": "^21.1.0",
     "chart.js": "^4.5.1",

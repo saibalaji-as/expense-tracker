@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { LocalNotificationService } from '../../core/services/local-notification.service';
+import { FcmService } from '../../core/services/fcm.service';
 import { SyncService } from '../../core/services/sync.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -454,6 +455,23 @@ interface BeforeInstallPromptEvent extends Event {
             </button>
           </div>
 
+          <!-- Test Notification Button (for debugging) -->
+          @if (localNotificationService.permissionStatus() === 'granted') {
+            <div class="mt-4 pt-4 border-t border-border">
+              <button
+                type="button"
+                (click)="onTestNotification()"
+                class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
+              >
+                <lucide-icon [img]="bellIcon" class="h-4 w-4" />
+                Test Notification (10 seconds)
+              </button>
+              <p class="mt-2 text-xs text-muted-foreground">
+                Click to test if notifications are working. A test notification will appear in 10 seconds.
+              </p>
+            </div>
+          }
+
         </div>
       </app-section-card>
 
@@ -558,6 +576,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly authService = inject(AuthService);
   readonly notificationService = inject(NotificationService);
   readonly localNotificationService = inject(LocalNotificationService);
+  readonly fcmService = inject(FcmService);
   readonly syncService = inject(SyncService);
   readonly expenseStore = inject(ExpenseStore);
   readonly themeService = inject(ThemeService);
@@ -628,6 +647,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
     
     // Load notification preferences from storage
     this.loadNotificationPreferences();
+    
+    // Reschedule notifications if they were previously enabled
+    this.rescheduleNotificationsIfNeeded();
   }
 
   private async loadNotificationPreferences(): Promise<void> {
@@ -638,6 +660,36 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.error('[Settings] Failed to load notification preferences:', error);
       // Keep default preferences on error
+    }
+  }
+
+  /**
+   * Reschedule notifications if they were previously enabled
+   * This ensures notifications continue to work after app restart
+   */
+  private async rescheduleNotificationsIfNeeded(): Promise<void> {
+    try {
+      const prefs = await this.storageService.getNotificationPreferences();
+      const permissionStatus = this.localNotificationService.permissionStatus();
+      
+      // Only reschedule if permission is granted and daily reminder was enabled
+      if (permissionStatus === 'granted' && prefs.dailyReminderEnabled) {
+        console.log('[Settings] Rescheduling notifications on app start');
+        await this.localNotificationService.scheduleDailyReminder(
+          prefs.reminderHour,
+          prefs.reminderMinute
+        );
+        await this.localNotificationService.scheduleMonthlyNudge();
+        console.log('[Settings] Notifications rescheduled successfully');
+      } else {
+        console.log('[Settings] Notifications not rescheduled:', {
+          permissionGranted: permissionStatus === 'granted',
+          reminderEnabled: prefs.dailyReminderEnabled
+        });
+      }
+    } catch (error) {
+      console.error('[Settings] Failed to reschedule notifications:', error);
+      // Don't throw - allow app to continue
     }
   }
 
@@ -709,11 +761,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async onNotificationToggle(event: Event): Promise<void> {
     const checked = (event.target as HTMLInputElement).checked;
     if (checked) {
+      // Enable notifications via notification service
       await this.notificationService.requestPermission();
       if (this.notificationService.permissionState() === 'granted') {
         await this.notificationService.enable();
       }
     } else {
+      // Disable notifications via notification service
       await this.notificationService.disable();
     }
   }
@@ -721,12 +775,22 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async onNotificationToggleClick(): Promise<void> {
     const isEnabled = this.notificationService.isEnabled();
     if (!isEnabled) {
+      // Enable notifications via notification service
       await this.notificationService.requestPermission();
       if (this.notificationService.permissionState() === 'granted') {
         await this.notificationService.enable();
+        
+        // Log the FCM token for debugging
+        const token = this.fcmService.getToken();
+        console.log('[Settings] Push notifications enabled. FCM Token:', token);
+      } else {
+        console.log('[Settings] Push notification permission denied');
       }
     } else {
+      // Disable notifications via notification service
       await this.notificationService.disable();
+      
+      console.log('[Settings] Push notifications disabled');
     }
   }
 
@@ -749,16 +813,29 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const updated = { ...current, dailyReminderEnabled: !current.dailyReminderEnabled };
 
     if (updated.dailyReminderEnabled) {
+      // First request permission if not granted
+      if (this.localNotificationService.permissionStatus() !== 'granted') {
+        const status = await this.localNotificationService.requestPermission();
+        if (status !== 'granted') {
+          console.log('[Settings] Permission denied, cannot enable daily reminder');
+          return;
+        }
+      }
+
       // Enable: schedule both daily reminder and monthly nudge
       await this.localNotificationService.scheduleDailyReminder(
         updated.reminderHour,
         updated.reminderMinute
       );
       await this.localNotificationService.scheduleMonthlyNudge();
+      
+      console.log('[Settings] Daily reminder enabled and scheduled');
     } else {
       // Disable: cancel both notifications
       await this.localNotificationService.cancelDailyReminder();
       await this.localNotificationService.cancelMonthlyNudge();
+      
+      console.log('[Settings] Daily reminder disabled and cancelled');
     }
 
     // Save updated preferences
@@ -809,6 +886,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const h = hour.toString().padStart(2, '0');
     const m = minute.toString().padStart(2, '0');
     return `${h}:${m}`;
+  }
+
+  /**
+   * Test notification (fires in 10 seconds)
+   * Used for debugging notification issues
+   */
+  async onTestNotification(): Promise<void> {
+    console.log('[Settings] Triggering test notification...');
+    await this.localNotificationService.scheduleTestNotification();
+    alert('Test notification scheduled! It will appear in 10 seconds.');
   }
 
   // ─── Task 12.4: PWA install ───────────────────────────────────────────────────

@@ -62,23 +62,28 @@ export class NotificationService {
     const userId = await this.#getUserId();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+    // Register with FCM and backend
     const registered = await this.fcmService.registerForNotifications(userId, timezone);
 
     if (!registered) {
-      console.warn('FCM registration failed — notifications remain disabled');
+      console.warn('[NotificationService] FCM registration failed — notifications remain disabled');
       return;
     }
 
     this._isEnabled.set(true);
     await this.#persistEnabled(true);
+    console.log('[NotificationService] Push notifications enabled');
   }
 
   async disable(): Promise<void> {
     const userId = await this.#getUserId();
+    
+    // Unregister from FCM and backend
     await this.fcmService.unregister(userId);
 
     this._isEnabled.set(false);
     await this.#persistEnabled(false);
+    console.log('[NotificationService] Push notifications disabled');
   }
 
   // ─── Initialisation ───────────────────────────────────────────────────────────
