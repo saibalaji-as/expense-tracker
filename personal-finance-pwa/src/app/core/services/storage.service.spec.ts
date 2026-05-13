@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
 import { StorageService } from './storage.service';
+import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../models/notification-preferences.model';
 
 // In-memory store backing the mock
 const store = new Map<string, string>();
@@ -84,5 +85,110 @@ describe('StorageService', () => {
       ),
       { numRuns: 100 }
     );
+  });
+
+  describe('Notification Preferences', () => {
+    // Unit test: returns default preferences when none exist
+    // Validates: Requirements 7.1
+    it('getNotificationPreferences returns default preferences when none exist', async () => {
+      store.clear();
+      const prefs = await service.getNotificationPreferences();
+      expect(prefs).toEqual(DEFAULT_NOTIFICATION_PREFERENCES);
+    });
+
+    // Unit test: returns default preferences on JSON parse error
+    // Validates: Requirements 7.1
+    it('getNotificationPreferences returns default preferences on JSON parse error', async () => {
+      store.clear();
+      store.set('notification_preferences', 'invalid json');
+      const prefs = await service.getNotificationPreferences();
+      expect(prefs).toEqual(DEFAULT_NOTIFICATION_PREFERENCES);
+    });
+
+    // Unit test: set then get returns the stored preferences
+    // Validates: Requirements 7.1, 7.2
+    it('setNotificationPreferences then getNotificationPreferences returns stored preferences', async () => {
+      store.clear();
+      const testPrefs: NotificationPreferences = {
+        dailyReminderEnabled: true,
+        reminderHour: 9,
+        reminderMinute: 30,
+        budgetWarningsEnabled: false,
+      };
+      
+      await service.setNotificationPreferences(testPrefs);
+      const result = await service.getNotificationPreferences();
+      expect(result).toEqual(testPrefs);
+    });
+
+    // Property-based test: set then get round-trip
+    // Validates: Requirements 7.1, 7.2
+    it('notification preferences round-trip preserves all fields', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.boolean(),
+          fc.integer({ min: 0, max: 23 }),
+          fc.integer({ min: 0, max: 59 }),
+          fc.boolean(),
+          async (dailyReminderEnabled, reminderHour, reminderMinute, budgetWarningsEnabled) => {
+            store.clear();
+            const prefs: NotificationPreferences = {
+              dailyReminderEnabled,
+              reminderHour,
+              reminderMinute,
+              budgetWarningsEnabled,
+            };
+            
+            await service.setNotificationPreferences(prefs);
+            const result = await service.getNotificationPreferences();
+            
+            expect(result.dailyReminderEnabled).toBe(dailyReminderEnabled);
+            expect(result.reminderHour).toBe(reminderHour);
+            expect(result.reminderMinute).toBe(reminderMinute);
+            expect(result.budgetWarningsEnabled).toBe(budgetWarningsEnabled);
+          }
+        ),
+        { numRuns: 100 }
+      );
+    });
+
+    // Property-based test: last write wins
+    // Validates: Requirements 7.2
+    it('second setNotificationPreferences overwrites the first', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.boolean(),
+          fc.integer({ min: 0, max: 23 }),
+          fc.integer({ min: 0, max: 59 }),
+          fc.boolean(),
+          fc.boolean(),
+          fc.integer({ min: 0, max: 23 }),
+          fc.integer({ min: 0, max: 59 }),
+          fc.boolean(),
+          async (enabled1, hour1, minute1, warnings1, enabled2, hour2, minute2, warnings2) => {
+            store.clear();
+            const prefs1: NotificationPreferences = {
+              dailyReminderEnabled: enabled1,
+              reminderHour: hour1,
+              reminderMinute: minute1,
+              budgetWarningsEnabled: warnings1,
+            };
+            const prefs2: NotificationPreferences = {
+              dailyReminderEnabled: enabled2,
+              reminderHour: hour2,
+              reminderMinute: minute2,
+              budgetWarningsEnabled: warnings2,
+            };
+            
+            await service.setNotificationPreferences(prefs1);
+            await service.setNotificationPreferences(prefs2);
+            const result = await service.getNotificationPreferences();
+            
+            expect(result).toEqual(prefs2);
+          }
+        ),
+        { numRuns: 100 }
+      );
+    });
   });
 });

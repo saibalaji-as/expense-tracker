@@ -4,4 +4,7 @@
     <string name="title_activity_main">Spenza</string>
     <string name="package_name">com.spenza.app</string>
     <string name="custom_url_scheme">com.spenza.app</string>
+    <string name="local_notification_channel_id">expense-reminders</string>
+    <string name="local_notification_channel_name">Expense Reminders</string>
+    <string name="local_notification_channel_description">Daily reminders and budget alerts</string>
 </resources>

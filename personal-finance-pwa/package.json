@@ -36,6 +36,7 @@
     "@capacitor/android": "^8.3.3",
     "@capacitor/cli": "^8.3.3",
     "@capacitor/core": "^8.3.3",
+    "@capacitor/local-notifications": "^8.1.0",
     "@capacitor/preferences": "^8.0.1",
     "@capgo/capacitor-social-login": "^8.3.21",
     "@ngrx/signals": "^21.1.0",

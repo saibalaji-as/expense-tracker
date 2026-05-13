@@ -10,13 +10,16 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { LocalNotificationService } from '../../core/services/local-notification.service';
 import { SyncService } from '../../core/services/sync.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
+import { StorageService } from '../../core/services/storage.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
+import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { SectionCardComponent, ModalComponent } from '../../shared/components';
 import { ExpenseEntry } from '../../core/models';
 import {
@@ -356,6 +359,104 @@ interface BeforeInstallPromptEvent extends Event {
         </div>
       </app-section-card>
 
+      <!-- Local Notifications -->
+      <app-section-card title="Local Notifications" description="Schedule reminders and budget alerts on your device.">
+        <div class="space-y-4">
+
+          <!-- Permission Request Button (shown if permission not granted) -->
+          @if (localNotificationService.permissionStatus() === 'default') {
+            <button
+              type="button"
+              (click)="onRequestNotificationPermission()"
+              class="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold text-primary-foreground gradient-primary shadow-glow"
+            >
+              <lucide-icon [img]="bellIcon" class="h-4 w-4" />
+              Request Permission
+            </button>
+          }
+
+          <!-- Permission Denied Message -->
+          @if (localNotificationService.permissionStatus() === 'denied') {
+            <p class="text-xs text-destructive">
+              Notification permission denied. Enable notifications in your device settings to use this feature.
+            </p>
+          }
+
+          <!-- Daily Reminder Toggle -->
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium">Daily Reminder</p>
+              <p class="text-xs text-muted-foreground">
+                Get reminded to log expenses every day
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              [attr.aria-checked]="notificationPrefs().dailyReminderEnabled"
+              (click)="onDailyReminderToggle()"
+              [disabled]="localNotificationService.permissionStatus() === 'denied'"
+              [class]="
+                'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
+                (notificationPrefs().dailyReminderEnabled ? 'bg-primary' : 'bg-muted')
+              "
+              aria-label="Toggle daily reminder"
+            >
+              <span
+                [class]="
+                  'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                  (notificationPrefs().dailyReminderEnabled ? 'translate-x-5' : 'translate-x-0')
+                "
+              ></span>
+            </button>
+          </div>
+
+          <!-- Time Picker (shown when daily reminder enabled) -->
+          @if (notificationPrefs().dailyReminderEnabled) {
+            <div class="mt-3">
+              <label class="text-xs font-medium text-muted-foreground">Reminder Time</label>
+              <input
+                type="time"
+                [value]="formatTime(notificationPrefs().reminderHour, notificationPrefs().reminderMinute)"
+                (change)="onReminderTimeChange($event)"
+                class="mt-1 w-full rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+                aria-label="Daily reminder time"
+              />
+            </div>
+          }
+
+          <!-- Budget Warnings Toggle -->
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium">Budget Warnings</p>
+              <p class="text-xs text-muted-foreground">
+                Alert when spending exceeds 80% of category limit
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              [attr.aria-checked]="notificationPrefs().budgetWarningsEnabled"
+              (click)="onBudgetWarningsToggle()"
+              [disabled]="localNotificationService.permissionStatus() === 'denied'"
+              [class]="
+                'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
+                (notificationPrefs().budgetWarningsEnabled ? 'bg-primary' : 'bg-muted')
+              "
+              aria-label="Toggle budget warnings"
+            >
+              <span
+                [class]="
+                  'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                  (notificationPrefs().budgetWarningsEnabled ? 'translate-x-5' : 'translate-x-0')
+                "
+              ></span>
+            </button>
+          </div>
+
+        </div>
+      </app-section-card>
+
       <!-- Data Management -->
       <app-section-card  title="Data Management" description="Export your data or clear local cache.">
         <button
@@ -456,12 +557,14 @@ interface BeforeInstallPromptEvent extends Event {
 export class SettingsComponent implements OnInit, OnDestroy {
   readonly authService = inject(AuthService);
   readonly notificationService = inject(NotificationService);
+  readonly localNotificationService = inject(LocalNotificationService);
   readonly syncService = inject(SyncService);
   readonly expenseStore = inject(ExpenseStore);
   readonly themeService = inject(ThemeService);
   private readonly sheetsService = inject(GoogleSheetsService);
   readonly backupModeService = inject(BackupModeService);
   private readonly googleDriveService = inject(GoogleDriveService);
+  private readonly storageService = inject(StorageService);
   private readonly router = inject(Router);
 
   // ─── Theme options ────────────────────────────────────────────────────────────
@@ -487,6 +590,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isImporting = signal(false);
   readonly importMessage = signal<string | null>(null);
   readonly importError = signal(false);
+
+  // ─── Local Notification Preferences ──────────────────────────────────────────
+  readonly notificationPrefs = signal<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
 
   // ─── Task 12.4: PWA install prompt ───────────────────────────────────────────
   readonly deferredPrompt = signal<BeforeInstallPromptEvent | null>(null);
@@ -519,6 +625,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     // Capture the beforeinstallprompt event
     window.addEventListener('beforeinstallprompt', this.beforeInstallHandler);
+    
+    // Load notification preferences from storage
+    this.loadNotificationPreferences();
+  }
+
+  private async loadNotificationPreferences(): Promise<void> {
+    try {
+      const prefs = await this.storageService.getNotificationPreferences();
+      this.notificationPrefs.set(prefs);
+      console.log('[Settings] Loaded notification preferences:', prefs);
+    } catch (error) {
+      console.error('[Settings] Failed to load notification preferences:', error);
+      // Keep default preferences on error
+    }
   }
 
   ngOnDestroy(): void {
@@ -608,6 +728,87 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } else {
       await this.notificationService.disable();
     }
+  }
+
+  // ─── Local Notification Handlers (Tasks 9.2-9.6) ─────────────────────────────
+
+  /**
+   * Task 9.2: Request notification permission from the user
+   */
+  async onRequestNotificationPermission(): Promise<void> {
+    await this.localNotificationService.requestPermission();
+    // UI updates automatically via permissionStatus signal
+  }
+
+  /**
+   * Task 9.3: Toggle daily reminder on/off
+   * Schedules or cancels notifications and saves preferences
+   */
+  async onDailyReminderToggle(): Promise<void> {
+    const current = this.notificationPrefs();
+    const updated = { ...current, dailyReminderEnabled: !current.dailyReminderEnabled };
+
+    if (updated.dailyReminderEnabled) {
+      // Enable: schedule both daily reminder and monthly nudge
+      await this.localNotificationService.scheduleDailyReminder(
+        updated.reminderHour,
+        updated.reminderMinute
+      );
+      await this.localNotificationService.scheduleMonthlyNudge();
+    } else {
+      // Disable: cancel both notifications
+      await this.localNotificationService.cancelDailyReminder();
+      await this.localNotificationService.cancelMonthlyNudge();
+    }
+
+    // Save updated preferences
+    await this.storageService.setNotificationPreferences(updated);
+    this.notificationPrefs.set(updated);
+  }
+
+  /**
+   * Task 9.4: Handle reminder time change
+   * Parses time input, cancels existing reminder, schedules new one, and saves preferences
+   */
+  async onReminderTimeChange(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const [hourStr, minuteStr] = input.value.split(':');
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+
+    const current = this.notificationPrefs();
+    const updated = { ...current, reminderHour: hour, reminderMinute: minute };
+
+    // Cancel existing reminder and schedule new one with updated time
+    await this.localNotificationService.cancelDailyReminder();
+    await this.localNotificationService.scheduleDailyReminder(hour, minute);
+
+    // Save updated preferences
+    await this.storageService.setNotificationPreferences(updated);
+    this.notificationPrefs.set(updated);
+  }
+
+  /**
+   * Task 9.5: Toggle budget warnings on/off
+   * Updates preferences and saves to storage
+   */
+  async onBudgetWarningsToggle(): Promise<void> {
+    const current = this.notificationPrefs();
+    const updated = { ...current, budgetWarningsEnabled: !current.budgetWarningsEnabled };
+
+    // Save updated preferences
+    await this.storageService.setNotificationPreferences(updated);
+    this.notificationPrefs.set(updated);
+  }
+
+  /**
+   * Task 9.6: Format time as HH:MM string
+   * Helper method for binding time picker value
+   */
+  formatTime(hour: number, minute: number): string {
+    const h = hour.toString().padStart(2, '0');
+    const m = minute.toString().padStart(2, '0');
+    return `${h}:${m}`;
   }
 
   // ─── Task 12.4: PWA install ───────────────────────────────────────────────────

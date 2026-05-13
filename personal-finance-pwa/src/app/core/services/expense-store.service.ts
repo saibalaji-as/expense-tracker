@@ -7,6 +7,7 @@ import {
   ExpenseLimit,
   METADATA_MONTHLY_INCOME,
 } from '../models';
+import { BudgetThresholdEvent } from '../models/local-notification.model';
 import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
@@ -15,6 +16,10 @@ import { BackupModeService } from './backup-mode.service';
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
 export const driveError$ = new Subject<DriveApiError | DriveParseError>();
+
+// ─── Budget Threshold Event Subject ──────────────────────────────────────────
+
+export const budgetThresholdExceeded$ = new Subject<BudgetThresholdEvent>();
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 
@@ -169,13 +174,42 @@ export const ExpenseStore = signalStore(
     backupModeService = inject(BackupModeService),
   ) => {
     const methods = {
-      // ─── Task 5.4 / 6.7: addEntry ─────────────────────────────────────────
+      // ─── Task 5.4 / 6.7 / 7.2: addEntry ───────────────────────────────────
       /**
        * Synchronously prepends a new expense entry to the in-memory store,
        * then persists the updated state to Google Drive.
+       * 
+       * Task 7.2: After adding entry, checks if category spending exceeds 80%
+       * of its configured limit and emits a budget threshold event if so.
        */
       addEntry(entry: ExpenseEntry): void {
         patchState(store, { entries: [entry, ...store.entries()] });
+        
+        // Task 7.2: Check budget threshold after adding entry
+        const limit = store.limitMap()[entry.type];
+        if (limit) {
+          // Calculate category total for current month
+          const monthEntries = store.selectedMonthEntries();
+          const categoryTotal = monthEntries
+            .filter(e => e.type === entry.type)
+            .reduce((sum, e) => sum + e.amount, 0);
+          
+          // Calculate limit amount based on user percentage and monthly income
+          const limitAmount = (limit.userPercentage * store.monthlyIncome()) / 100;
+          
+          // Calculate percentage of limit used
+          const percent = limitAmount > 0 ? (categoryTotal / limitAmount) * 100 : 0;
+          
+          // Emit event if threshold exceeded (>= 80%)
+          if (percent >= 80) {
+            budgetThresholdExceeded$.next({
+              category: entry.type,
+              percent: Math.round(percent),
+              timestamp: Date.now()
+            });
+          }
+        }
+        
         void methods.persistToDrive();
       },
 

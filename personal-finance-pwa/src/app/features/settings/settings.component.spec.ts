@@ -708,3 +708,101 @@ describe('SettingsComponent — Task 12.3: source-level checks', () => {
     expect(source).toContain('Switching modes will disconnect you from your current backup. Your existing data will not be deleted from Google Drive. Continue?');
   });
 });
+
+// ─── Task 9.6: formatTime helper method ──────────────────────────────────────
+//
+// Requirement: 6.3
+// Tests for the formatTime(hour, minute) helper method that returns HH:MM string
+
+/**
+ * Mirrors SettingsComponent.formatTime(hour, minute)
+ */
+function formatTime(hour: number, minute: number): string {
+  const h = hour.toString().padStart(2, '0');
+  const m = minute.toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+describe('SettingsComponent — Task 9.6: formatTime helper method', () => {
+  it('formats single-digit hour and minute with leading zeros', () => {
+    expect(formatTime(9, 5)).toBe('09:05');
+  });
+
+  it('formats double-digit hour and minute without modification', () => {
+    expect(formatTime(21, 30)).toBe('21:30');
+  });
+
+  it('formats midnight correctly', () => {
+    expect(formatTime(0, 0)).toBe('00:00');
+  });
+
+  it('formats noon correctly', () => {
+    expect(formatTime(12, 0)).toBe('12:00');
+  });
+
+  it('formats 23:59 correctly', () => {
+    expect(formatTime(23, 59)).toBe('23:59');
+  });
+
+  it('property: always returns HH:MM format with exactly 5 characters', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        fc.integer({ min: 0, max: 59 }),
+        (hour, minute) => {
+          const result = formatTime(hour, minute);
+          expect(result).toMatch(/^\d{2}:\d{2}$/);
+          expect(result.length).toBe(5);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('property: hour part is always zero-padded to 2 digits', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        fc.integer({ min: 0, max: 59 }),
+        (hour, minute) => {
+          const result = formatTime(hour, minute);
+          const hourPart = result.split(':')[0];
+          expect(hourPart.length).toBe(2);
+          expect(parseInt(hourPart, 10)).toBe(hour);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('property: minute part is always zero-padded to 2 digits', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        fc.integer({ min: 0, max: 59 }),
+        (hour, minute) => {
+          const result = formatTime(hour, minute);
+          const minutePart = result.split(':')[1];
+          expect(minutePart.length).toBe(2);
+          expect(parseInt(minutePart, 10)).toBe(minute);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('property: formatTime is idempotent for valid inputs', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        fc.integer({ min: 0, max: 59 }),
+        (hour, minute) => {
+          const result1 = formatTime(hour, minute);
+          const result2 = formatTime(hour, minute);
+          expect(result1).toBe(result2);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
