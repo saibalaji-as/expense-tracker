@@ -15,7 +15,7 @@ import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
-import { CurrencyFormatPipe } from '../../shared/pipes';
+import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
   LucideAngularModule,
   LucideIconProvider,
@@ -33,6 +33,7 @@ import {
     SectionCardComponent,
     LucideAngularModule,
     CurrencyFormatPipe,
+    TranslatePipe,
   ],
   providers: [
     {
@@ -47,21 +48,21 @@ import {
       <!-- Page header row -->
       <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
-          <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Dashboard</h1>
-          <p class="mt-1 text-sm text-muted-foreground">A snapshot of your financial health.</p>
+          <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">{{ 'dashboard.title' | translate }}</h1>
+          <p class="mt-1 text-sm text-muted-foreground">{{ 'dashboard.description' | translate }}</p>
         </div>
         <!-- Quick-stat chips -->
         <div class="grid grid-cols-3 gap-3">
           <div class="glass-card px-4 py-2.5">
-            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">Today</p>
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.today' | translate }}</p>
             <p class="text-sm font-semibold tabular-nums">{{ todaySpend() | currencyFormat }}</p>
           </div>
           <div class="glass-card px-4 py-2.5">
-            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">This week</p>
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.week' | translate }}</p>
             <p class="text-sm font-semibold tabular-nums">{{ weekSpend() | currencyFormat }}</p>
           </div>
           <div class="glass-card px-4 py-2.5">
-            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">Avg / day</p>
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.avgDay' | translate }}</p>
             <p class="text-sm font-semibold tabular-nums">{{ avgPerDay() | currencyFormat }}</p>
           </div>
         </div>
@@ -72,8 +73,8 @@ import {
 
         <!-- Year-to-date Daily Expenses -->
         <app-section-card
-          title="Year-to-date Daily Expenses"
-          description="Daily spend across the past 30 days"
+          [title]="'dashboard.ytd.title' | translate"
+          [description]="'dashboard.ytd.description' | translate"
         >
           @if (hasYtdData()) {
             <div class="h-64 pt-2">
@@ -81,15 +82,15 @@ import {
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No data available.
+              {{ 'common.noData' | translate }}
             </div>
           }
         </app-section-card>
 
         <!-- This Month by Type -->
         <app-section-card
-          title="This Month by Type"
-          description="Where your spend is concentrated"
+          [title]="'dashboard.monthType.title' | translate"
+          [description]="'dashboard.monthType.description' | translate"
         >
           @if (hasMonthlyTypeData()) {
             <div class="space-y-4">
@@ -112,15 +113,15 @@ import {
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No data available.
+              {{ 'common.noData' | translate }}
             </div>
           }
         </app-section-card>
 
         <!-- Last 6 Months -->
         <app-section-card
-          title="Last 6 Months"
-          description="Total monthly spend"
+          [title]="'dashboard.sixMonths.title' | translate"
+          [description]="'dashboard.sixMonths.description' | translate"
         >
           @if (hasSixMonthData()) {
             <div class="h-56">
@@ -128,15 +129,15 @@ import {
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No data available.
+              {{ 'common.noData' | translate }}
             </div>
           }
         </app-section-card>
 
         <!-- Budget Rule (50/30/20) -->
         <app-section-card
-          title="Budget Rule (50/30/20)"
-          description="Actual split across Needs, Wants, Savings"
+          [title]="'dashboard.budgetRule.title' | translate"
+          [description]="'dashboard.budgetRule.description' | translate"
         >
           @if (hasBudgetRuleData()) {
             <div class="space-y-4">
@@ -159,7 +160,7 @@ import {
             </div>
           } @else {
             <div class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No data available.
+              {{ 'common.noData' | translate }}
             </div>
           }
         </app-section-card>
@@ -176,8 +177,8 @@ import {
             <lucide-icon name="sparkles" class="h-5 w-5" />
           </span>
           <div>
-            <p class="text-sm font-semibold">Log a new expense</p>
-            <p class="text-xs text-muted-foreground">Quick-add today's spending in seconds.</p>
+            <p class="text-sm font-semibold">{{ 'dashboard.logNew' | translate }}</p>
+            <p class="text-xs text-muted-foreground">{{ 'dashboard.logNewHint' | translate }}</p>
           </div>
         </div>
         <lucide-icon name="arrow-right" class="h-5 w-5 text-muted-foreground" />

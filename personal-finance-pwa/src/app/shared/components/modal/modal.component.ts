@@ -12,11 +12,12 @@ import {
   ViewChild,
 } from '@angular/core';
 import { ButtonComponent } from '../button/button.component';
+import { TranslatePipe } from '../../pipes';
 
 @Component({
   selector: 'app-modal',
   standalone: true,
-  imports: [ButtonComponent],
+  imports: [ButtonComponent, TranslatePipe],
   template: `
     @if (isOpen) {
       <!-- Backdrop -->
@@ -39,8 +40,8 @@ import { ButtonComponent } from '../button/button.component';
         <h2 class="mb-4 text-lg font-semibold text-foreground">{{ title }}</h2>
         <ng-content />
         <div class="mt-6 flex justify-end gap-3">
-          <app-button variant="ghost" (click)="onCancel()">Cancel</app-button>
-          <app-button variant="primary" (click)="onConfirm()">Confirm</app-button>
+          <app-button variant="ghost" (click)="onCancel()">{{ 'common.cancel' | translate }}</app-button>
+          <app-button variant="primary" (click)="onConfirm()">{{ 'common.confirm' | translate }}</app-button>
         </div>
       </div>
     }

@@ -197,11 +197,21 @@ export class LocalNotificationService {
               schedule: {
                 at: scheduledTime,
                 repeats: true,
-                every: 'day'
+                every: 'day',
+                allowWhileIdle: true // Allow notification even in Doze mode
               },
+              channelId: 'expense-reminders', // Use high-priority channel
               extra: {
                 route: '/daily'
-              }
+              },
+              // Additional Android-specific settings for lock screen delivery
+              actionTypeId: '',
+              attachments: [],
+              sound: 'default',
+              smallIcon: 'ic_stat_icon_config_sample',
+              iconColor: '#6366F1', // Primary color
+              ongoing: false,
+              autoCancel: true
             }
           ]
         });
@@ -234,11 +244,19 @@ export class LocalNotificationService {
               title: 'Test Notification',
               body: 'This is a test notification. It works! 🎉',
               schedule: {
-                at: testTime
+                at: testTime,
+                allowWhileIdle: true // Allow notification even in Doze mode
               },
+              channelId: 'expense-reminders', // Use high-priority channel
               extra: {
                 route: '/daily'
-              }
+              },
+              // Additional Android-specific settings for lock screen delivery
+              sound: 'default',
+              smallIcon: 'ic_stat_icon_config_sample',
+              iconColor: '#6366F1',
+              ongoing: false,
+              autoCancel: true
             }
           ]
         });
@@ -499,12 +517,20 @@ export class LocalNotificationService {
               title: 'Budget Warning',
               body: `You've used ${percent}% of your ${category} budget`,
               schedule: {
-                at: new Date(Date.now() + 1000) // Schedule for 1 second from now (immediate)
+                at: new Date(Date.now() + 1000), // Schedule for 1 second from now (immediate)
+                allowWhileIdle: true // Allow notification even in Doze mode
               },
+              channelId: 'budget-alerts', // Use high-priority budget alerts channel
               extra: {
                 route: '/limits',
                 category: category
-              }
+              },
+              // Additional Android-specific settings for lock screen delivery
+              sound: 'default',
+              smallIcon: 'ic_stat_icon_config_sample',
+              iconColor: '#EF4444', // Red color for alerts
+              ongoing: false,
+              autoCancel: true
             }
           ]
         });

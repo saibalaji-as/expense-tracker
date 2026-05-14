@@ -13,10 +13,11 @@ import {
 } from 'lucide-angular';
 import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { TranslatePipe } from '../../pipes';
 
 interface NavItem {
   path: string;
-  label: string;
+  labelKey: string;
   icon: LucideIconData;
 }
 
@@ -24,7 +25,7 @@ interface NavItem {
   selector: 'app-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule, ThemeToggleComponent],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, ThemeToggleComponent, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -62,7 +63,7 @@ interface NavItem {
                       : 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'"
                   >
                     <lucide-icon [img]="item.icon" class="h-4 w-4" aria-hidden="true" />
-                    {{ item.label }}
+                    {{ item.labelKey | translate }}
                   </a>
                 }
               }
@@ -107,7 +108,7 @@ interface NavItem {
                 [class]="rlaBottom.isActive
                   ? 'flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-medium transition-all text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
                   : 'flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-medium transition-all text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'"
-                [attr.aria-label]="item.label"
+                [attr.aria-label]="item.labelKey | translate"
               >
                 <span
                   [class]="rlaBottom.isActive
@@ -116,7 +117,7 @@ interface NavItem {
                 >
                   <lucide-icon [img]="item.icon" class="h-4 w-4" aria-hidden="true" />
                 </span>
-                <span class="text-[10px] font-medium">{{ item.label }}</span>
+                <span class="text-[10px] font-medium">{{ item.labelKey | translate }}</span>
               </a>
             }
           </div>
@@ -130,10 +131,10 @@ interface NavItem {
 export class AppShellComponent {
   readonly authService = inject(AuthService);
   readonly navItems: NavItem[] = [
-    { path: '/daily',     label: 'Daily',     icon: CalendarDays },
-    { path: '/monthly',   label: 'Monthly',   icon: CalendarRange },
-    { path: '/limits',    label: 'Limits',    icon: SlidersHorizontal },
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/settings',  label: 'Settings',  icon: Settings },
+    { path: '/daily',     labelKey: 'nav.daily',     icon: CalendarDays },
+    { path: '/monthly',   labelKey: 'nav.monthly',   icon: CalendarRange },
+    { path: '/limits',    labelKey: 'nav.limits',    icon: SlidersHorizontal },
+    { path: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+    { path: '/settings',  labelKey: 'nav.settings',  icon: Settings },
   ];
 }

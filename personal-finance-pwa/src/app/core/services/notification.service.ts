@@ -1,4 +1,5 @@
 import { Injectable, Signal, inject, signal } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { FcmService } from './fcm.service';
 import { StorageService } from './storage.service';
 
@@ -34,6 +35,14 @@ export class NotificationService {
   async requestPermission(): Promise<void> {
     if (this._permissionState() === 'granted') return;
 
+    // On native platforms, permission is handled by FCM service
+    if (Capacitor.isNativePlatform()) {
+      console.log('[NotificationService] Native platform - permission handled by FCM');
+      this._permissionState.set('granted');
+      return;
+    }
+
+    // Web platform: use browser Notification API
     if (typeof Notification === 'undefined') {
       this._permissionState.set('denied');
       return;
@@ -54,10 +63,13 @@ export class NotificationService {
   }
 
   async enable(): Promise<void> {
-    if (this._permissionState() !== 'granted') {
-      await this.requestPermission();
+    // On native platforms, skip browser permission check
+    if (!Capacitor.isNativePlatform()) {
+      if (this._permissionState() !== 'granted') {
+        await this.requestPermission();
+      }
+      if (this._permissionState() !== 'granted') return;
     }
-    if (this._permissionState() !== 'granted') return;
 
     const userId = await this.#getUserId();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;

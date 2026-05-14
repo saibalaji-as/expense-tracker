@@ -3,7 +3,7 @@
 /**
  * Icon Generator for Spenza PWA
  * 
- * This script generates PWA icons in various sizes from the Spenza logo SVG.
+ * This script generates PWA and Android launcher icons from the Spenza logo SVG.
  * 
  * Prerequisites:
  * npm install sharp --save-dev
@@ -28,9 +28,18 @@ try {
 const LOGO_PATH = path.join(__dirname, 'src/assets/logo/spenza-logo.svg');
 const ICONS_DIR = path.join(__dirname, 'public/icons');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const ANDROID_RES_DIR = path.join(__dirname, 'android/app/src/main/res');
 
 // Icon sizes required for PWA
 const ICON_SIZES = [72, 96, 128, 144, 152, 192, 384, 512];
+const ANDROID_ICON_SIZES = [
+  { density: 'mdpi', size: 48 },
+  { density: 'hdpi', size: 72 },
+  { density: 'xhdpi', size: 96 },
+  { density: 'xxhdpi', size: 144 },
+  { density: 'xxxhdpi', size: 192 },
+];
+const BRAND_BACKGROUND = '#6d28d9';
 
 async function generateIcons() {
   console.log('🎨 Generating Spenza PWA icons...\n');
@@ -94,6 +103,62 @@ async function generateIcons() {
     console.log(`✅ Generated: apple-touch-icon.png`);
   } catch (error) {
     console.error(`❌ Failed to generate apple-touch-icon.png:`, error.message);
+  }
+
+  // Generate Android launcher icons
+  for (const { density, size } of ANDROID_ICON_SIZES) {
+    const mipmapDir = path.join(ANDROID_RES_DIR, `mipmap-${density}`);
+
+    if (!fs.existsSync(mipmapDir)) {
+      fs.mkdirSync(mipmapDir, { recursive: true });
+    }
+
+    try {
+      await sharp(svgBuffer)
+        .resize(size, size, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toFile(path.join(mipmapDir, 'ic_launcher.png'));
+
+      await sharp(svgBuffer)
+        .resize(size, size, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toFile(path.join(mipmapDir, 'ic_launcher_round.png'));
+
+      await sharp(svgBuffer)
+        .resize(Math.round(size * 0.72), Math.round(size * 0.72), {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .extend({
+          top: Math.floor(size * 0.14),
+          bottom: size - Math.round(size * 0.72) - Math.floor(size * 0.14),
+          left: Math.floor(size * 0.14),
+          right: size - Math.round(size * 0.72) - Math.floor(size * 0.14),
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toFile(path.join(mipmapDir, 'ic_launcher_foreground.png'));
+
+      console.log(`✅ Generated Android launcher icons for ${density}`);
+    } catch (error) {
+      console.error(`❌ Failed to generate Android launcher icons for ${density}:`, error.message);
+    }
+  }
+
+  // Keep adaptive icon background aligned with the Spenza brand.
+  const backgroundXmlPath = path.join(ANDROID_RES_DIR, 'values/ic_launcher_background.xml');
+  if (fs.existsSync(backgroundXmlPath)) {
+    fs.writeFileSync(
+      backgroundXmlPath,
+      `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${BRAND_BACKGROUND}</color>\n</resources>\n`
+    );
+    console.log(`✅ Updated Android adaptive icon background`);
   }
 
   console.log('\n✨ Icon generation complete!');

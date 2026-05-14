@@ -18,8 +18,10 @@ import {
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
+import { I18nService } from '../../core/services/i18n.service';
+import { CurrencyService } from '../../core/services/currency.service';
 import { ChartBaseComponent, SectionCardComponent, CategoryIconComponent, SparklineComponent } from '../../shared/components';
-import { CurrencyFormatPipe } from '../../shared/pipes';
+import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { SparklineDataPoint } from '../../shared/components/sparkline/sparkline.component';
 
@@ -51,6 +53,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
     SparklineComponent,
     LucideAngularModule,
     CurrencyFormatPipe,
+    TranslatePipe,
   ],
   providers: [
     {
@@ -70,8 +73,8 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       <!-- Page Header -->
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Monthly Expenses</h1>
-          <p class="mt-1 text-sm text-muted-foreground">A bird's-eye view of how this month is going.</p>
+          <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">{{ 'monthly.title' | translate }}</h1>
+          <p class="mt-1 text-sm text-muted-foreground">{{ 'monthly.description' | translate }}</p>
         </div>
         <!-- Month Picker Pill -->
         <div class="inline-flex items-center gap-1 rounded-full border border-border bg-card/60 p-1 backdrop-blur shrink-0">
@@ -97,7 +100,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       <div class="mb-4 grid gap-4 sm:grid-cols-3">
         <!-- Total Spent -->
         <div class="glass-card relative overflow-hidden p-5">
-          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total Spent</p>
+          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{{ 'monthly.totalSpent' | translate }}</p>
           <p class="mt-2 text-xl font-semibold tracking-tight md:text-2xl lg:text-3xl break-all">
             {{ totalSpent() | currencyFormat }}
           </p>
@@ -141,7 +144,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
 
         <!-- Total Limit -->
         <div class="glass-card relative overflow-hidden p-5">
-          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total Limit</p>
+          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{{ 'monthly.totalLimit' | translate }}</p>
           <p class="mt-2 text-xl font-semibold tracking-tight md:text-2xl lg:text-3xl break-all">
             {{ totalLimit() | currencyFormat }}
           </p>
@@ -157,7 +160,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
 
         <!-- Net Savings -->
         <div class="glass-card relative overflow-hidden p-5">
-          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Net Savings</p>
+          <p class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{{ 'monthly.netSavings' | translate }}</p>
           <p class="mt-2 text-xl font-semibold tracking-tight md:text-2xl lg:text-3xl break-all">
             {{ netSavings() | currencyFormat }}
           </p>
@@ -213,8 +216,8 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       <!-- Budget Rule Breakdown -->
       <div class="mb-4 grid grid-cols-1 gap-6">
         <app-section-card
-          title="Budget Rule Breakdown"
-          description="Spending by Needs / Wants / Savings / Growth / Buffer"
+          [title]="'monthly.budgetBreakdown.title' | translate"
+          [description]="'monthly.budgetBreakdown.description' | translate"
         >
           <div class="space-y-6">
             <!-- Chart Container -->
@@ -227,7 +230,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
                 />
                 <!-- Center overlay with total -->
                 <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Total</span>
+                  <span class="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{{ 'common.amount' | translate }}</span>
                   <span class="mt-1 text-2xl font-bold tracking-tight">{{ totalSpent() | currencyFormat }}</span>
                 </div>
               </div>
@@ -252,8 +255,8 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
       <!-- Category Breakdown -->
       <div class="grid grid-cols-1 gap-6">
         <app-section-card
-          title="Category Breakdown"
-          description="How each category compares to its limit"
+          [title]="'monthly.categoryBreakdown.title' | translate"
+          [description]="'monthly.categoryBreakdown.description' | translate"
         >
           <ul class="space-y-3">
             @for (cat of categoryDefs; track cat.id) {
@@ -261,7 +264,7 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
                 <app-category-icon [categoryId]="cat.id" size="sm" />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-2 text-sm">
-                    <span class="truncate font-medium">{{ cat.name }}</span>
+                    <span class="truncate font-medium">{{ getCategoryName(cat.id) }}</span>
                     <span
                       class="shrink-0 tabular-nums text-xs"
                       [style.color]="isOver(cat.id) ? 'var(--destructive)' : ''"
@@ -300,6 +303,8 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
 export class MonthlyExpenseComponent implements OnInit {
   readonly expenseStore = inject(ExpenseStore);
   private readonly storageService = inject(StorageService);
+  private readonly i18n = inject(I18nService);
+  private readonly currencyService = inject(CurrencyService);
 
   /** Expose CATEGORY_DEFS for template iteration */
   readonly categoryDefs = CATEGORY_DEFS;
@@ -402,7 +407,13 @@ export class MonthlyExpenseComponent implements OnInit {
   readonly donutChartData = computed((): ChartData => {
     const summary = this.expenseStore.budgetRuleSummary();
     return {
-      labels: ['Needs', 'Wants', 'Savings', 'Growth', 'Buffer'],
+      labels: [
+        this.i18n.t('budgetGroup.needs'),
+        this.i18n.t('budgetGroup.wants'),
+        this.i18n.t('budgetGroup.savings'),
+        this.i18n.t('budgetGroup.growth'),
+        this.i18n.t('budgetGroup.buffer'),
+      ],
       datasets: [
         {
           data: [
@@ -440,7 +451,7 @@ export class MonthlyExpenseComponent implements OnInit {
           label: (context: any) => {
             const label = context.label || '';
             const value = context.parsed || 0;
-            return `${label}: ₹${value.toFixed(2)}`;
+            return `${label}: ${this.currencyService.format(value, this.i18n.locale())}`;
           }
         }
       }
@@ -452,11 +463,11 @@ export class MonthlyExpenseComponent implements OnInit {
   readonly donutLegend = computed(() => {
     const summary = this.expenseStore.budgetRuleSummary();
     return [
-      { name: 'Needs',   value: summary.needsTotal,   color: this.cssVar('--cat-transport') },
-      { name: 'Wants',   value: summary.wantsTotal,   color: this.cssVar('--cat-dining') },
-      { name: 'Savings', value: summary.savingsTotal, color: this.cssVar('--cat-savings') },
-      { name: 'Growth',  value: summary.growthTotal,  color: this.cssVar('--cat-education') },
-      { name: 'Buffer',  value: summary.bufferTotal,  color: this.cssVar('--cat-misc') },
+      { name: this.i18n.t('budgetGroup.needs'),   value: summary.needsTotal,   color: this.cssVar('--cat-transport') },
+      { name: this.i18n.t('budgetGroup.wants'),   value: summary.wantsTotal,   color: this.cssVar('--cat-dining') },
+      { name: this.i18n.t('budgetGroup.savings'), value: summary.savingsTotal, color: this.cssVar('--cat-savings') },
+      { name: this.i18n.t('budgetGroup.growth'),  value: summary.growthTotal,  color: this.cssVar('--cat-education') },
+      { name: this.i18n.t('budgetGroup.buffer'),  value: summary.bufferTotal,  color: this.cssVar('--cat-misc') },
     ].filter(item => item.value > 0);
   });
 
@@ -487,6 +498,11 @@ export class MonthlyExpenseComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
+  }
+
+  getCategoryName(catId: string): string {
+    const translated = this.i18n.t(`category.${catId}`);
+    return translated.startsWith('category.') ? CAT_ID_TO_TYPE[catId] ?? catId : translated;
   }
 
   prevMonth(): void {

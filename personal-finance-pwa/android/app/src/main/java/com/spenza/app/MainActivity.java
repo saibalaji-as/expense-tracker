@@ -16,6 +16,9 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
+        // Initialize notification channels for reliable delivery
+        NotificationChannelManager.createNotificationChannels(this);
+        
         // Optimize WebView performance
         optimizeWebView();
         

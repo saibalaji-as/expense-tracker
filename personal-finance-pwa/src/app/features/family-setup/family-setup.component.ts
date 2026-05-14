@@ -7,6 +7,7 @@ import {
 } from 'lucide-angular';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, DriveApiError, DriveParseError } from '../../core/services/google-drive.service';
+import { TranslatePipe } from '../../shared/pipes';
 
 type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done' | 'partner-setup';
 
@@ -14,7 +15,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
   selector: 'app-family-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -29,8 +30,8 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
         <!-- Step: Role Selection -->
         @if (step() === 'role-select') {
           <div class="mb-8 text-center">
-            <h1 class="text-2xl font-bold tracking-tight mb-2">Set up Family Backup</h1>
-            <p class="text-muted-foreground text-sm">Are you creating the shared backup or joining one?</p>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.title' | translate }}</h1>
+            <p class="text-muted-foreground text-sm">{{ 'family.description' | translate }}</p>
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <button type="button" (click)="onSelectOwner()"
@@ -39,8 +40,8 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
                 <lucide-icon name="crown" class="h-7 w-7" />
               </span>
               <div class="text-center">
-                <p class="font-semibold text-base mb-1">I am the Owner</p>
-                <p class="text-xs text-muted-foreground">Create a new shared backup and invite your partner.</p>
+                <p class="font-semibold text-base mb-1">{{ 'family.owner.title' | translate }}</p>
+                <p class="text-xs text-muted-foreground">{{ 'family.owner.description' | translate }}</p>
               </div>
             </button>
             <button type="button" (click)="onSelectPartner()"
@@ -49,8 +50,8 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
                 <lucide-icon name="users" class="h-7 w-7" />
               </span>
               <div class="text-center">
-                <p class="font-semibold text-base mb-1">I am a Partner</p>
-                <p class="text-xs text-muted-foreground">Join an existing shared backup using a File ID.</p>
+                <p class="font-semibold text-base mb-1">{{ 'family.partner.title' | translate }}</p>
+                <p class="text-xs text-muted-foreground">{{ 'family.partner.description' | translate }}</p>
               </div>
             </button>
           </div>
@@ -60,15 +61,15 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
         @if (step() === 'owner-setup') {
           <div class="text-center">
             <lucide-icon name="loader-2" class="h-10 w-10 animate-spin mx-auto mb-4 text-primary" />
-            <p class="text-muted-foreground text-sm">Checking for existing backup…</p>
+            <p class="text-muted-foreground text-sm">{{ 'family.checking' | translate }}</p>
           </div>
         }
 
         <!-- Step: Owner — existing file found -->
         @if (step() === 'owner-existing') {
           <div class="mb-6 text-center">
-            <h1 class="text-2xl font-bold tracking-tight mb-2">Existing Backup Found</h1>
-            <p class="text-muted-foreground text-sm">A shared backup file already exists in your Google Drive.</p>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.existing.title' | translate }}</h1>
+            <p class="text-muted-foreground text-sm">{{ 'family.existing.description' | translate }}</p>
           </div>
           @if (errorMessage()) {
             <div class="glass-card border-destructive/40 bg-destructive/10 p-4 mb-4 rounded-2xl" role="alert">
@@ -78,14 +79,14 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
           <div class="grid gap-3 sm:grid-cols-2">
             <button type="button" (click)="onOwnerReuseExisting()" [disabled]="isLoading()"
               class="glass-card flex items-center justify-center gap-2 p-4 rounded-2xl font-semibold text-sm hover:border-primary hover:shadow-glow disabled:opacity-50">
-              Reuse existing
+              {{ 'family.reuse' | translate }}
             </button>
             <button type="button" (click)="onOwnerCreateNew()" [disabled]="isLoading()"
               class="gradient-primary text-primary-foreground shadow-glow rounded-2xl p-4 font-semibold text-sm disabled:opacity-50">
               @if (isLoading()) {
                 <lucide-icon name="loader-2" class="h-4 w-4 animate-spin inline mr-2" />
               }
-              Create new
+              {{ 'family.createNew' | translate }}
             </button>
           </div>
         }
@@ -93,15 +94,15 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
         <!-- Step: Owner — done, show file ID -->
         @if (step() === 'owner-done') {
           <div class="mb-6">
-            <h1 class="text-2xl font-bold tracking-tight mb-2">Backup Created!</h1>
-            <p class="text-muted-foreground text-sm mb-4">Share this File ID with your partner, then share the file in Google Drive.</p>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.created.title' | translate }}</h1>
+            <p class="text-muted-foreground text-sm mb-4">{{ 'family.created.description' | translate }}</p>
 
             <!-- File ID display -->
             <div class="flex items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-3 mb-3">
               <code class="flex-1 font-mono text-xs break-all text-foreground">{{ createdFileId() }}</code>
               <button type="button" (click)="onCopyFileId()"
                 class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Copy File ID">
+                [attr.aria-label]="'family.copyFileId' | translate">
                 @if (copied()) {
                   <lucide-icon name="check" class="h-4 w-4" style="color: var(--success)" />
                 } @else {
@@ -112,9 +113,9 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
 
             <!-- Instructions -->
             <div class="glass-card p-4 rounded-2xl mb-4 text-sm text-muted-foreground space-y-2">
-              <p>1. Share this file in Google Drive with your partner's Google account.</p>
-              <p>2. Give them the File ID above.</p>
-              <p>3. They open Spenza, choose "Family / Shared", then "I am a Partner", and paste the File ID.</p>
+              <p>1. {{ 'family.instruction1' | translate }}</p>
+              <p>2. {{ 'family.instruction2' | translate }}</p>
+              <p>3. {{ 'family.instruction3' | translate }}</p>
             </div>
 
             <!-- Open in Drive link -->
@@ -122,21 +123,21 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
               target="_blank" rel="noreferrer"
               class="inline-flex items-center gap-2 text-sm text-primary hover:underline mb-6">
               <lucide-icon name="external-link" class="h-4 w-4" />
-              Open file in Google Drive to share
+              {{ 'family.openDrive' | translate }}
             </a>
           </div>
 
           <button type="button" (click)="onProceedToApp()"
             class="w-full gradient-primary text-primary-foreground shadow-glow rounded-2xl px-6 py-3 font-semibold">
-            Continue to app
+            {{ 'family.continueApp' | translate }}
           </button>
         }
 
         <!-- Step: Partner — enter File ID -->
         @if (step() === 'partner-setup') {
           <div class="mb-6">
-            <h1 class="text-2xl font-bold tracking-tight mb-2">Join Family Backup</h1>
-            <p class="text-muted-foreground text-sm mb-4">Paste the File ID your partner shared with you.</p>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.join.title' | translate }}</h1>
+            <p class="text-muted-foreground text-sm mb-4">{{ 'family.join.description' | translate }}</p>
 
             @if (errorMessage()) {
               <div class="glass-card border-destructive/40 bg-destructive/10 p-4 mb-4 rounded-2xl" role="alert">
@@ -150,7 +151,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
             <input
               type="text"
               [(ngModel)]="partnerFileIdInput"
-              placeholder="Paste File ID here"
+              [placeholder]="'family.fileIdPlaceholder' | translate"
               class="w-full rounded-2xl border border-border bg-card/60 px-4 py-3 font-mono text-xs text-foreground outline-none focus:border-primary mb-3"
               aria-label="Shared File ID"
             />
@@ -160,9 +161,9 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
               class="w-full gradient-primary text-primary-foreground shadow-glow rounded-2xl px-6 py-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
               @if (isLoading()) {
                 <lucide-icon name="loader-2" class="h-4 w-4 animate-spin inline mr-2" />
-                Connecting…
+                {{ 'family.connecting' | translate }}
               } @else {
-                Connect
+                {{ 'common.connect' | translate }}
               }
             </button>
           </div>

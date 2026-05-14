@@ -2,12 +2,13 @@ import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/cor
 import { Router } from '@angular/router';
 import { LucideAngularModule, LucideIconProvider, LUCIDE_ICONS, User, Users } from 'lucide-angular';
 import { BackupModeService } from '../../core/services/backup-mode.service';
+import { TranslatePipe } from '../../shared/pipes';
 
 @Component({
   selector: 'app-mode-selection',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -19,8 +20,8 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
     <div class="min-h-[50vh] flex items-center justify-center p-6">
       <div class="w-full max-w-lg">
         <div class="mb-8 text-center">
-          <h1 class="text-2xl font-bold tracking-tight mb-2">How will you use Spenza?</h1>
-          <p class="text-muted-foreground text-sm">Choose your backup mode. You can change this later in Settings.</p>
+          <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'mode.title' | translate }}</h1>
+          <p class="text-muted-foreground text-sm">{{ 'mode.description' | translate }}</p>
         </div>
 
         <div class="grid gap-4 sm:grid-cols-2">
@@ -35,8 +36,8 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
               <lucide-icon name="user" class="h-7 w-7" />
             </span>
             <div class="text-center">
-              <p class="font-semibold text-base mb-1">Single User</p>
-              <p class="text-xs text-muted-foreground">Private backup in your Google Drive. Only you can access it.</p>
+              <p class="font-semibold text-base mb-1">{{ 'mode.single.title' | translate }}</p>
+              <p class="text-xs text-muted-foreground">{{ 'mode.single.description' | translate }}</p>
             </div>
           </button>
 
@@ -51,8 +52,8 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
               <lucide-icon name="users" class="h-7 w-7" />
             </span>
             <div class="text-center">
-              <p class="font-semibold text-base mb-1">Family / Shared</p>
-              <p class="text-xs text-muted-foreground">Share a backup with your partner or family members.</p>
+              <p class="font-semibold text-base mb-1">{{ 'mode.family.title' | translate }}</p>
+              <p class="text-xs text-muted-foreground">{{ 'mode.family.description' | translate }}</p>
             </div>
           </button>
         </div>

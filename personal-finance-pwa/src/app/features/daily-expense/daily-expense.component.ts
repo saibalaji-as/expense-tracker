@@ -29,9 +29,11 @@ import {
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
 import { StorageService } from '../../core/services/storage.service';
+import { I18nService } from '../../core/services/i18n.service';
+import { CurrencyService } from '../../core/services/currency.service';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models';
-import { CurrencyFormatPipe } from '../../shared/pipes/currency-format.pipe';
+import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
   SectionCardComponent,
   CategoryIconComponent,
@@ -67,6 +69,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
   imports: [
     ReactiveFormsModule,
     CurrencyFormatPipe,
+    TranslatePipe,
     SectionCardComponent,
     CategoryIconComponent,
     ProgressRingComponent,
@@ -138,21 +141,21 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
         <div class="flex items-center justify-between gap-4">
           <div>
             <p class="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {{ isToday() ? 'Today' : selectedDateLabel() }}
+              {{ selectedDateLabel() }}
             </p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{{ dateStr() }}</h1>
-            <p class="mt-2 text-sm text-muted-foreground">
-              You've spent
+              <h1 class="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{{ dateStr() }}</h1>
+              <p class="mt-2 text-sm text-muted-foreground">
+              {{ 'daily.hero.spentPrefix' | translate }}
               <span class="font-semibold text-foreground">{{ totalToday() | currencyFormat }}</span>
-              of
+              {{ 'daily.hero.of' | translate }}
               <span class="font-semibold text-foreground">{{ dailyBudget() | currencyFormat }}</span>
-              {{ isToday() ? 'today' : 'on this day' }}.
+              {{ isToday() ? ('daily.hero.todaySuffix' | translate) : ('daily.hero.daySuffix' | translate) }}
             </p>
           </div>
           <app-progress-ring
             [value]="dayPct()"
             [label]="dayPct() + '%'"
-            sub="used"
+            [sub]="'daily.progress.used' | translate"
             [size]="88"
           />
         </div>
@@ -169,8 +172,8 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
         <!-- Log Expense SectionCard -->
         <app-section-card
-          title="Log Expense"
-          description="Pick a type, enter the amount, and tap log."
+          [title]="'daily.log.title' | translate"
+          [description]="'daily.log.description' | translate"
           className="xl:col-span-3"
         >
           <!-- Edit mode banner -->
@@ -178,7 +181,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             <div class="mb-4 flex items-center justify-between rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3">
               <div class="flex items-center gap-2">
                 <lucide-icon name="pencil" class="h-4 w-4 text-primary" />
-                <span class="text-sm font-medium text-primary">Editing expense</span>
+                <span class="text-sm font-medium text-primary">{{ 'daily.editingExpense' | translate }}</span>
               </div>
               <button
                 type="button"
@@ -195,13 +198,13 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
             <!-- Category chips -->
             <div>
-              <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Expense Type</p>
+              <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.expenseType' | translate }}</p>
               <div class="flex flex-wrap gap-1.5">
                 @for (cat of visibleCategories(); track cat.id) {
                   <button
                     type="button"
                     (click)="selectCategory(cat)"
-                    [attr.aria-label]="cat.name"
+                    [attr.aria-label]="getCategoryNameById(cat.id)"
                     [attr.aria-pressed]="isActiveCat(cat)"
                     class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 relative"
                     [class.border-transparent]="isActiveCat(cat)"
@@ -221,7 +224,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     }
                     <span class="relative z-10 flex items-center gap-1.5">
                       <app-category-icon [categoryId]="cat.id" size="xs" />
-                      {{ cat.name }}
+                      {{ getCategoryNameById(cat.id) }}
                     </span>
                   </button>
                 }
@@ -235,10 +238,10 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   >
                     @if (showAllCategories()) {
                       <lucide-icon name="chevron-up" class="h-3 w-3" />
-                      <span>Show less</span>
+                      <span>{{ 'daily.showLess' | translate }}</span>
                     } @else {
                       <lucide-icon name="chevron-down" class="h-3 w-3" />
-                      <span>Show more</span>
+                      <span>{{ 'daily.showMore' | translate }}</span>
                     }
                   </button>
                 }
@@ -249,9 +252,9 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             <div class="mt-4 flex gap-2">
               <!-- Amount -->
               <div class="flex-1 min-w-0">
-                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Amount</label>
+	                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}</label>
                 <div class="mt-1 flex items-center gap-1.5 rounded-xl border border-border bg-card/60 px-3 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
-                  <span class="text-base font-semibold text-muted-foreground shrink-0">₹</span>
+                  <span class="text-base font-semibold text-muted-foreground shrink-0">{{ currencyService.symbol() }}</span>
                   <input
                     id="amount-input"
                     type="number"
@@ -264,7 +267,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </div>
               <!-- Date -->
               <div class="w-[50%] shrink-0">
-                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Date</label>
+	                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.date' | translate }}</label>
                 <div class="mt-1 flex items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-card/60 px-2.5 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <lucide-icon name="calendar" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <input
@@ -280,7 +283,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                       (click)="setToday()"
                       class="shrink-0 text-[10px] text-primary hover:underline"
                     >
-                      Today
+	                      {{ 'common.today' | translate }}
                     </button>
                   }
                 </div>
@@ -298,14 +301,14 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 [class.border-border]="!overBudget()"
                 [class.bg-card\/40]="!overBudget()"
               >
-                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">Remaining</p>
+                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">{{ 'daily.remaining' | translate }}</p>
                 <p class="mt-1 text-sm font-semibold leading-none" [class.text-destructive]="overBudget()">
                   {{ remainingAfterEntry() | currencyFormat }}
                 </p>
               </div>
               <!-- Savings (this entry) -->
               <div class="rounded-xl border border-border bg-card/40 px-3 py-2">
-                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">Savings</p>
+	                <p class="text-[9px] font-medium uppercase tracking-wider text-muted-foreground leading-none">{{ 'common.savings' | translate }}</p>
                 <p
                   class="mt-1 flex items-center gap-1 text-sm font-semibold leading-none"
                   [style.color]="'var(--success)'"
@@ -322,18 +325,18 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
             <!-- Comment + mic -->
             <div class="mt-2.5">
-              <label for="comment-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Comment (optional)</label>
+	              <label for="comment-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.commentOptional' | translate }}</label>
               <div class="mt-1 flex items-center gap-2">
                 <input
                   id="comment-input"
                   type="text"
                   formControlName="comment"
-                  placeholder="Add a note about this expense..."
+	                  [placeholder]="'daily.commentPlaceholder' | translate"
                   class="flex-1 rounded-xl border border-border bg-card/60 px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
                 />
                 <button
                   type="button"
-                  aria-label="Record voice note"
+	                  [attr.aria-label]="'daily.recordVoice' | translate"
                   (click)="isRecording() ? stopVoiceRecording() : startVoiceRecording()"
                   class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   [class.border-destructive]="isRecording()"
@@ -358,10 +361,10 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             >
               @if (isEditMode()) {
                 <lucide-icon name="pencil" class="h-4 w-4" />
-                Update {{ selectedCategoryDef().name }}
+                {{ actionLabel(true) }}
               } @else {
                 <lucide-icon name="plus" class="h-4 w-4" />
-                Log {{ selectedCategoryDef().name }}
+                {{ actionLabel(false) }}
               }
             </button>
 
@@ -372,7 +375,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
         <app-section-card
           id="todays-entries"
           [title]="entriesSectionTitle()"
-          [description]="selectedDateEntries().length + ' logged · ' + groupedEntries().length + ' categories'"
+          [description]="entriesDescription()"
           className="xl:col-span-2"
         >
           <!-- Date selector header -->
@@ -386,7 +389,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   (click)="goToToday()"
                   class="text-xs text-primary hover:underline"
                 >
-                  Go to today
+                  {{ 'daily.entries.goToday' | translate }}
                 </button>
               }
             </div>
@@ -430,14 +433,14 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                       @if (group.count === 1) {
                         {{ group.entries[0].timestamp.slice(11, 16) }}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
                       } @else {
-                        {{ group.count }} entries · Tap to view details
+                        {{ i18n.t('daily.entries.multiple', { count: group.count }) }}
                       }
                     </p>
                   </div>
                   <!-- Amount + savings -->
                   <div class="shrink-0 text-right">
                     <p class="text-sm font-semibold">{{ group.totalAmount | currencyFormat }}</p>
-                    <p class="text-[10px] text-muted-foreground">lim {{ group.limit | currencyFormat }}</p>
+                    <p class="text-[10px] text-muted-foreground">{{ 'daily.entries.limitShort' | translate }} {{ group.limit | currencyFormat }}</p>
                     @if (group.totalSavings > 0) {
                       <p class="text-[10px] font-medium" [style.color]="'var(--success)'">
                         +{{ group.totalSavings | currencyFormat }}
@@ -456,7 +459,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     <button
                       type="button"
                       (click)="editEntry(group.entries[0]); $event.stopPropagation()"
-                      aria-label="Edit entry"
+                      [attr.aria-label]="'common.editEntry' | translate"
                       class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       <lucide-icon name="pencil" class="h-4 w-4" />
@@ -465,7 +468,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     <button
                       type="button"
                       (click)="deleteEntry(group.entries[0]); $event.stopPropagation()"
-                      aria-label="Delete entry"
+                      [attr.aria-label]="'common.deleteEntry' | translate"
                       class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       <lucide-icon name="trash-2" class="h-4 w-4" />
@@ -476,9 +479,9 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
             } @empty {
               <li class="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 @if (isToday()) {
-                  No entries yet today. Log your first expense above.
+                  {{ 'daily.entries.emptyToday' | translate }}
                 } @else {
-                  No entries for {{ selectedDateLabel() }}.
+                  {{ i18n.t('daily.entries.emptyDate', { date: selectedDateLabel() }) }}
                 }
               </li>
             }
@@ -514,7 +517,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 <button
                   type="button"
                   (click)="closeDetail()"
-                  aria-label="Close details"
+                  [attr.aria-label]="'common.closeDetails' | translate"
                   class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 >
                   <lucide-icon name="x" class="h-4 w-4" />
@@ -524,15 +527,15 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               <!-- Metadata grid -->
               <div class="grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Amount</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'common.amount' | translate }}</p>
                   <p class="font-semibold">{{ entry.amount | currencyFormat }}</p>
                 </div>
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Limit</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'common.limit' | translate }}</p>
                   <p class="font-semibold">{{ entry.limit | currencyFormat }}</p>
                 </div>
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Savings</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'common.savings' | translate }}</p>
                   <p 
                     class="font-semibold"
                     [style.color]="entry.savings >= 0 ? 'var(--success)' : 'var(--destructive)'"
@@ -550,12 +553,12 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
             <!-- Comment Section (scrollable, takes maximum space) -->
             <div class="flex-1 overflow-y-auto p-4">
-              <p class="text-xs font-medium text-muted-foreground mb-2">Comment</p>
+	              <p class="text-xs font-medium text-muted-foreground mb-2">{{ 'common.comment' | translate }}</p>
               @if (entry.comment) {
                 <p class="text-sm leading-relaxed break-words">{{ entry.comment }}</p>
               } @else {
                 <div class="flex items-center justify-center h-32 rounded-2xl border border-dashed border-border bg-card/20">
-                  <p class="text-xs text-muted-foreground">No comment added</p>
+	                  <p class="text-xs text-muted-foreground">{{ 'daily.noComment' | translate }}</p>
                 </div>
               }
             </div>
@@ -568,7 +571,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 class="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-primary bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary transition-all hover:bg-primary/20"
               >
                 <lucide-icon name="pencil" class="h-4 w-4" />
-                Edit
+	                {{ 'common.edit' | translate }}
               </button>
               <button
                 type="button"
@@ -576,7 +579,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 class="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-destructive bg-destructive/10 px-4 py-2.5 text-sm font-medium text-destructive transition-all hover:bg-destructive/20"
               >
                 <lucide-icon name="trash-2" class="h-4 w-4" />
-                Delete
+	                {{ 'common.delete' | translate }}
               </button>
             </div>
           }
@@ -603,7 +606,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 <button
                   type="button"
                   (click)="closeDetail()"
-                  aria-label="Close details"
+                  [attr.aria-label]="'common.closeDetails' | translate"
                   class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 >
                   <lucide-icon name="x" class="h-4 w-4" />
@@ -613,15 +616,15 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               <!-- Aggregated Metadata grid -->
               <div class="grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Total Amount</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'daily.totalAmount' | translate }}</p>
                   <p class="font-semibold">{{ totalAmount | currencyFormat }}</p>
                 </div>
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Daily Limit</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'daily.dailyLimit' | translate }}</p>
                   <p class="font-semibold">{{ actualDailyLimit | currencyFormat }}</p>
                 </div>
                 <div>
-                  <p class="text-[10px] text-muted-foreground">Total Savings</p>
+	                  <p class="text-[10px] text-muted-foreground">{{ 'daily.totalSavings' | translate }}</p>
                   <p 
                     class="font-semibold"
                     [style.color]="totalSavings >= 0 ? 'var(--success)' : 'var(--destructive)'"
@@ -634,7 +637,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
 
             <!-- Individual Entries List (scrollable) -->
             <div class="flex-1 overflow-y-auto p-4">
-              <p class="text-xs font-medium text-muted-foreground mb-3">Individual Entries</p>
+	              <p class="text-xs font-medium text-muted-foreground mb-3">{{ 'daily.individualEntries' | translate }}</p>
               <div class="space-y-2">
                 @for (entry of entries; track entry.id) {
                   <div class="rounded-2xl border border-border bg-card/40 p-3">
@@ -659,7 +662,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                         <button
                           type="button"
                           (click)="editFromDetail(entry)"
-                          aria-label="Edit entry"
+                          [attr.aria-label]="'common.editEntry' | translate"
                           class="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary"
                         >
                           <lucide-icon name="pencil" class="h-3.5 w-3.5" />
@@ -667,7 +670,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                         <button
                           type="button"
                           (click)="deleteFromDetail(entry)"
-                          aria-label="Delete entry"
+                          [attr.aria-label]="'common.deleteEntry' | translate"
                           class="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
                         >
                           <lucide-icon name="trash-2" class="h-3.5 w-3.5" />
@@ -677,7 +680,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     <!-- Comment -->
                     @if (entry.comment) {
                       <div class="mt-2 pt-2 border-t border-border/50">
-                        <p class="text-xs text-muted-foreground mb-1">Comment:</p>
+	                        <p class="text-xs text-muted-foreground mb-1">{{ 'common.comment' | translate }}:</p>
                         <p class="text-xs leading-relaxed break-words">{{ entry.comment }}</p>
                       </div>
                     }
@@ -697,6 +700,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly syncService = inject(SyncService);
   private readonly fb = inject(FormBuilder);
   private readonly storageService = inject(StorageService);
+  readonly i18n = inject(I18nService);
+  readonly currencyService = inject(CurrencyService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
@@ -799,17 +804,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Date label for display ──────────────────────────────────────────────
   readonly selectedDateLabel = computed(() => {
-    if (this.isToday()) return 'Today';
+    if (this.isToday()) return this.i18n.t('common.today');
     const date = new Date(this.selectedDate());
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
     
     if (this.selectedDate() === yesterday.toISOString().slice(0, 10)) {
-      return 'Yesterday';
+      return this.i18n.t('common.yesterday');
     }
     
-    return date.toLocaleDateString(undefined, { 
+    return date.toLocaleDateString(this.i18n.locale(), {
       month: 'short', 
       day: 'numeric',
       year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined 
@@ -821,7 +826,16 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Section card title for entries ──────────────────────────────────────
   readonly entriesSectionTitle = computed(() =>
-    this.isToday() ? "Today's Entries" : `${this.selectedDateLabel()}'s Entries`
+    this.isToday()
+      ? this.i18n.t('daily.entries.todayTitle')
+      : this.i18n.t('daily.entries.dateTitle', { date: this.selectedDateLabel() })
+  );
+
+  readonly entriesDescription = computed(() =>
+    this.i18n.t('daily.entries.loggedCategories', {
+      count: this.selectedDateEntries().length,
+      categories: this.groupedEntries().length,
+    })
   );
 
   // ─── Category expansion state ─────────────────────────────────────────────
@@ -852,7 +866,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Date string for hero — reactive to selectedDate ─────────────────────
   readonly dateStr = computed(() => {
     const date = new Date(this.selectedDate() + 'T00:00:00'); // local time
-    return date.toLocaleDateString(undefined, {
+    return date.toLocaleDateString(this.i18n.locale(), {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -995,7 +1009,18 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Helper: map type name → display name ────────────────────────────────
   getCatName(type: string): string {
-    return getCategoryDef(this.getCatId(type)).name;
+    return this.getCategoryNameById(this.getCatId(type));
+  }
+
+  getCategoryNameById(categoryId: string): string {
+    const category = getCategoryDef(categoryId);
+    const translated = this.i18n.t(`category.${category.id}`);
+    return translated.startsWith('category.') ? category.name : translated;
+  }
+
+  actionLabel(isEdit: boolean): string {
+    const category = this.getCategoryNameById(this.selectedCategoryDef().id);
+    return this.i18n.t(isEdit ? 'daily.updateCategory' : 'daily.logCategory', { category });
   }
 
   // ─── Helper: scroll to Today's Entries section ───────────────────────────
@@ -1275,7 +1300,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Voice recording ──────────────────────────────────────────────────────
   startVoiceRecording(): void {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Voice recognition is not supported in your browser. Please use Chrome or Edge.');
+      alert(this.i18n.t('daily.voiceUnsupported'));
       return;
     }
 
@@ -1283,7 +1308,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.recognition = new SpeechRecognition();
     this.recognition.continuous = false;
     this.recognition.interimResults = false;
-    this.recognition.lang = 'en-US';
+    this.recognition.lang = this.i18n.speechRecognitionLang();
 
     this.recognition.onstart = () => {
       this.isRecording.set(true);
@@ -1315,7 +1340,10 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Delete entry ─────────────────────────────────────────────────────────
   deleteEntry(entry: ExpenseEntry): void {
-    if (!confirm(`Delete expense: ${entry.type} - ₹${entry.amount}?`)) {
+    if (!confirm(this.i18n.t('daily.deleteConfirm', {
+      category: this.getCatName(entry.type),
+      amount: this.currencyService.format(entry.amount, this.i18n.locale()),
+    }))) {
       return;
     }
 

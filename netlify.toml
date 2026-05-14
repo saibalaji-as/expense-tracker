@@ -63,4 +63,4 @@
     Content-Type = "application/manifest+json"
 
 [functions."send-reminders"]
-  schedule = "0 * * * *"
+  schedule = "*/30 * * * *"

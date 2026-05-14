@@ -1,15 +1,19 @@
 import { Pipe, PipeTransform } from '@angular/core';
+import { I18nService } from '../../core/services/i18n.service';
+import { CurrencyService } from '../../core/services/currency.service';
 
 @Pipe({
   name: 'currencyFormat',
   standalone: true,
+  pure: false,
 })
 export class CurrencyFormatPipe implements PipeTransform {
-  transform(value: number): string {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 2,
-    }).format(value);
+  constructor(
+    private readonly i18n: I18nService,
+    private readonly currencyService: CurrencyService,
+  ) {}
+
+  transform(value: number | null | undefined): string {
+    return this.currencyService.format(value, this.i18n.locale());
   }
 }

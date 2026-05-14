@@ -94,6 +94,13 @@
     <!-- Boot completed for rescheduling notifications -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     
+    <!-- Exact alarms for precise notification timing (Android 12+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    
+    <!-- Disable battery optimization for reliable notifications -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    
     <!-- Features -->
     <uses-feature 
         android:name="android.hardware.microphone" 

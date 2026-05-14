@@ -67,6 +67,14 @@ export function buildInitialConfig(): SpenzaConfig {
   };
 }
 
+function noCacheHeaders(token: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${token}`,
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+  };
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -81,11 +89,9 @@ export class GoogleDriveService {
     const token = await this.#authService.ensureToken();
 
     const response = await fetch(
-      "https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'spenza-backup.json'&fields=files(id)",
+      `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'spenza-backup.json'&fields=files(id)&_=${Date.now()}`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: noCacheHeaders(token),
       }
     );
 
@@ -153,11 +159,9 @@ export class GoogleDriveService {
     const token = await this.#authService.ensureToken();
 
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&_=${Date.now()}`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: noCacheHeaders(token),
       }
     );
 
@@ -198,9 +202,9 @@ export class GoogleDriveService {
 
     const q = encodeURIComponent("name='spenza-backup.json' and 'root' in parents and trashed=false");
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&_=${Date.now()}`,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: noCacheHeaders(token),
       }
     );
 
@@ -307,8 +311,8 @@ export class GoogleDriveService {
   async findConfigFile(): Promise<string | null> {
     const token = await this.#authService.ensureToken();
     const response = await fetch(
-      "https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'spenza-config.json'&fields=files(id)",
-      { headers: { Authorization: `Bearer ${token}` } }
+      `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'spenza-config.json'&fields=files(id)&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
     );
     if (!response.ok) {
       const message = await response.text();
@@ -362,8 +366,8 @@ export class GoogleDriveService {
   async readConfigFile(fileId: string): Promise<SpenzaConfig> {
     const token = await this.#authService.ensureToken();
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
     );
     if (!response.ok) {
       const message = await response.text();

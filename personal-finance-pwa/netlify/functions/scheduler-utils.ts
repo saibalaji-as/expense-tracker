@@ -26,25 +26,57 @@ export function resolveTimezone(tz: unknown): string {
   }
 }
 
+export interface LocalReminderTime {
+  year: string;
+  month: string;
+  day: string;
+  hour: number;
+  minute: number;
+}
+
 /**
- * Returns `true` iff the local hour in `timezone` for the given `utcNow`
- * timestamp falls within the active window [8, 21] inclusive (08:00–21:59).
- *
- * Uses `Intl.DateTimeFormat` with `hour12: false` to extract the numeric
- * local hour. The `timezone` parameter is assumed to be a valid IANA string
- * (pass the output of `resolveTimezone` to guarantee this).
+ * Extracts local date/time parts for `utcNow` in `timezone`.
  */
-export function shouldSendReminder(utcNow: Date, timezone: string): boolean {
+export function getLocalReminderTime(utcNow: Date, timezone: string): LocalReminderTime {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
-    hour: 'numeric',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
     hour12: false,
   });
 
-  // `format` returns the hour as a string like "8", "13", "24" (midnight in
-  // some locales is represented as "24" rather than "0").
-  const hourStr = formatter.format(utcNow);
-  const hour = parseInt(hourStr, 10) % 24; // normalise "24" → 0
+  const parts = Object.fromEntries(
+    formatter.formatToParts(utcNow).map((part) => [part.type, part.value])
+  );
 
-  return hour >= 8 && hour <= 21;
+  return {
+    year: parts['year'],
+    month: parts['month'],
+    day: parts['day'],
+    hour: parseInt(parts['hour'], 10) % 24,
+    minute: parseInt(parts['minute'], 10),
+  };
+}
+
+/**
+ * Returns the local hourly reminder slot key, or `null` when no notification
+ * should be sent. Active slots are exactly 08:00 through 22:00 inclusive.
+ */
+export function getReminderSlot(utcNow: Date, timezone: string): string | null {
+  const local = getLocalReminderTime(utcNow, timezone);
+  if (local.minute !== 0) return null;
+  if (local.hour < 8 || local.hour > 22) return null;
+
+  return `${local.year}-${local.month}-${local.day}T${local.hour.toString().padStart(2, '0')}:00`;
+}
+
+/**
+ * Returns `true` iff `utcNow` is at the zeroth minute of a local active hour:
+ * 08:00, 09:00, ... 22:00.
+ */
+export function shouldSendReminder(utcNow: Date, timezone: string): boolean {
+  return getReminderSlot(utcNow, timezone) !== null;
 }

@@ -1,9 +1,10 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import * as admin from 'firebase-admin';
-import { shouldSendReminder, resolveTimezone } from './scheduler-utils';
+import { getReminderSlot, resolveTimezone } from './scheduler-utils';
 
-// Netlify scheduled function — runs every hour on the hour
-export const config = { schedule: '0 * * * *' };
+// Netlify scheduled function — runs every 30 minutes so half-hour timezones
+// like Asia/Kolkata can still receive reminders at local minute 00.
+export const config = { schedule: '*/30 * * * *' };
 
 // Initialize Firebase Admin SDK (singleton pattern)
 if (!admin.apps.length) {
@@ -53,9 +54,34 @@ export const handler: Handler = async (
       // Resolve timezone — falls back to "UTC" for missing/invalid values
       const resolvedTz = resolveTimezone(timezone);
 
-      // Hour-of-day gate: sole delivery criterion
-      if (!shouldSendReminder(utcNow, resolvedTz)) {
-        console.log(`⏭️  Skipping user ${userId} (outside active window in ${resolvedTz})`);
+      // Exact hourly slot gate: 08:00, 09:00, ... 22:00 local time.
+      const reminderSlot = getReminderSlot(utcNow, resolvedTz);
+      if (!reminderSlot) {
+        console.log(`⏭️  Skipping user ${userId} (outside hourly active slot in ${resolvedTz})`);
+        skippedCount++;
+        continue;
+      }
+
+      const userRef = db.collection('users').doc(userId);
+      let claimedSlot = false;
+      await db.runTransaction(async (transaction) => {
+        const latestDoc = await transaction.get(userRef);
+        const latestData = latestDoc.data();
+
+        if (!latestDoc.exists || latestData?.lastReminderSlot === reminderSlot) {
+          return;
+        }
+
+        transaction.set(userRef, {
+          lastReminderSlot: reminderSlot,
+          lastReminderClaimedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        claimedSlot = true;
+      });
+
+      if (!claimedSlot) {
+        console.log(`⏭️  Skipping user ${userId} (already claimed/sent for ${reminderSlot} in ${resolvedTz})`);
         skippedCount++;
         continue;
       }
@@ -83,6 +109,10 @@ export const handler: Handler = async (
 
       try {
         await admin.messaging().send(message);
+        await userRef.set({
+          lastReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         console.log(`✅ Notification sent to user: ${userId}`);
         sentCount++;
       } catch (fcmError: any) {

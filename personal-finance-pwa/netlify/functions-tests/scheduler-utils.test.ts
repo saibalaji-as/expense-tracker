@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { resolveTimezone, shouldSendReminder } from '../functions/scheduler-utils';
+import { getReminderSlot, resolveTimezone, shouldSendReminder } from '../functions/scheduler-utils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,31 +46,55 @@ const arbUtcDate = fc
   .integer({ min: 946684800000, max: 4102444800000 }) // 2000-01-01 to 2100-01-01
   .map((ms) => new Date(ms));
 
-// ─── Property 1: Active-window gate ──────────────────────────────────────────
+// ─── Property 1: Active hourly slot gate ─────────────────────────────────────
 // Feature: time-based-hourly-reminders, Property 1: active-window gate
 //
 // Validates: Requirements 2.4, 2.5
 
-describe('Property 1: Active-window gate', () => {
-  it('shouldSendReminder returns true iff local hour is in [8, 21]', () => {
+describe('Property 1: Active hourly slot gate', () => {
+  it('shouldSendReminder returns true iff local time is 08:00 through 22:00 on minute 0', () => {
     fc.assert(
       fc.property(arbUtcDate, arbValidTimezone, (utcNow, timezone) => {
-        // Derive the expected local hour independently using the same Intl API.
+        // Derive expected local time independently using the same Intl API.
         const formatter = new Intl.DateTimeFormat('en-US', {
           timeZone: timezone,
-          hour: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
           hour12: false,
         });
-        const hourStr = formatter.format(utcNow);
-        const localHour = parseInt(hourStr, 10) % 24;
+        const parts = Object.fromEntries(
+          formatter.formatToParts(utcNow).map((part) => [part.type, part.value])
+        );
+        const localHour = parseInt(parts['hour'], 10) % 24;
+        const localMinute = parseInt(parts['minute'], 10);
 
-        const expected = localHour >= 8 && localHour <= 21;
+        const expected = localHour >= 8 && localHour <= 22 && localMinute === 0;
         const actual = shouldSendReminder(utcNow, timezone);
 
         expect(actual).toBe(expected);
       }),
       { numRuns: 100 }
     );
+  });
+});
+
+describe('Reminder slot keys', () => {
+  it('returns a stable local slot key for an active zeroth-minute reminder', () => {
+    // 02:30 UTC is 08:00 in Asia/Kolkata.
+    expect(getReminderSlot(new Date('2026-05-14T02:30:00.000Z'), 'Asia/Kolkata'))
+      .toBe('2026-05-14T08:00');
+  });
+
+  it('does not send at half past the hour', () => {
+    // 03:00 UTC is 08:30 in Asia/Kolkata.
+    expect(getReminderSlot(new Date('2026-05-14T03:00:00.000Z'), 'Asia/Kolkata'))
+      .toBeNull();
+  });
+
+  it('includes the 22:00 final reminder', () => {
+    // 16:30 UTC is 22:00 in Asia/Kolkata.
+    expect(getReminderSlot(new Date('2026-05-14T16:30:00.000Z'), 'Asia/Kolkata'))
+      .toBe('2026-05-14T22:00');
   });
 });
 

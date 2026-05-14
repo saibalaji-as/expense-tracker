@@ -27,8 +27,10 @@ import { METADATA_MONTHLY_INCOME } from '../../core/models/app-metadata.model';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
+import { I18nService } from '../../core/services/i18n.service';
+import { CurrencyService } from '../../core/services/currency.service';
 import { ModalComponent } from '../../shared/components';
-import { CurrencyFormatPipe } from '../../shared/pipes';
+import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
 import {
@@ -80,6 +82,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
     ReactiveFormsModule,
     ModalComponent,
     CurrencyFormatPipe,
+    TranslatePipe,
     SectionCardComponent,
     CategoryIconComponent,
     LucideAngularModule,
@@ -96,9 +99,9 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
     <div>
       <!-- Page header -->
       <div class="mb-4">
-        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Expense Limits</h1>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">{{ 'limits.title' | translate }}</h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          Set how your monthly income should be allocated across categories.
+          {{ 'limits.description' | translate }}
         </p>
       </div>
 
@@ -106,13 +109,13 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
 
         <!-- Monthly Income -->
         <app-section-card
-          title="Monthly Income"
-          description="Used to compute every category limit below."
+          [title]="'limits.income.title' | translate"
+          [description]="'limits.income.description' | translate"
           class="mb-6 block"
         >
           <div class="flex items-center gap-3 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
-            <span class="text-2xl font-semibold text-muted-foreground">₹</span>
-            <label for="monthlyIncome" class="sr-only">Monthly Income</label>
+            <span class="text-2xl font-semibold text-muted-foreground">{{ currencyService.symbol() }}</span>
+            <label for="monthlyIncome" class="sr-only">{{ 'limits.income.title' | translate }}</label>
             <input
               type="number"
               id="monthlyIncome"
@@ -122,29 +125,29 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
               placeholder="0"
               class="w-full bg-transparent text-2xl font-semibold outline-none"
             />
-            <span class="hidden text-xs text-muted-foreground md:inline">per month</span>
+            <span class="hidden text-xs text-muted-foreground md:inline">{{ 'limits.perMonth' | translate }}</span>
           </div>
           @if (isIncomeInvalid()) {
             <p class="mt-2 text-xs text-destructive">
-              Monthly income is required and must be greater than 0.
+              {{ 'limits.incomeError' | translate }}
             </p>
           }
         </app-section-card>
 
         <!-- Spending Limits -->
         <app-section-card
-          title="Spending Limits"
-          description="Recommended percentages are based on a 50/30/20-style framework."
+          [title]="'limits.spending.title' | translate"
+          [description]="'limits.spending.description' | translate"
           class="mb-6 block"
         >
           <!-- Desktop table -->
           <div class="hidden md:block" formArrayName="limits">
             <div class="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.7fr_0.9fr] gap-3 border-b border-border px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <span>Category</span>
-              <span>Group</span>
-              <span class="text-right">Rec.</span>
-              <span class="text-right">Your %</span>
-              <span class="text-right">Amount</span>
+              <span>{{ 'limits.category' | translate }}</span>
+              <span>{{ 'limits.group' | translate }}</span>
+              <span class="text-right">{{ 'limits.recommended' | translate }}</span>
+              <span class="text-right">{{ 'limits.yourPercent' | translate }}</span>
+              <span class="text-right">{{ 'common.amount' | translate }}</span>
             </div>
             <ul class="mt-1">
               @for (group of limitsArray.controls; track $index; let i = $index) {
@@ -155,20 +158,20 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                   <!-- Category -->
                   <div class="flex items-center gap-2.5 min-w-0">
                     <app-category-icon [categoryId]="getCatId(i)" size="sm" />
-                    <span class="truncate text-sm font-medium">{{ group.get('type')?.value }}</span>
+                    <span class="truncate text-sm font-medium">{{ getDisplayType(i) }}</span>
                   </div>
                   <!-- Group -->
                   <span
                     class="text-xs font-medium"
                     [style.color]="'var(' + getCatColorVar(i) + ')'"
-                  >{{ group.get('category')?.value }}</span>
+                  >{{ getGroupName(group.get('category')?.value) }}</span>
                   <!-- Rec % -->
                   <span class="text-right text-xs text-muted-foreground">
                     {{ group.get('recommendedPercentage')?.value }}%
                   </span>
                   <!-- Your % input -->
                   <div class="flex justify-end">
-                    <label [for]="'pct-desktop-' + i" class="sr-only">{{ group.get('type')?.value }} percentage</label>
+                    <label [for]="'pct-desktop-' + i" class="sr-only">{{ getDisplayType(i) }} percentage</label>
                     <input
                       [id]="'pct-desktop-' + i"
                       type="number"
@@ -195,14 +198,14 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                 <div class="flex items-center gap-3">
                   <app-category-icon [categoryId]="getCatId(i)" size="md" />
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">{{ group.get('type')?.value }}</p>
+                    <p class="truncate text-sm font-medium">{{ getDisplayType(i) }}</p>
                     <p
                       class="text-[11px]"
                       [style.color]="'var(' + getCatColorVar(i) + ')'"
-                    >{{ group.get('category')?.value }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
+                    >{{ getGroupName(group.get('category')?.value) }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
                   </div>
                   <div class="flex items-center gap-1">
-                    <label [for]="'pct-mobile-' + i" class="sr-only">{{ group.get('type')?.value }} percentage</label>
+                    <label [for]="'pct-mobile-' + i" class="sr-only">{{ getDisplayType(i) }} percentage</label>
                     <input
                       [id]="'pct-mobile-' + i"
                       type="number"
@@ -216,7 +219,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                   </div>
                 </div>
                 <div class="mt-2 flex items-center justify-between text-xs">
-                  <span class="text-muted-foreground">Monthly limit</span>
+                  <span class="text-muted-foreground">{{ 'daily.monthlyLimit' | translate }}</span>
                   <span class="font-semibold tabular-nums">
                     {{ group.get('calculatedAmount')?.value | currencyFormat }}
                   </span>
@@ -231,14 +234,14 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
             (click)="addCustomType()"
             class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary"
           >
-            <lucide-icon [img]="plusIcon" class="h-4 w-4" /> Add Custom Type
+            <lucide-icon [img]="plusIcon" class="h-4 w-4" /> {{ 'limits.addCustom' | translate }}
           </button>
         </app-section-card>
 
         <!-- Running Total -->
         <app-section-card
-          title="Running Total"
-          [description]="runningTotal() === 100 ? 'Allocation balanced.' : 'Adjust until totals reach 100%.'"
+          [title]="'limits.running.title' | translate"
+          [description]="runningTotal() === 100 ? ('limits.runningBalanced' | translate) : ('limits.runningAdjust' | translate)"
           class="mb-6 block"
         >
           <span action>
@@ -262,7 +265,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
               <div
                 [style.width.%]="getGroupPct(group)"
                 [style.background-color]="groupColor(group)"
-                [title]="group + ': ' + getGroupPct(group) + '%'"
+                [title]="getGroupName(group) + ': ' + getGroupPct(group) + '%'"
               ></div>
             }
           </div>
@@ -272,7 +275,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
             @for (group of budgetGroups; track group) {
               <li class="flex items-center gap-2 rounded-xl border border-border bg-card/40 px-3 py-2 text-xs">
                 <span class="h-2.5 w-2.5 rounded-full" [style.background-color]="groupColor(group)"></span>
-                <span class="font-medium">{{ group }}</span>
+                <span class="font-medium">{{ getGroupName(group) }}</span>
                 <span class="ml-auto text-muted-foreground">{{ getGroupPct(group) }}%</span>
               </li>
             }
@@ -286,7 +289,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
             [disabled]="runningTotal() !== 100"
             class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
           >
-            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> Save Limits
+	            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> {{ 'limits.save' | translate }}
           </button>
         </div>
 
@@ -295,14 +298,13 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
 
     <!-- Savings Warning Modal -->
     <app-modal
-      title="Low Savings Warning"
+	      [title]="'limits.lowSavings.title' | translate"
       [isOpen]="showSavingsWarning()"
       (confirmed)="onSavingsWarningConfirmed()"
       (cancelled)="showSavingsWarning.set(false)"
     >
       <p class="text-sm text-muted-foreground">
-        Your configured savings percentage is below 20%. Financial advisors recommend saving at
-        least 20% of your income. Are you sure you want to save this configuration?
+	        {{ 'limits.lowSavings.description' | translate }}
       </p>
     </app-modal>
   `,
@@ -312,9 +314,25 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   private readonly sheetsService = inject(GoogleSheetsService);
   readonly expenseStore = inject(ExpenseStore);
   private readonly storageService = inject(StorageService);
+  private readonly i18n = inject(I18nService);
+  readonly currencyService = inject(CurrencyService);
 
   readonly budgetCategories = BUDGET_CATEGORIES;
   readonly budgetGroups = BUDGET_GROUPS;
+
+  getDisplayType(index: number): string {
+    const type = this.limitsArray.at(index)?.get('type')?.value as string | null;
+    if (!type) return '';
+    const categoryId = TYPE_TO_CAT_ID[type];
+    if (!categoryId) return type;
+    return this.i18n.t(`category.${categoryId}`);
+  }
+
+  getGroupName(group: unknown): string {
+    const key = String(group ?? '').toLowerCase();
+    const translated = this.i18n.t(`budgetGroup.${key}`);
+    return translated.startsWith('budgetGroup.') ? String(group ?? '') : translated;
+  }
 
   // Lucide icon references for template use
   readonly plusIcon = Plus;

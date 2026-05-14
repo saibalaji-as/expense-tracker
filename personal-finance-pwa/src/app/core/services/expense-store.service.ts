@@ -12,6 +12,7 @@ import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
 import { BackupModeService } from './backup-mode.service';
+import { CurrencyService } from './currency.service';
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -172,6 +173,7 @@ export const ExpenseStore = signalStore(
     storageService = inject(StorageService),
     googleDriveService = inject(GoogleDriveService),
     backupModeService = inject(BackupModeService),
+    currencyService = inject(CurrencyService),
   ) => {
     const methods = {
       // ─── Task 5.4 / 6.7 / 7.2: addEntry ───────────────────────────────────
@@ -474,7 +476,7 @@ export const ExpenseStore = signalStore(
             lastUpdated: new Date().toISOString(),
             metadata: {
               monthlyIncome: store.monthlyIncome(),
-              currency: 'INR',
+              currency: currencyService.currency(),
             },
             expenses: store.entries(),
             limits: store.limits(),

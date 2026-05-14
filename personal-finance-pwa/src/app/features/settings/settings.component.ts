@@ -19,9 +19,12 @@ import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
 import { StorageService } from '../../core/services/storage.service';
+import { AppLanguage, I18nService } from '../../core/services/i18n.service';
+import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { SectionCardComponent, ModalComponent } from '../../shared/components';
+import { TranslatePipe } from '../../shared/pipes';
 import { ExpenseEntry } from '../../core/models';
 import {
   LucideAngularModule,
@@ -50,7 +53,7 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, SectionCardComponent, ModalComponent, LucideAngularModule],
+  imports: [FormsModule, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -63,14 +66,14 @@ interface BeforeInstallPromptEvent extends Event {
     <div class="grid grid-cols-1 gap-6">
       <!-- Page header -->
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Settings</h1>
-        <p class="mt-1 text-sm text-muted-foreground">Personalize the app and manage your data.</p>
+        <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">{{ 'settings.title' | translate }}</h1>
+        <p class="mt-1 text-sm text-muted-foreground">{{ 'settings.description' | translate }}</p>
       </div>
 
       <!-- Appearance -->
       <app-section-card 
-        title="Appearance"
-        description="Switch between the playful light mode and premium glass dark mode."
+        [title]="'settings.appearance.title' | translate"
+        [description]="'settings.appearance.description' | translate"
       >
         <div class="grid gap-3 sm:grid-cols-3">
           @for (opt of themeOptions; track opt.value) {
@@ -110,8 +113,101 @@ interface BeforeInstallPromptEvent extends Event {
         </div>
       </app-section-card>
 
+      <!-- Language -->
+      <app-section-card
+        [title]="'settings.language.title' | translate"
+        [description]="'settings.language.description' | translate"
+      >
+        <div class="grid gap-4 md:grid-cols-2">
+          <div>
+            <label for="app-language" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {{ 'settings.language.appLanguage' | translate }}
+            </label>
+            <select
+              id="app-language"
+              [ngModel]="i18n.language()"
+              (ngModelChange)="onLanguageChange($event)"
+              class="mt-2 w-full rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+            >
+              @for (language of i18n.languageOptions; track language.code) {
+                <option [value]="language.code">
+                  {{ language.nativeLabel }} ({{ language.label }})
+                </option>
+              }
+            </select>
+          </div>
+
+          <div class="rounded-2xl border border-border bg-card/40 p-4">
+            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {{ 'settings.language.voiceInput' | translate }}
+            </p>
+            <p class="mt-2 text-sm font-semibold">{{ currentSpeechLanguageLabel() }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ 'settings.language.voiceInputHint' | translate }}
+            </p>
+          </div>
+        </div>
+      </app-section-card>
+
+      <!-- Currency -->
+      <app-section-card
+        [title]="'settings.currency.title' | translate"
+        [description]="'settings.currency.description' | translate"
+      >
+        <div class="grid gap-3 lg:grid-cols-3">
+          @for (option of currencyService.currencyOptions; track option.code) {
+            <button
+              type="button"
+              (click)="onCurrencyChange(option.code)"
+              [attr.aria-pressed]="currencyService.currency() === option.code"
+              [class]="
+                'group relative overflow-hidden rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+                (currencyService.currency() === option.code
+                  ? 'border-primary bg-accent shadow-glow'
+                  : 'border-border bg-card/40 hover:border-primary/40 hover:bg-card/70')
+              "
+            >
+              <div class="absolute inset-x-0 top-0 h-1 gradient-primary opacity-0 transition-opacity group-hover:opacity-60"
+                   [class.opacity-100]="currencyService.currency() === option.code"></div>
+              <div class="flex items-start gap-3">
+                <span
+                  [class]="
+                    'grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl font-black transition-all ' +
+                    (currencyService.currency() === option.code
+                      ? 'gradient-primary text-primary-foreground shadow-glow'
+                      : 'bg-muted text-foreground')
+                  "
+                >
+                  {{ option.symbol }}
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <p class="text-sm font-semibold">{{ option.code }}</p>
+                    @if (currencyService.currency() === option.code) {
+                      <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        <lucide-icon [img]="checkIcon" class="h-3 w-3" />
+                        {{ 'settings.currency.selected' | translate }}
+                      </span>
+                    }
+                  </div>
+                  <p class="mt-0.5 text-xs font-medium text-foreground">{{ option.nameKey | translate }}</p>
+                  <p class="mt-1 text-[11px] text-muted-foreground">{{ option.regionKey | translate }}</p>
+                </div>
+              </div>
+              <div class="mt-4 rounded-xl border border-border/70 bg-background/45 px-3 py-2">
+                <p class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {{ 'settings.currency.preview' | translate }}
+                </p>
+                <p class="mt-1 text-sm font-semibold tabular-nums">{{ currencyPreview(option.code) }}</p>
+                <p class="mt-1 text-[11px] text-muted-foreground">{{ option.hintKey | translate }}</p>
+              </div>
+            </button>
+          }
+        </div>
+      </app-section-card>
+
       <!-- Google Drive Backup -->
-      <app-section-card title="Google Drive Backup">
+      <app-section-card [title]="'settings.backup.title' | translate">
 
         <!-- ── Single User mode ─────────────────────────────────────────────── -->
         @if (backupModeService.mode() === 'single' || backupModeService.mode() === null) {
@@ -255,7 +351,7 @@ interface BeforeInstallPromptEvent extends Event {
               (click)="onSignOut()"
               class="inline-flex items-center justify-center rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              Sign out
+              {{ 'settings.action.signOut' | translate }}
             </button>
           } @else {
             <button
@@ -263,7 +359,7 @@ interface BeforeInstallPromptEvent extends Event {
               (click)="onSignIn()"
               class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow"
             >
-              Sign in with Google
+              {{ 'settings.action.signInGoogle' | translate }}
             </button>
           }
 
@@ -274,14 +370,14 @@ interface BeforeInstallPromptEvent extends Event {
             class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40"
           >
             <lucide-icon [img]="arrowLeftRightIcon" class="h-4 w-4" />
-            Switch backup mode
+            {{ 'settings.action.switchBackupMode' | translate }}
           </button>
         </div>
 
       </app-section-card>
 
       <!-- Import from Google Sheets -->
-      <app-section-card title="Import from Google Sheets" description="One-time migration: copy all your existing expense data into Google Drive.">
+      <app-section-card [title]="'settings.import.title' | translate" [description]="'settings.import.description' | translate">
         <p class="text-xs text-muted-foreground mb-3">
           Paste your Google Spreadsheet ID below. Found in the URL:
           <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">docs.google.com/spreadsheets/d/<strong>SPREADSHEET_ID</strong>/edit</code>
@@ -291,7 +387,7 @@ interface BeforeInstallPromptEvent extends Event {
           <input
             type="text"
             [(ngModel)]="importSheetId"
-            placeholder="Paste spreadsheet ID here"
+            [placeholder]="'settings.import.placeholder' | translate"
             class="flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 font-mono text-xs text-foreground outline-none focus:border-primary"
             aria-label="Google Spreadsheet ID for import"
           />
@@ -303,10 +399,10 @@ interface BeforeInstallPromptEvent extends Event {
           >
             @if (isImporting()) {
               <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-              Importing…
+              {{ 'settings.import.importing' | translate }}
             } @else {
               <lucide-icon [img]="importIcon" class="h-4 w-4" />
-              Import
+              {{ 'settings.import.button' | translate }}
             }
           </button>
         </div>
@@ -323,7 +419,7 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Push Notifications -->
-      <app-section-card class="relative z-50" title="Push Notifications" description="Get reminders to log your expenses.">
+      <app-section-card class="relative z-50" [title]="'settings.push.title' | translate" [description]="'settings.push.description' | translate">
         <div class="space-y-4">
 
           <!-- Enable/Disable Toggle -->
@@ -333,8 +429,8 @@ interface BeforeInstallPromptEvent extends Event {
                 <lucide-icon [img]="bellIcon" class="h-5 w-5" />
               </span>
               <div>
-                <p class="text-sm font-medium">Enable reminders</p>
-                <p class="text-xs text-muted-foreground">Get notifications to log your expenses.</p>
+                <p class="text-sm font-medium">{{ 'settings.push.enable' | translate }}</p>
+                <p class="text-xs text-muted-foreground">{{ 'settings.push.enableHint' | translate }}</p>
               </div>
             </div>
             <button
@@ -361,7 +457,7 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Local Notifications -->
-      <app-section-card title="Local Notifications" description="Schedule reminders and budget alerts on your device.">
+      <app-section-card [title]="'settings.localNotifications.title' | translate" [description]="'settings.localNotifications.description' | translate">
         <div class="space-y-4">
 
           <!-- Permission Request Button (shown if permission not granted) -->
@@ -372,7 +468,7 @@ interface BeforeInstallPromptEvent extends Event {
               class="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold text-primary-foreground gradient-primary shadow-glow"
             >
               <lucide-icon [img]="bellIcon" class="h-4 w-4" />
-              Request Permission
+              {{ 'settings.localNotifications.requestPermission' | translate }}
             </button>
           }
 
@@ -386,9 +482,9 @@ interface BeforeInstallPromptEvent extends Event {
           <!-- Daily Reminder Toggle -->
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium">Daily Reminder</p>
+              <p class="text-sm font-medium">{{ 'settings.local.dailyReminder' | translate }}</p>
               <p class="text-xs text-muted-foreground">
-                Get reminded to log expenses every day
+                {{ 'settings.local.dailyReminderHint' | translate }}
               </p>
             </div>
             <button
@@ -429,9 +525,9 @@ interface BeforeInstallPromptEvent extends Event {
           <!-- Budget Warnings Toggle -->
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium">Budget Warnings</p>
+              <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
               <p class="text-xs text-muted-foreground">
-                Alert when spending exceeds 80% of category limit
+                {{ 'settings.local.budgetWarningsHint' | translate }}
               </p>
             </div>
             <button
@@ -464,7 +560,7 @@ interface BeforeInstallPromptEvent extends Event {
                 class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
               >
                 <lucide-icon [img]="bellIcon" class="h-4 w-4" />
-                Test Notification (10 seconds)
+                {{ 'settings.localNotifications.test' | translate }}
               </button>
               <p class="mt-2 text-xs text-muted-foreground">
                 Click to test if notifications are working. A test notification will appear in 10 seconds.
@@ -476,14 +572,14 @@ interface BeforeInstallPromptEvent extends Event {
       </app-section-card>
 
       <!-- Data Management -->
-      <app-section-card  title="Data Management" description="Export your data or clear local cache.">
+      <app-section-card  [title]="'settings.data.title' | translate" [description]="'settings.data.description' | translate">
         <button
           type="button"
           (click)="onExportCsv()"
           class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
         >
           <lucide-icon [img]="downloadIcon" class="h-4 w-4" />
-          Export to CSV
+          {{ 'settings.data.exportCsv' | translate }}
         </button>
 
         <!-- Danger zone -->
@@ -511,7 +607,7 @@ interface BeforeInstallPromptEvent extends Event {
 
     <!-- Clear Local Data confirmation modal -->
     <app-modal
-      title="Clear Local Data"
+      [title]="'settings.clear.title' | translate"
       [isOpen]="isClearModalOpen()"
       (confirmed)="onClearConfirmed()"
       (cancelled)="onClearCancelled()"
@@ -524,7 +620,7 @@ interface BeforeInstallPromptEvent extends Event {
 
     <!-- Switch backup mode — primary confirmation modal -->
     <app-modal
-      title="Switch Backup Mode"
+      [title]="'settings.switch.title' | translate"
       [isOpen]="isSwitchModeModalOpen()"
       (confirmed)="onSwitchModeConfirmed()"
       (cancelled)="onSwitchModeCancelled()"
@@ -536,7 +632,7 @@ interface BeforeInstallPromptEvent extends Event {
 
     <!-- Switch backup mode — Owner secondary warning modal -->
     <app-modal
-      title="Partner Access Warning"
+      [title]="'settings.partnerWarning.title' | translate"
       [isOpen]="isOwnerSwitchWarningOpen()"
       (confirmed)="onOwnerSwitchWarningConfirmed()"
       (cancelled)="onOwnerSwitchWarningCancelled()"
@@ -585,6 +681,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly googleDriveService = inject(GoogleDriveService);
   private readonly storageService = inject(StorageService);
   private readonly router = inject(Router);
+  readonly i18n = inject(I18nService);
+  readonly currencyService = inject(CurrencyService);
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -650,6 +748,24 @@ export class SettingsComponent implements OnInit, OnDestroy {
     
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
+  }
+
+  async onLanguageChange(language: AppLanguage): Promise<void> {
+    await this.i18n.setLanguage(language);
+  }
+
+  async onCurrencyChange(currency: AppCurrency): Promise<void> {
+    await this.currencyService.setCurrency(currency);
+  }
+
+  currencyPreview(currency: AppCurrency): string {
+    const option = this.currencyService.option(currency);
+    return this.currencyService.format(option.sampleAmount, this.i18n.locale(), currency);
+  }
+
+  currentSpeechLanguageLabel(): string {
+    const current = this.i18n.languageOptions.find((language) => language.code === this.i18n.language());
+    return current ? `${current.nativeLabel} · ${current.speechLang}` : 'English · en-IN';
   }
 
   private async loadNotificationPreferences(): Promise<void> {
@@ -744,7 +860,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.expenseStore.importFromSheets(allExpenses, limits, monthlyIncome);
 
       this.importMessage.set(
-        `Imported ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ₹${monthlyIncome.toLocaleString()}.`
+        `Imported ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ${this.currencyService.format(monthlyIncome, this.i18n.locale())}.`
       );
       this.importSheetId = '';
     } catch (err: any) {
@@ -1109,7 +1225,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         lastUpdated: new Date().toISOString(),
         metadata: {
           monthlyIncome: this.expenseStore.monthlyIncome(),
-          currency: 'INR',
+          currency: this.currencyService.currency(),
         },
         expenses: this.expenseStore.entries(),
         limits: this.expenseStore.limits(),

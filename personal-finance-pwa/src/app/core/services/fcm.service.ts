@@ -4,6 +4,10 @@ import { PushNotifications, Token, PushNotificationSchema, ActionPerformed } fro
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { initializeApp, getApps } from 'firebase/app';
+import { getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { firebaseConfig } from '../config/firebase.config';
+import { environment } from '../../../environments/environment';
 
 /**
  * FCM Service
@@ -34,6 +38,7 @@ export class FcmService {
 
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
+  private listenersSetup = false;
 
   /**
    * Register for notifications and store token in backend
@@ -49,28 +54,11 @@ export class FcmService {
   async registerForNotifications(userId: string, timezone: string): Promise<boolean> {
     try {
       if (Capacitor.isNativePlatform()) {
-        // Native platform: Initialize FCM
-        await this.initialize();
-        
-        // Wait for token to be generated
-        const token = this.fcmToken();
-        if (!token) {
-          console.error('[FCM] No token generated after initialization');
-          return false;
-        }
-
-        // Register token with backend
+        const token = await this.registerNativeAndGetToken();
         return await this.registerTokenWithBackend(userId, token, timezone);
       } else {
-        // Web platform: Get token from service worker
-        // Note: This requires firebase-messaging-sw.js to be properly configured
-        console.log('[FCM] Web platform - token registration would happen via service worker');
-        
-        // For now, return true for web (service worker handles it)
-        // In a full implementation, you would:
-        // 1. Get token from firebase.messaging()
-        // 2. Register with backend
-        return true;
+        const token = await this.registerWebAndGetToken();
+        return await this.registerTokenWithBackend(userId, token, timezone);
       }
     } catch (error) {
       console.error('[FCM] Failed to register for notifications:', error);
@@ -92,8 +80,9 @@ export class FcmService {
     timezone: string
   ): Promise<boolean> {
     try {
+      const endpoint = this.functionsEndpoint('register-token');
       const response = await firstValueFrom(
-        this.http.post<{ success: boolean }>('/.netlify/functions/register-token', {
+        this.http.post<{ success: boolean }>(endpoint, {
           userId,
           fcmToken,
           timezone,
@@ -118,8 +107,9 @@ export class FcmService {
   async unregister(userId: string): Promise<void> {
     try {
       // Unregister from backend
+      const endpoint = this.functionsEndpoint('unregister-token');
       await firstValueFrom(
-        this.http.post('/.netlify/functions/unregister-token', { userId })
+        this.http.post(endpoint, { userId })
       );
       console.log('[FCM] Token unregistered from backend');
 
@@ -158,13 +148,12 @@ export class FcmService {
 
       if (permissionResult.receive === 'granted') {
         this.pushPermissionStatus.set('granted');
-        
+
+        this.setupListeners();
+
         // Register with FCM
         await PushNotifications.register();
         console.log('[FCM] Registration initiated');
-
-        // Setup listeners
-        this.setupListeners();
       } else {
         this.pushPermissionStatus.set('denied');
         console.log('[FCM] Push notification permission denied');
@@ -201,6 +190,9 @@ export class FcmService {
    * Setup FCM event listeners (Native platforms only)
    */
   private setupListeners(): void {
+    if (this.listenersSetup) return;
+    this.listenersSetup = true;
+
     // Listen for registration success
     PushNotifications.addListener('registration', (token: Token) => {
       console.log('[FCM] Registration successful, token:', token.value);
@@ -230,6 +222,113 @@ export class FcmService {
     });
 
     console.log('[FCM] Event listeners registered');
+  }
+
+  private functionsEndpoint(name: string): string {
+    const base = Capacitor.isNativePlatform()
+      ? environment.netlifyFunctionsUrl
+      : '/.netlify/functions';
+
+    return `${base.replace(/\/$/, '')}/${name}`;
+  }
+
+  private async registerNativeAndGetToken(): Promise<string> {
+    console.log('[FCM] Registering native push notifications...');
+
+    const permissionResult = await PushNotifications.requestPermissions();
+    console.log('[FCM] Permission result:', permissionResult);
+
+    if (permissionResult.receive !== 'granted') {
+      this.pushPermissionStatus.set('denied');
+      throw new Error('Push notification permission denied.');
+    }
+
+    this.pushPermissionStatus.set('granted');
+
+    const tokenPromise = new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let registrationListener: { remove: () => Promise<void> } | null = null;
+      let errorListener: { remove: () => Promise<void> } | null = null;
+
+      const cleanup = () => {
+        void registrationListener?.remove();
+        void errorListener?.remove();
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Timed out waiting for native FCM token.'));
+      }, 10000);
+
+      void PushNotifications.addListener('registration', (token: Token) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        cleanup();
+        console.log('[FCM] Registration successful, token:', token.value);
+        this.fcmToken.set(token.value);
+        resolve(token.value);
+      }).then((handle) => {
+        registrationListener = handle;
+      });
+
+      void PushNotifications.addListener('registrationError', (error: any) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        cleanup();
+        this.pushPermissionStatus.set('denied');
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }).then((handle) => {
+        errorListener = handle;
+      });
+    });
+
+    await PushNotifications.register();
+    console.log('[FCM] Native registration initiated');
+
+    this.setupListeners();
+    return tokenPromise;
+  }
+
+  private async registerWebAndGetToken(): Promise<string> {
+    console.log('[FCM] Registering web push notifications...');
+
+    if (!(await isSupported())) {
+      throw new Error('Firebase Messaging is not supported in this browser.');
+    }
+
+    if (!('serviceWorker' in navigator)) {
+      throw new Error('Service workers are not supported in this browser.');
+    }
+
+    if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error('Web push notification permission denied.');
+      }
+    }
+
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+    const messaging = getMessaging(app);
+
+    const token = await getToken(messaging, {
+      vapidKey: firebaseConfig.vapidKey,
+      serviceWorkerRegistration: registration,
+    });
+
+    if (!token) {
+      throw new Error('Firebase did not return a web push token.');
+    }
+
+    this.fcmToken.set(token);
+    this.pushPermissionStatus.set('granted');
+    console.log('[FCM] Web registration successful, token:', token);
+
+    return token;
   }
 
   /**

@@ -15,12 +15,13 @@ import {
 import { AuthService } from '../../core/services/auth.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
+import { TranslatePipe } from '../../shared/pipes';
 
 @Component({
   selector: 'app-auth-callback',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -56,12 +57,12 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 
             <!-- Headline -->
             <h1 class="text-3xl font-bold tracking-tight md:text-4xl mb-4">
-              Manage Your Finances with Confidence
+              {{ 'auth.title' | translate }}
             </h1>
 
             <!-- Subtitle -->
             <p class="text-muted-foreground mb-8">
-              Track expenses, set smart limits, and visualize your spending—all synced with Google Sheets.
+              {{ 'auth.subtitle' | translate }}
             </p>
 
             <!-- Sign-in button -->
@@ -79,19 +80,19 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
                 (click)="onSignIn()" 
                 class="gradient-primary text-primary-foreground shadow-glow rounded-2xl px-6 py-3 font-semibold transition-all w-full hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                Retry
+                {{ 'common.retry' | translate }}
               </button>
             } @else {
               <button 
                 (click)="onSignIn()" 
                 [disabled]="isLoading()"
                 [attr.aria-busy]="isLoading() ? 'true' : null"
-                aria-label="Sign in with Google"
+                [attr.aria-label]="'auth.signIn' | translate"
                 class="glass-card flex items-center justify-center gap-3 p-4 rounded-2xl transition-all hover:border-primary hover:shadow-glow disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 @if (isLoading()) {
                   <lucide-icon name="loader-2" class="h-6 w-6 animate-spin" />
-                  <span class="font-semibold">Signing in...</span>
+                  <span class="font-semibold">{{ 'auth.signingIn' | translate }}</span>
                 } @else {
                   <!-- Google logo SVG -->
                   <svg class="h-6 w-6" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -100,7 +101,7 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
                     <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                   </svg>
-                  <span class="font-semibold">Sign in with Google</span>
+                  <span class="font-semibold">{{ 'auth.signIn' | translate }}</span>
                 }
               </button>
             }
@@ -114,13 +115,13 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 
           <!-- Features section -->
           <div class="grid gap-4 sm:grid-cols-2">
-            @for (feature of features; track feature.title) {
+            @for (feature of features; track feature.titleKey) {
               <div class="glass-card p-5">
                 <div class="grid h-12 w-12 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow mb-4">
                   <lucide-icon [name]="feature.icon" class="h-6 w-6" />
                 </div>
-                <h3 class="text-base font-semibold mb-2">{{ feature.title }}</h3>
-                <p class="text-sm text-muted-foreground">{{ feature.description }}</p>
+                <h3 class="text-base font-semibold mb-2">{{ feature.titleKey | translate }}</h3>
+                <p class="text-sm text-muted-foreground">{{ feature.descriptionKey | translate }}</p>
               </div>
             }
           </div>
@@ -142,23 +143,23 @@ export class AuthCallbackComponent {
   readonly features = [
     {
       icon: 'calendar-days',
-      title: 'Track Daily Expenses',
-      description: 'Log expenses instantly with smart category detection'
+      titleKey: 'auth.feature.daily.title',
+      descriptionKey: 'auth.feature.daily.description'
     },
     {
       icon: 'sliders-horizontal',
-      title: 'Set Smart Limits',
-      description: 'Define budgets using the 50/30/20 rule or customize your own'
+      titleKey: 'auth.feature.limits.title',
+      descriptionKey: 'auth.feature.limits.description'
     },
     {
       icon: 'layout-dashboard',
-      title: 'Visualize Spending',
-      description: 'Beautiful charts and insights to understand your habits'
+      titleKey: 'auth.feature.dashboard.title',
+      descriptionKey: 'auth.feature.dashboard.description'
     },
     {
       icon: 'cloud',
-      title: 'Sync with Google Sheets',
-      description: 'Automatic backup and sync with your Google Sheets'
+      titleKey: 'auth.feature.sync.title',
+      descriptionKey: 'auth.feature.sync.description'
     }
   ];
 

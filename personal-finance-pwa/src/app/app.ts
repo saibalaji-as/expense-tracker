@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
 import { ToastComponent } from './shared/components/toast/toast.component';
 import { AppShellComponent } from './shared/components/app-shell/app-shell.component';
@@ -7,6 +8,9 @@ import { ExpenseStore, driveError$ } from './core/services/expense-store.service
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
+
+const LOADING_TIMEOUT_MS = 30000;
+const FAMILY_REFRESH_INTERVAL_MS = 30000;
 
 @Component({
   selector: 'app-root',
@@ -16,7 +20,7 @@ import { DriveApiError, DriveParseError } from './core/services/google-drive.ser
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class App implements OnInit {
+export class App implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
@@ -25,6 +29,9 @@ export class App implements OnInit {
   readonly isLoading = signal(true);
   readonly loadingError = signal<string | null>(null);
   private loadingTimeoutId: number | null = null;
+  private familyRefreshIntervalId: number | null = null;
+  private driveErrorSubscription: Subscription | null = null;
+  private isRefreshingFromDrive = false;
 
   private startLoadingTimeout(): void {
     // Clear any existing timeout
@@ -34,11 +41,11 @@ export class App implements OnInit {
 
     this.loadingTimeoutId = window.setTimeout(() => {
       if (this.isLoading()) {
-        console.warn('[App] Loading timeout after 10s');
+        console.warn(`[App] Loading timeout after ${LOADING_TIMEOUT_MS / 1000}s`);
         this.loadingError.set('Couldn\'t load data');
         this.isLoading.set(false);
       }
-    }, 10000); // 10 seconds
+    }, LOADING_TIMEOUT_MS);
   }
 
   private clearLoadingTimeout(): void {
@@ -53,8 +60,109 @@ export class App implements OnInit {
     this.loadingError.set(null);
     this.isLoading.set(true);
     this.startLoadingTimeout(); // Restart timeout timer
-    void this.expenseStore.loadFromDrive();
+    void (async () => {
+      try {
+        await this.bootstrapData();
+      } catch (err) {
+        console.error('[App] Retry failed:', err);
+      } finally {
+        this.clearLoadingTimeout();
+        this.isLoading.set(false);
+      }
+    })();
   }
+
+  private async bootstrapData(): Promise<void> {
+    // Wait for persisted auth and backup-mode caches before using their signals.
+    await Promise.all([
+      this.authService.sessionRestored,
+      this.backupModeService.initialized,
+    ]);
+
+    console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
+
+    if (!this.authService.isAuthenticated()) {
+      this.clearLoadingTimeout();
+      this.isLoading.set(false);
+      return;
+    }
+
+    // Load config from Drive to get cross-device mode/sharedFileId.
+    await this.backupModeService.loadFromDrive();
+
+    const mode = this.backupModeService.getMode();
+    if (mode === null) {
+      this.clearLoadingTimeout();
+      this.isLoading.set(false);
+      await this.router.navigate(['/mode-select']);
+      return;
+    }
+    if (mode === 'family' && !this.backupModeService.getSharedFileId()) {
+      this.clearLoadingTimeout();
+      this.isLoading.set(false);
+      await this.router.navigate(['/family-setup']);
+      return;
+    }
+
+    console.log('[App] Starting Drive bootstrap...');
+    await this.expenseStore.loadFromDrive();
+    if (this.expenseStore.syncStatus() === 'error') {
+      throw new Error('Drive bootstrap failed.');
+    }
+    console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
+
+    this.loadingError.set(null);
+    this.startFamilyRefreshLoop();
+  }
+
+  private startFamilyRefreshLoop(): void {
+    if (this.familyRefreshIntervalId !== null || this.backupModeService.getMode() !== 'family') {
+      return;
+    }
+
+    this.familyRefreshIntervalId = window.setInterval(() => {
+      void this.refreshFamilyData();
+    }, FAMILY_REFRESH_INTERVAL_MS);
+  }
+
+  private stopFamilyRefreshLoop(): void {
+    if (this.familyRefreshIntervalId !== null) {
+      clearInterval(this.familyRefreshIntervalId);
+      this.familyRefreshIntervalId = null;
+    }
+  }
+
+  private async refreshFamilyData(): Promise<void> {
+    if (
+      this.isRefreshingFromDrive ||
+      this.isLoading() ||
+      this.loadingError() ||
+      !this.authService.isAuthenticated() ||
+      this.backupModeService.getMode() !== 'family' ||
+      !this.backupModeService.getSharedFileId()
+    ) {
+      return;
+    }
+
+    this.isRefreshingFromDrive = true;
+    try {
+      await this.expenseStore.loadFromDrive();
+    } catch (err) {
+      console.warn('[App] Family refresh failed:', err);
+    } finally {
+      this.isRefreshingFromDrive = false;
+    }
+  }
+
+  private readonly visibilityHandler = () => {
+    if (document.visibilityState === 'visible') {
+      void this.refreshFamilyData();
+    }
+  };
+
+  private readonly focusHandler = () => {
+    void this.refreshFamilyData();
+  };
 
   /**
    * Maps Drive error types to user-friendly error messages
@@ -87,7 +195,7 @@ export class App implements OnInit {
     this.startLoadingTimeout();
 
     // Forward Drive errors to the toast notification mechanism
-    driveError$.subscribe((err) => {
+    this.driveErrorSubscription = driveError$.subscribe((err) => {
       const driveErr = err as DriveApiError;
       const mode = this.backupModeService.getMode();
 
@@ -116,39 +224,11 @@ export class App implements OnInit {
       console.error('[App] Drive error:', err);
     });
 
-    // Wait for persisted auth state to be read from storage before checking
-    await this.authService.sessionRestored;
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+    window.addEventListener('focus', this.focusHandler);
 
-    console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
-
-    if (!this.authService.isAuthenticated()) {
-      // Not authenticated (or scope version changed — user needs to sign in again)
-      this.clearLoadingTimeout();
-      this.isLoading.set(false);
-      return;
-    }
-
-    // Load config from Drive to get cross-device mode/sharedFileId
-    await this.backupModeService.loadFromDrive();
-
-    const mode = this.backupModeService.getMode();
-    if (mode === null) {
-      this.clearLoadingTimeout();
-      this.isLoading.set(false);
-      await this.router.navigate(['/mode-select']);
-      return;
-    }
-    if (mode === 'family' && !this.backupModeService.getSharedFileId()) {
-      this.clearLoadingTimeout();
-      this.isLoading.set(false);
-      await this.router.navigate(['/family-setup']);
-      return;
-    }
-
-    console.log('[App] Starting Drive bootstrap...');
     try {
-      await this.expenseStore.loadFromDrive();
-      console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
+      await this.bootstrapData();
     } catch (err) {
       // Error already handled by driveError$ subscription
       console.error('[App] Bootstrap failed:', err);
@@ -156,5 +236,13 @@ export class App implements OnInit {
       this.clearLoadingTimeout();
       this.isLoading.set(false);
     }
+  }
+
+  ngOnDestroy(): void {
+    this.clearLoadingTimeout();
+    this.stopFamilyRefreshLoop();
+    this.driveErrorSubscription?.unsubscribe();
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
+    window.removeEventListener('focus', this.focusHandler);
   }
 }
