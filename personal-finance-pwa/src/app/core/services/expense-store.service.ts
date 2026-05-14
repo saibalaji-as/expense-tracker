@@ -12,7 +12,7 @@ import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
 import { BackupModeService } from './backup-mode.service';
-import { CurrencyService } from './currency.service';
+import { AppCurrency, CurrencyService } from './currency.service';
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ interface ExpenseState {
   isOffline: boolean;
   driveFileId: string | null;
   receiptFolderId: string | null;
+  lastKnownDriveModifiedTime: string | null;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ export const ExpenseStore = signalStore(
     isOffline: false,
     driveFileId: null,
     receiptFolderId: null,
+    lastKnownDriveModifiedTime: null,
   }),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
@@ -177,6 +179,41 @@ export const ExpenseStore = signalStore(
     backupModeService = inject(BackupModeService),
     currencyService = inject(CurrencyService),
   ) => {
+    const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
+      currency === 'INR' || currency === 'USD' || currency === 'AED';
+
+    const setCurrencyFromBackup = (currency: string | undefined): void => {
+      if (isAppCurrency(currency) && currencyService.currency() !== currency) {
+        void currencyService.setCurrency(currency);
+      }
+    };
+
+    const readModifiedTimeSafely = async (fileId: string): Promise<string | null> => {
+      try {
+        return await googleDriveService.getFileModifiedTime(fileId);
+      } catch (err) {
+        console.warn('[ExpenseStore] Could not read Drive modifiedTime:', err);
+        return null;
+      }
+    };
+
+    const applyBackupDocument = (
+      fileId: string,
+      doc: Awaited<ReturnType<GoogleDriveService['readBackupFile']>>,
+      modifiedTime: string | null
+    ): void => {
+      setCurrencyFromBackup(doc.metadata.currency);
+      patchState(store, {
+        entries: doc.expenses,
+        limits: doc.limits,
+        monthlyIncome: doc.metadata.monthlyIncome,
+        receiptFolderId: doc.metadata.receiptFolderId ?? null,
+        driveFileId: fileId,
+        lastKnownDriveModifiedTime: modifiedTime,
+        syncStatus: 'idle',
+      });
+    };
+
     const methods = {
       // ─── Task 5.4 / 6.7 / 7.2: addEntry ───────────────────────────────────
       /**
@@ -312,6 +349,7 @@ export const ExpenseStore = signalStore(
           monthlyIncome: 0,
           syncStatus: 'idle',
           receiptFolderId: null,
+          lastKnownDriveModifiedTime: null,
         });
       },
 
@@ -390,6 +428,7 @@ export const ExpenseStore = signalStore(
             }
             console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId);
             const doc = await googleDriveService.readBackupFile(fileId);
+            const modifiedTime = await readModifiedTimeSafely(fileId);
             console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length, '| monthlyIncome:', doc.metadata.monthlyIncome);
             console.log('[ExpenseStore] loadFromDrive — document structure:', {
               version: doc.version,
@@ -398,14 +437,7 @@ export const ExpenseStore = signalStore(
               hasLimits: doc.limits.length > 0,
               currency: doc.metadata.currency
             });
-            patchState(store, {
-              entries: doc.expenses,
-              limits: doc.limits,
-              monthlyIncome: doc.metadata.monthlyIncome,
-              receiptFolderId: doc.metadata.receiptFolderId ?? null,
-              driveFileId: fileId,
-              syncStatus: 'idle',
-            });
+            applyBackupDocument(fileId, doc, modifiedTime);
             console.log('[ExpenseStore] loadFromDrive — state updated. Store now has:', {
               entriesCount: store.entries().length,
               limitsCount: store.limits().length,
@@ -429,6 +461,7 @@ export const ExpenseStore = signalStore(
                 monthlyIncome: 0,
                 receiptFolderId: null,
                 driveFileId: fileId,
+                lastKnownDriveModifiedTime: await readModifiedTimeSafely(fileId),
                 syncStatus: 'idle',
               });
               console.log('[ExpenseStore] loadFromDrive — done (new empty backup)');
@@ -437,15 +470,9 @@ export const ExpenseStore = signalStore(
 
             console.log('[ExpenseStore] loadFromDrive — reading backup file...');
             const doc = await googleDriveService.readBackupFile(fileId);
+            const modifiedTime = await readModifiedTimeSafely(fileId);
             console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
-            patchState(store, {
-              entries: doc.expenses,
-              limits: doc.limits,
-              monthlyIncome: doc.metadata.monthlyIncome,
-              receiptFolderId: doc.metadata.receiptFolderId ?? null,
-              driveFileId: fileId,
-              syncStatus: 'idle',
-            });
+            applyBackupDocument(fileId, doc, modifiedTime);
             console.log('[ExpenseStore] loadFromDrive — done (existing backup loaded)');
           }
         } catch (err) {
@@ -461,7 +488,7 @@ export const ExpenseStore = signalStore(
        * Called by SettingsComponent after creating a new shared file.
        */
       patchDriveFileId(newFileId: string): void {
-        patchState(store, { driveFileId: newFileId });
+        patchState(store, { driveFileId: newFileId, lastKnownDriveModifiedTime: null });
       },
 
       patchReceiptFolderId(receiptFolderId: string): void {
@@ -493,10 +520,40 @@ export const ExpenseStore = signalStore(
             expenses: store.entries(),
             limits: store.limits(),
           };
-          await googleDriveService.writeBackupFile(fileId, doc);
+          const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
+          patchState(store, {
+            lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
+            syncStatus: 'idle',
+          });
         } catch (err) {
           patchState(store, { syncStatus: 'error' });
           driveError$.next(err as DriveApiError | DriveParseError);
+        }
+      },
+
+      async refreshFromDriveIfChanged(): Promise<boolean> {
+        const fileId = store.driveFileId();
+        if (!fileId || store.syncStatus() === 'syncing') {
+          return false;
+        }
+
+        try {
+          const remoteModifiedTime = await googleDriveService.getFileModifiedTime(fileId);
+          if (store.lastKnownDriveModifiedTime() === remoteModifiedTime) {
+            return false;
+          }
+
+          console.log('[ExpenseStore] Remote backup changed, loading latest Drive data.');
+          const doc = await googleDriveService.readBackupFile(fileId);
+          applyBackupDocument(fileId, doc, remoteModifiedTime);
+          return true;
+        } catch (err) {
+          console.warn('[ExpenseStore] refreshFromDriveIfChanged failed:', err);
+          const driveErr = err as DriveApiError;
+          if (driveErr.status === 403 || driveErr.status === 404) {
+            driveError$.next(err as DriveApiError | DriveParseError);
+          }
+          return false;
         }
       },
     };

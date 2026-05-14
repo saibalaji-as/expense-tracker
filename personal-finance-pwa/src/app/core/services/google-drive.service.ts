@@ -24,6 +24,10 @@ export interface DriveApiError {
   operation: string;
 }
 
+export interface DriveFileMetadata {
+  modifiedTime: string;
+}
+
 export class DriveParseError extends Error {
   constructor(message: string, public readonly raw: string) {
     super(message);
@@ -214,6 +218,25 @@ export class GoogleDriveService {
     return parsed as BackupDocument;
   }
 
+  async getFileModifiedTime(fileId: string): Promise<string> {
+    const token = await this.#authService.ensureToken();
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime&_=${Date.now()}`,
+      {
+        headers: noCacheHeaders(token),
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'getFileModifiedTime' } as DriveApiError;
+    }
+
+    const data = await response.json() as DriveFileMetadata;
+    return data.modifiedTime;
+  }
+
   /**
    * Searches My Drive root for an existing spenza-backup.json.
    * Returns the file's Drive resource ID, or null if not found.
@@ -356,7 +379,7 @@ export class GoogleDriveService {
    * Serializes document and uploads it to the backup file identified by
    * fileId. Stamps document.lastUpdated before uploading.
    */
-  async writeBackupFile(fileId: string, document: BackupDocument): Promise<void> {
+  async writeBackupFile(fileId: string, document: BackupDocument): Promise<string | null> {
     document.lastUpdated = new Date().toISOString();
 
     const token = await this.#authService.ensureToken();
@@ -377,7 +400,7 @@ export class GoogleDriveService {
       `--${boundary}--`;
 
     const response = await fetch(
-      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart&fields=modifiedTime`,
       {
         method: 'PATCH',
         headers: {
@@ -392,6 +415,9 @@ export class GoogleDriveService {
       const message = await response.text();
       throw { status: response.status, message, operation: 'writeBackupFile' } as DriveApiError;
     }
+
+    const data = await response.json().catch(() => null) as DriveFileMetadata | null;
+    return data?.modifiedTime ?? null;
   }
 
   /**
@@ -512,6 +538,24 @@ export class GoogleDriveService {
 
   getDriveFolderUrl(folderId: string): string {
     return `https://drive.google.com/drive/folders/${folderId}`;
+  }
+
+  async downloadFile(fileId: string): Promise<Blob> {
+    const token = await this.#authService.ensureToken();
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&_=${Date.now()}`,
+      {
+        headers: noCacheHeaders(token),
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'downloadFile' } as DriveApiError;
+    }
+
+    return response.blob();
   }
 
   async uploadReceiptFile(

@@ -28,6 +28,8 @@ import {
   Paperclip,
   FileText,
   ExternalLink,
+  Sparkles,
+  Eye,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -35,6 +37,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { GoogleDriveService } from '../../core/services/google-drive.service';
+import { ReceiptExtractionResult, ReceiptExtractionService } from '../../core/services/receipt-extraction.service';
 import { ExpenseEntry, ExpenseReceipt } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
@@ -83,7 +86,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye }),
     },
   ],
   template: `
@@ -404,6 +407,18 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   </button>
                 }
                 <div class="flex shrink-0 gap-1.5">
+                  @if (selectedReceiptFile(); as file) {
+                    @if (isImageFile(file)) {
+                      <button
+                        type="button"
+                        (click)="previewSelectedReceipt()"
+                        class="grid h-9 w-9 place-items-center rounded-xl border border-border bg-background/60 text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
+                        [attr.aria-label]="'daily.receipt.preview' | translate"
+                      >
+                        <lucide-icon name="eye" class="h-4 w-4" />
+                      </button>
+                    }
+                  }
                   <button
                     type="button"
                     (click)="receiptCameraInput.click()"
@@ -422,6 +437,51 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </div>
               @if (receiptError()) {
                 <p class="mt-1 text-xs text-destructive">{{ receiptError() }}</p>
+              }
+              @if (extractingReceipt()) {
+                <div class="mt-2 flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
+                  <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                  {{ 'daily.receipt.extracting' | translate }}
+                </div>
+              } @else if (receiptExtraction(); as extraction) {
+                <div class="mt-2 rounded-xl border border-primary/25 bg-primary/10 p-3">
+                  <div class="mb-2 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 text-xs font-semibold text-primary">
+                      <lucide-icon name="sparkles" class="h-3.5 w-3.5" />
+                      {{ 'daily.receipt.smartFill.title' | translate }}
+                    </div>
+                    <button
+                      type="button"
+                      (click)="applyReceiptExtraction(true)"
+                      class="rounded-lg border border-primary/30 bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-primary transition-all hover:border-primary/60"
+                    >
+                      {{ 'daily.receipt.smartFill.apply' | translate }}
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                    <p>
+                      <span class="block font-medium text-foreground">{{ 'common.amount' | translate }}</span>
+                      {{ extraction.amount ? (extraction.amount | currencyFormat) : ('daily.receipt.smartFill.notFound' | translate) }}
+                    </p>
+                    <p>
+                      <span class="block font-medium text-foreground">{{ 'daily.date' | translate }}</span>
+                      {{ extraction.date ?? ('daily.receipt.smartFill.notFound' | translate) }}
+                    </p>
+                    <p>
+                      <span class="block font-medium text-foreground">{{ 'daily.expenseType' | translate }}</span>
+                      {{ extraction.type ? getCatName(extraction.type) : ('daily.receipt.smartFill.notFound' | translate) }}
+                    </p>
+                    <p>
+                      <span class="block font-medium text-foreground">{{ 'common.comment' | translate }}</span>
+                      {{ extraction.comment ?? ('daily.receipt.smartFill.notFound' | translate) }}
+                    </p>
+                  </div>
+                  @if (receiptExtractionApplied()) {
+                    <p class="mt-2 text-[11px] font-medium text-primary">{{ 'daily.receipt.smartFill.applied' | translate }}</p>
+                  }
+                </div>
+              } @else if (receiptExtractionError()) {
+                <p class="mt-1 text-xs text-muted-foreground">{{ receiptExtractionError() }}</p>
               }
             </div>
 
@@ -625,16 +685,27 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 {{ entry.date }} at {{ entry.timestamp.slice(11, 16) }}
               </div>
               @if (entry.receipt) {
-                <a
-                  [href]="entry.receipt.viewUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/40"
-                >
-                  <lucide-icon name="file-text" class="h-3.5 w-3.5" />
-                  {{ 'daily.receipt.view' | translate }}
-                  <lucide-icon name="external-link" class="h-3 w-3" />
-                </a>
+                @if (isImageReceipt(entry.receipt)) {
+                  <button
+                    type="button"
+                    (click)="previewReceipt(entry.receipt)"
+                    class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/40"
+                  >
+                    <lucide-icon name="eye" class="h-3.5 w-3.5" />
+                    {{ 'daily.receipt.preview' | translate }}
+                  </button>
+                } @else {
+                  <a
+                    [href]="entry.receipt.viewUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/40"
+                  >
+                    <lucide-icon name="file-text" class="h-3.5 w-3.5" />
+                    {{ 'daily.receipt.openPdf' | translate }}
+                    <lucide-icon name="external-link" class="h-3 w-3" />
+                  </a>
+                }
               }
             </div>
 
@@ -772,21 +843,69 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                       </div>
                     }
                     @if (entry.receipt) {
-                      <a
-                        [href]="entry.receipt.viewUrl"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="mt-2 inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold text-primary hover:underline"
-                      >
-                        <lucide-icon name="file-text" class="h-3.5 w-3.5" />
-                        {{ 'daily.receipt.view' | translate }}
-                      </a>
+                      @if (isImageReceipt(entry.receipt)) {
+                        <button
+                          type="button"
+                          (click)="previewReceipt(entry.receipt)"
+                          class="mt-2 inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold text-primary hover:underline"
+                        >
+                          <lucide-icon name="eye" class="h-3.5 w-3.5" />
+                          {{ 'daily.receipt.preview' | translate }}
+                        </button>
+                      } @else {
+                        <a
+                          [href]="entry.receipt.viewUrl"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="mt-2 inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold text-primary hover:underline"
+                        >
+                          <lucide-icon name="file-text" class="h-3.5 w-3.5" />
+                          {{ 'daily.receipt.openPdf' | translate }}
+                        </a>
+                      }
                     }
                   </div>
                 }
               </div>
             </div>
           }
+        </div>
+      </div>
+    }
+
+    @if (receiptPreview(); as preview) {
+      <div
+        class="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        (click)="closeReceiptPreview()"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="receipt-preview-title"
+      >
+        <div
+          class="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
+          (click)="$event.stopPropagation()"
+        >
+          <div class="flex shrink-0 items-center justify-between gap-3 border-b border-border p-4">
+            <div class="min-w-0">
+              <h2 id="receipt-preview-title" class="truncate text-base font-semibold">{{ preview.fileName }}</h2>
+              <p class="text-xs text-muted-foreground">{{ 'daily.receipt.previewTitle' | translate }}</p>
+            </div>
+            <button
+              type="button"
+              (click)="closeReceiptPreview()"
+              [attr.aria-label]="'daily.receipt.closePreview' | translate"
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+            >
+              <lucide-icon name="x" class="h-4 w-4" />
+            </button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-auto bg-black/90 p-3">
+            <img
+              [src]="preview.url"
+              [alt]="preview.fileName"
+              class="mx-auto max-h-[75vh] max-w-full rounded-xl object-contain"
+            />
+          </div>
         </div>
       </div>
     }
@@ -801,6 +920,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
   private readonly googleDriveService = inject(GoogleDriveService);
+  private readonly receiptExtractionService = inject(ReceiptExtractionService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
@@ -861,8 +981,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly isViewingGroup = computed(() => this.viewingGroupedEntries().length > 1);
   readonly selectedReceiptFile = signal<File | null>(null);
   readonly receiptError = signal<string | null>(null);
+  readonly receiptExtraction = signal<ReceiptExtractionResult | null>(null);
+  readonly receiptExtractionError = signal<string | null>(null);
+  readonly receiptExtractionApplied = signal(false);
+  readonly extractingReceipt = signal(false);
   readonly uploadingReceipt = signal(false);
   readonly isSavingExpense = signal(false);
+  readonly receiptPreview = signal<{ url: string; fileName: string } | null>(null);
+  private receiptPreviewObjectUrl: string | null = null;
 
   // ─── Selected date state ──────────────────────────────────────────────────
   readonly selectedDate = signal<string>(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
@@ -1047,6 +1173,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   private typeChangeSub?: Subscription;
   private offlineToastTimer?: ReturnType<typeof setTimeout>;
+  private receiptExtractionRunId = 0;
 
   // ─── Type-selection logic ─────────────────────────────────────────────────
   async ngOnInit(): Promise<void> {
@@ -1085,6 +1212,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     if (this.offlineToastTimer) {
       clearTimeout(this.offlineToastTimer);
     }
+    this.revokeReceiptPreviewUrl();
   }
 
   // ─── Helper: map type name → category ID ─────────────────────────────────
@@ -1197,13 +1325,102 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   clearSelectedReceipt(): void {
+    this.receiptExtractionRunId += 1;
     this.selectedReceiptFile.set(null);
     this.receiptError.set(null);
+    this.receiptExtraction.set(null);
+    this.receiptExtractionError.set(null);
+    this.receiptExtractionApplied.set(false);
+  }
+
+  applyReceiptExtraction(overwrite = false): void {
+    const extraction = this.receiptExtraction();
+    if (!extraction) return;
+
+    let applied = false;
+    const amountControl = this.form.get('amount');
+    const dateControl = this.form.get('date');
+    const typeControl = this.form.get('expenseType');
+    const commentControl = this.form.get('comment');
+
+    if (extraction.amount && (overwrite || !amountControl?.value)) {
+      amountControl?.setValue(extraction.amount);
+      applied = true;
+    }
+
+    if (extraction.date && (overwrite || !this.isEditMode())) {
+      dateControl?.setValue(extraction.date);
+      applied = true;
+    }
+
+    if (extraction.type && (overwrite || !typeControl?.value)) {
+      typeControl?.setValue(extraction.type);
+      applied = true;
+    }
+
+    if (extraction.comment && (overwrite || !commentControl?.value)) {
+      commentControl?.setValue(extraction.comment);
+      applied = true;
+    }
+
+    if (applied) {
+      this.receiptExtractionApplied.set(true);
+    }
   }
 
   formatFileSize(size: number): string {
     if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  isImageFile(file: File): boolean {
+    return file.type.startsWith('image/');
+  }
+
+  isImageReceipt(receipt: ExpenseReceipt): boolean {
+    return receipt.mimeType.startsWith('image/');
+  }
+
+  previewSelectedReceipt(): void {
+    const file = this.selectedReceiptFile();
+    if (!file || !this.isImageFile(file)) return;
+
+    const url = URL.createObjectURL(file);
+    this.setReceiptPreview(url, file.name);
+  }
+
+  async previewReceipt(receipt: ExpenseReceipt): Promise<void> {
+    if (!this.isImageReceipt(receipt)) {
+      window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    try {
+      const blob = await this.googleDriveService.downloadFile(receipt.fileId);
+      const url = URL.createObjectURL(blob);
+      this.setReceiptPreview(url, receipt.fileName);
+    } catch (error) {
+      console.warn('[DailyExpense] Failed to preview receipt image:', error);
+      window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  closeReceiptPreview(): void {
+    this.receiptPreview.set(null);
+    this.revokeReceiptPreviewUrl();
+  }
+
+  private setReceiptPreview(url: string, fileName: string): void {
+    this.revokeReceiptPreviewUrl();
+    this.receiptPreviewObjectUrl = url;
+    this.receiptPreview.set({ url, fileName });
+  }
+
+  private revokeReceiptPreviewUrl(): void {
+    if (this.receiptPreviewObjectUrl) {
+      URL.revokeObjectURL(this.receiptPreviewObjectUrl);
+      this.receiptPreviewObjectUrl = null;
+    }
   }
 
   private async uploadSelectedReceipt(entryId: string, date: string): Promise<ExpenseReceipt | undefined> {
@@ -1230,8 +1447,19 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   private async prepareReceiptFile(file: File): Promise<void> {
-    if (!file.type.startsWith('image/')) {
-      this.selectedReceiptFile.set(file);
+    this.receiptExtraction.set(null);
+    this.receiptExtractionError.set(null);
+    this.receiptExtractionApplied.set(false);
+
+    if (file.type === 'application/pdf') {
+      try {
+        this.selectedReceiptFile.set(await this.receiptExtractionService.convertPdfToCompressedImage(file));
+      } catch (error) {
+        console.warn('[DailyExpense] PDF receipt image conversion failed, keeping original PDF:', error);
+        this.selectedReceiptFile.set(file);
+      }
+
+      void this.extractReceiptFields(file);
       return;
     }
 
@@ -1240,6 +1468,32 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.warn('[DailyExpense] Receipt compression failed, using original file:', error);
       this.selectedReceiptFile.set(file);
+    }
+
+    void this.extractReceiptFields(file);
+  }
+
+  private async extractReceiptFields(file: File): Promise<void> {
+    const runId = ++this.receiptExtractionRunId;
+    this.extractingReceipt.set(true);
+    try {
+      const extraction = await this.receiptExtractionService.extract(file);
+      if (runId !== this.receiptExtractionRunId) return;
+      if (!extraction.readable) {
+        this.receiptExtraction.set(null);
+        this.receiptExtractionError.set(this.i18n.t('daily.receipt.smartFill.unreadable'));
+        return;
+      }
+      this.receiptExtraction.set(extraction);
+      this.applyReceiptExtraction(false);
+    } catch (error) {
+      if (runId !== this.receiptExtractionRunId) return;
+      console.warn('[DailyExpense] Receipt smart extraction failed:', error);
+      this.receiptExtractionError.set(this.i18n.t('daily.receipt.smartFill.failed'));
+    } finally {
+      if (runId === this.receiptExtractionRunId) {
+        this.extractingReceipt.set(false);
+      }
     }
   }
 
@@ -1422,6 +1676,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     
     // Set editing state
     this.editingEntry.set(entry);
+    this.clearSelectedReceipt();
     
     // Populate form with entry data
     this.form.patchValue({

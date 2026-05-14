@@ -10,7 +10,7 @@ import { BackupModeService } from './core/services/backup-mode.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
 
 const LOADING_TIMEOUT_MS = 30000;
-const FAMILY_REFRESH_INTERVAL_MS = 30000;
+const DRIVE_POLL_INTERVAL_MS = 30000;
 
 @Component({
   selector: 'app-root',
@@ -29,7 +29,7 @@ export class App implements OnInit, OnDestroy {
   readonly isLoading = signal(true);
   readonly loadingError = signal<string | null>(null);
   private loadingTimeoutId: number | null = null;
-  private familyRefreshIntervalId: number | null = null;
+  private drivePollIntervalId: number | null = null;
   private driveErrorSubscription: Subscription | null = null;
   private isRefreshingFromDrive = false;
 
@@ -112,43 +112,43 @@ export class App implements OnInit, OnDestroy {
     console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
 
     this.loadingError.set(null);
-    this.startFamilyRefreshLoop();
+    this.startDrivePollLoop();
   }
 
-  private startFamilyRefreshLoop(): void {
-    if (this.familyRefreshIntervalId !== null || this.backupModeService.getMode() !== 'family') {
+  private startDrivePollLoop(): void {
+    if (this.drivePollIntervalId !== null || !this.expenseStore.driveFileId()) {
       return;
     }
 
-    this.familyRefreshIntervalId = window.setInterval(() => {
-      void this.refreshFamilyData();
-    }, FAMILY_REFRESH_INTERVAL_MS);
+    this.drivePollIntervalId = window.setInterval(() => {
+      void this.refreshBackupIfChanged();
+    }, DRIVE_POLL_INTERVAL_MS);
   }
 
-  private stopFamilyRefreshLoop(): void {
-    if (this.familyRefreshIntervalId !== null) {
-      clearInterval(this.familyRefreshIntervalId);
-      this.familyRefreshIntervalId = null;
+  private stopDrivePollLoop(): void {
+    if (this.drivePollIntervalId !== null) {
+      clearInterval(this.drivePollIntervalId);
+      this.drivePollIntervalId = null;
     }
   }
 
-  private async refreshFamilyData(): Promise<void> {
+  private async refreshBackupIfChanged(): Promise<void> {
     if (
       this.isRefreshingFromDrive ||
       this.isLoading() ||
       this.loadingError() ||
       !this.authService.isAuthenticated() ||
-      this.backupModeService.getMode() !== 'family' ||
-      !this.backupModeService.getSharedFileId()
+      !this.expenseStore.driveFileId() ||
+      document.visibilityState !== 'visible'
     ) {
       return;
     }
 
     this.isRefreshingFromDrive = true;
     try {
-      await this.expenseStore.loadFromDrive();
+      await this.expenseStore.refreshFromDriveIfChanged();
     } catch (err) {
-      console.warn('[App] Family refresh failed:', err);
+      console.warn('[App] Drive poll refresh failed:', err);
     } finally {
       this.isRefreshingFromDrive = false;
     }
@@ -156,12 +156,12 @@ export class App implements OnInit, OnDestroy {
 
   private readonly visibilityHandler = () => {
     if (document.visibilityState === 'visible') {
-      void this.refreshFamilyData();
+      void this.refreshBackupIfChanged();
     }
   };
 
   private readonly focusHandler = () => {
-    void this.refreshFamilyData();
+    void this.refreshBackupIfChanged();
   };
 
   /**
@@ -240,7 +240,7 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.clearLoadingTimeout();
-    this.stopFamilyRefreshLoop();
+    this.stopDrivePollLoop();
     this.driveErrorSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     window.removeEventListener('focus', this.focusHandler);
