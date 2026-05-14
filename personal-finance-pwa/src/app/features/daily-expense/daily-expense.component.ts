@@ -25,13 +25,17 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  Paperclip,
+  FileText,
+  ExternalLink,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
 import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
-import { ExpenseEntry } from '../../core/models/expense-entry.model';
+import { GoogleDriveService } from '../../core/services/google-drive.service';
+import { ExpenseEntry, ExpenseReceipt } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
@@ -79,7 +83,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink }),
     },
   ],
   template: `
@@ -353,13 +357,84 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               </div>
             </div>
 
+            <!-- Bill / receipt attachment -->
+            <div class="mt-3">
+              <p class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {{ 'daily.receipt.label' | translate }}
+              </p>
+              <input
+                #receiptInput
+                type="file"
+                accept="image/*,application/pdf"
+                class="hidden"
+                (change)="onReceiptSelected($event)"
+              />
+              <input
+                #receiptCameraInput
+                type="file"
+                accept="image/*"
+                capture="environment"
+                class="hidden"
+                (change)="onReceiptSelected($event)"
+              />
+              <div class="mt-1 flex items-center gap-2 rounded-xl border border-dashed border-border bg-card/40 px-3 py-2 transition-all hover:border-primary/40">
+                <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                  <lucide-icon name="paperclip" class="h-4 w-4" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  @if (selectedReceiptFile(); as file) {
+                    <p class="truncate text-sm font-medium">{{ file.name }}</p>
+                    <p class="text-[11px] text-muted-foreground">{{ formatFileSize(file.size) }}</p>
+                  } @else if (editingEntry()?.receipt; as receipt) {
+                    <p class="truncate text-sm font-medium">{{ receipt.fileName }}</p>
+                    <p class="text-[11px] text-muted-foreground">{{ 'daily.receipt.keepExisting' | translate }}</p>
+                  } @else {
+                    <p class="text-sm font-medium">{{ 'daily.receipt.empty' | translate }}</p>
+                    <p class="text-[11px] text-muted-foreground">{{ 'daily.receipt.hint' | translate }}</p>
+                  }
+                </div>
+                @if (selectedReceiptFile()) {
+                  <button
+                    type="button"
+                    (click)="clearSelectedReceipt()"
+                    [attr.aria-label]="'daily.receipt.remove' | translate"
+                    class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <lucide-icon name="x" class="h-4 w-4" />
+                  </button>
+                }
+                <div class="flex shrink-0 gap-1.5">
+                  <button
+                    type="button"
+                    (click)="receiptCameraInput.click()"
+                    class="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/60"
+                  >
+                    {{ 'daily.receipt.scan' | translate }}
+                  </button>
+                  <button
+                    type="button"
+                    (click)="receiptInput.click()"
+                    class="rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
+                  >
+                    {{ (selectedReceiptFile() || editingEntry()?.receipt ? 'daily.receipt.change' : 'daily.receipt.attach') | translate }}
+                  </button>
+                </div>
+              </div>
+              @if (receiptError()) {
+                <p class="mt-1 text-xs text-destructive">{{ receiptError() }}</p>
+              }
+            </div>
+
             <!-- Log button -->
             <button
               type="submit"
-              [disabled]="!(form.get('amount')?.value)"
+              [disabled]="!(form.get('amount')?.value) || isSavingExpense()"
               class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              @if (isEditMode()) {
+              @if (isSavingExpense()) {
+                <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                {{ uploadingReceipt() ? ('daily.receipt.uploading' | translate) : ('daily.saving' | translate) }}
+              } @else if (isEditMode()) {
                 <lucide-icon name="pencil" class="h-4 w-4" />
                 {{ actionLabel(true) }}
               } @else {
@@ -549,6 +624,18 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               <div class="mt-2 text-[10px] text-muted-foreground">
                 {{ entry.date }} at {{ entry.timestamp.slice(11, 16) }}
               </div>
+              @if (entry.receipt) {
+                <a
+                  [href]="entry.receipt.viewUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/40"
+                >
+                  <lucide-icon name="file-text" class="h-3.5 w-3.5" />
+                  {{ 'daily.receipt.view' | translate }}
+                  <lucide-icon name="external-link" class="h-3 w-3" />
+                </a>
+              }
             </div>
 
             <!-- Comment Section (scrollable, takes maximum space) -->
@@ -684,6 +771,17 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                         <p class="text-xs leading-relaxed break-words">{{ entry.comment }}</p>
                       </div>
                     }
+                    @if (entry.receipt) {
+                      <a
+                        [href]="entry.receipt.viewUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="mt-2 inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold text-primary hover:underline"
+                      >
+                        <lucide-icon name="file-text" class="h-3.5 w-3.5" />
+                        {{ 'daily.receipt.view' | translate }}
+                      </a>
+                    }
                   </div>
                 }
               </div>
@@ -702,6 +800,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private readonly storageService = inject(StorageService);
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
+  private readonly googleDriveService = inject(GoogleDriveService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
@@ -760,6 +859,10 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly viewingGroupedEntries = signal<ExpenseEntry[]>([]);
   readonly isViewingDetail = computed(() => this.viewingEntry() !== null || this.viewingGroupedEntries().length > 0);
   readonly isViewingGroup = computed(() => this.viewingGroupedEntries().length > 1);
+  readonly selectedReceiptFile = signal<File | null>(null);
+  readonly receiptError = signal<string | null>(null);
+  readonly uploadingReceipt = signal(false);
+  readonly isSavingExpense = signal(false);
 
   // ─── Selected date state ──────────────────────────────────────────────────
   readonly selectedDate = signal<string>(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
@@ -1070,26 +1173,137 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return ts.slice(0, 19).replace('T', ' ');
   }
 
+  onReceiptSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    this.receiptError.set(null);
+
+    if (!file) return;
+
+    const isSupported = file.type.startsWith('image/') || file.type === 'application/pdf';
+    if (!isSupported) {
+      this.receiptError.set(this.i18n.t('daily.receipt.invalidType'));
+      return;
+    }
+
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      this.receiptError.set(this.i18n.t('daily.receipt.tooLarge'));
+      return;
+    }
+
+    void this.prepareReceiptFile(file);
+  }
+
+  clearSelectedReceipt(): void {
+    this.selectedReceiptFile.set(null);
+    this.receiptError.set(null);
+  }
+
+  formatFileSize(size: number): string {
+    if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private async uploadSelectedReceipt(entryId: string, date: string): Promise<ExpenseReceipt | undefined> {
+    const file = this.selectedReceiptFile();
+    if (!file) return undefined;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.receiptError.set(this.i18n.t('daily.receipt.offline'));
+      throw new Error('Cannot upload receipt while offline.');
+    }
+
+    this.uploadingReceipt.set(true);
+    try {
+      let receiptFolderId = this.expenseStore.receiptFolderId();
+      if (!receiptFolderId) {
+        receiptFolderId = await this.googleDriveService.ensureReceiptsFolder();
+        this.expenseStore.patchReceiptFolderId(receiptFolderId);
+      }
+
+      return await this.googleDriveService.uploadReceiptFile(file, entryId, date, receiptFolderId);
+    } finally {
+      this.uploadingReceipt.set(false);
+    }
+  }
+
+  private async prepareReceiptFile(file: File): Promise<void> {
+    if (!file.type.startsWith('image/')) {
+      this.selectedReceiptFile.set(file);
+      return;
+    }
+
+    try {
+      this.selectedReceiptFile.set(await this.compressReceiptImage(file));
+    } catch (error) {
+      console.warn('[DailyExpense] Receipt compression failed, using original file:', error);
+      this.selectedReceiptFile.set(file);
+    }
+  }
+
+  private async compressReceiptImage(file: File): Promise<File> {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const maxDimension = 1600;
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      if (!context) return file;
+
+      context.drawImage(bitmap, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.72);
+      });
+
+      if (!blob || blob.size >= file.size * 0.95) return file;
+
+      const baseName = file.name.replace(/\.[^.]+$/, '');
+      return new File([blob], `${baseName}-compressed.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+    } finally {
+      bitmap.close();
+    }
+  }
+
   // ─── onSubmit ─────────────────────────────────────────────────────────────
-  onSubmit(): void {
+  async onSubmit(): Promise<void> {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
 
+    this.isSavingExpense.set(true);
+    this.receiptError.set(null);
+
     const editingEntry = this.editingEntry();
-    
-    if (editingEntry) {
-      // Update existing entry
-      this.updateEntry(editingEntry);
-    } else {
-      // Create new entry
-      this.createEntry();
+    try {
+      if (editingEntry) {
+        // Update existing entry
+        await this.updateEntry(editingEntry);
+      } else {
+        // Create new entry
+        await this.createEntry();
+      }
+    } catch (error) {
+      console.error('[DailyExpense] Failed to save expense:', error);
+      this.receiptError.set(this.receiptError() ?? this.i18n.t('daily.receipt.uploadFailed'));
+    } finally {
+      this.isSavingExpense.set(false);
     }
   }
 
   // ─── Create new entry ─────────────────────────────────────────────────────
-  private createEntry(): void {
+  private async createEntry(): Promise<void> {
     const id = crypto.randomUUID();
     const date = this.form.get('date')?.value ?? new Date().toISOString().slice(0, 10);
     const timestamp = new Date().toISOString();
@@ -1098,6 +1312,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const limit = this.form.get('limit')?.value ?? 0;
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
+    const receipt = await this.uploadSelectedReceipt(id, date);
 
     const entry: ExpenseEntry = {
       id,
@@ -1108,6 +1323,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       savings,
       timestamp,
       comment,
+      receipt,
     };
 
     this.expenseStore.addEntry(entry);
@@ -1137,6 +1353,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       date: new Date().toISOString().slice(0, 10), // Reset to today
       comment: '' 
     });
+    this.clearSelectedReceipt();
 
     // Switch the entries list to the date the entry was logged on,
     // then scroll down so the user sees it immediately
@@ -1145,13 +1362,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Update existing entry ────────────────────────────────────────────────
-  private updateEntry(originalEntry: ExpenseEntry): void {
+  private async updateEntry(originalEntry: ExpenseEntry): Promise<void> {
     const type = this.form.get('expenseType')?.value ?? '';
     const amount = this.form.get('amount')?.value ?? 0;
     const limit = this.form.get('limit')?.value ?? 0;
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
     const date = this.form.get('date')?.value ?? originalEntry.date;
+    const uploadedReceipt = await this.uploadSelectedReceipt(originalEntry.id, date);
 
     const updatedEntry: ExpenseEntry = {
       ...originalEntry,
@@ -1161,6 +1379,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       limit: limit as number,
       savings,
       comment,
+      receipt: uploadedReceipt ?? originalEntry.receipt,
       timestamp: new Date().toISOString(),
     };
 
@@ -1189,6 +1408,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       date: new Date().toISOString().slice(0, 10), 
       comment: '' 
     });
+    this.clearSelectedReceipt();
     this.editingEntry.set(null);
 
     // Switch entries list to the entry's date and scroll to it
@@ -1219,6 +1439,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Cancel edit ──────────────────────────────────────────────────────────
   cancelEdit(): void {
     this.editingEntry.set(null);
+    this.clearSelectedReceipt();
     this.form.reset({ 
       expenseType: '', 
       amount: null, 

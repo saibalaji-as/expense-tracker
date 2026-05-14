@@ -238,19 +238,19 @@ interface BeforeInstallPromptEvent extends Event {
         @if (backupModeService.mode() === 'family' && backupModeService.ownerRole() === 'owner') {
           <p class="text-sm font-medium">Family Backup — Owner</p>
 
-          <!-- Shared File ID read-only field with Copy button -->
+          <!-- Shared Family ID read-only field with Copy button -->
           <div class="mt-3 flex items-center gap-2">
             <input
               type="text"
-              [value]="backupModeService.sharedFileId() ?? ''"
+              [value]="backupModeService.familyFolderId() ?? backupModeService.sharedFileId() ?? ''"
               readonly
-              aria-label="Shared File ID"
+              aria-label="Shared Family ID"
               class="flex-1 rounded-2xl border border-border bg-muted/40 px-4 py-2.5 font-mono text-xs text-foreground outline-none cursor-default"
             />
             <button
               type="button"
               (click)="onCopySharedFileId()"
-              aria-label="Copy shared file ID"
+              aria-label="Copy shared family ID"
               class="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs font-medium hover:border-primary/40"
             >
               <lucide-icon [img]="copyIcon" class="h-4 w-4" />
@@ -259,9 +259,9 @@ interface BeforeInstallPromptEvent extends Event {
           </div>
 
           <!-- Google Drive link -->
-          @if (backupModeService.sharedFileId()) {
+          @if (backupModeService.familyFolderId() || backupModeService.sharedFileId()) {
             <a
-              [href]="'https://drive.google.com/file/d/' + backupModeService.sharedFileId() + '/view'"
+              [href]="familyDriveUrl()"
               target="_blank"
               rel="noopener noreferrer"
               class="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -374,6 +374,42 @@ interface BeforeInstallPromptEvent extends Event {
           </button>
         </div>
 
+      </app-section-card>
+
+      <!-- Receipt folder sharing -->
+      <app-section-card
+        [title]="'settings.receipts.title' | translate"
+        [description]="'settings.receipts.description' | translate"
+      >
+        <div class="rounded-2xl border border-border bg-card/40 p-4">
+          @if (expenseStore.receiptFolderId()) {
+            <p class="text-sm font-semibold">{{ 'settings.receipts.ready' | translate }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.shareHint' | translate }}</p>
+            <a
+              [href]="receiptFolderUrl()"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
+            >
+              <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
+              {{ 'settings.receipts.openFolder' | translate }}
+            </a>
+          } @else {
+            <p class="text-sm font-semibold">{{ 'settings.receipts.notReady' | translate }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.setupHint' | translate }}</p>
+            <button
+              type="button"
+              (click)="onSetupReceiptFolder()"
+              [disabled]="isSettingUpReceiptFolder()"
+              class="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              @if (isSettingUpReceiptFolder()) {
+                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              }
+              {{ 'settings.receipts.setup' | translate }}
+            </button>
+          }
+        </div>
       </app-section-card>
 
       <!-- Import from Google Sheets -->
@@ -626,8 +662,13 @@ interface BeforeInstallPromptEvent extends Event {
       (cancelled)="onSwitchModeCancelled()"
     >
       <p class="text-sm text-gray-700">
-        Switching modes will disconnect you from your current backup. Your existing data will not be deleted from Google Drive. Continue?
+        {{ switchModePrimaryMessage() }}
       </p>
+      <div class="mt-3 space-y-2 text-xs text-gray-600">
+        @for (item of switchModeChecklist(); track item) {
+          <p>{{ item }}</p>
+        }
+      </div>
     </app-modal>
 
     <!-- Switch backup mode — Owner secondary warning modal -->
@@ -638,11 +679,11 @@ interface BeforeInstallPromptEvent extends Event {
       (cancelled)="onOwnerSwitchWarningCancelled()"
     >
       <p class="text-sm text-gray-700">
-        Your partner can still access the shared file until you remove their access in Google Drive.
+        Your partner can still access the shared family Drive folder/file until you remove their access in Google Drive. Existing shared data is not deleted by this app.
       </p>
-      @if (backupModeService.sharedFileId()) {
+      @if (backupModeService.familyFolderId() || backupModeService.sharedFileId()) {
         <a
-          [href]="'https://drive.google.com/file/d/' + backupModeService.sharedFileId() + '/view'"
+          [href]="familyDriveUrl()"
           target="_blank"
           rel="noopener noreferrer"
           class="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -707,6 +748,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isImporting = signal(false);
   readonly importMessage = signal<string | null>(null);
   readonly importError = signal(false);
+  readonly isSettingUpReceiptFolder = signal(false);
 
   // ─── Local Notification Preferences ──────────────────────────────────────────
   readonly notificationPrefs = signal<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
@@ -766,6 +808,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
   currentSpeechLanguageLabel(): string {
     const current = this.i18n.languageOptions.find((language) => language.code === this.i18n.language());
     return current ? `${current.nativeLabel} · ${current.speechLang}` : 'English · en-IN';
+  }
+
+  receiptFolderUrl(): string {
+    const folderId = this.expenseStore.receiptFolderId();
+    return folderId ? this.googleDriveService.getDriveFolderUrl(folderId) : '#';
+  }
+
+  async onSetupReceiptFolder(): Promise<void> {
+    this.isSettingUpReceiptFolder.set(true);
+    try {
+      const folderId = await this.googleDriveService.ensureReceiptsFolder();
+      this.expenseStore.patchReceiptFolderId(folderId);
+    } finally {
+      this.isSettingUpReceiptFolder.set(false);
+    }
   }
 
   private async loadNotificationPreferences(): Promise<void> {
@@ -1063,7 +1120,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // ─── 12.1: Backup mode — copy shared file ID ─────────────────────────────────
 
   async onCopySharedFileId(): Promise<void> {
-    const fileId = this.backupModeService.sharedFileId();
+    const fileId = this.backupModeService.familyFolderId() ?? this.backupModeService.sharedFileId();
     if (!fileId) return;
     try {
       if (navigator.clipboard?.writeText) {
@@ -1111,6 +1168,40 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onSwitchBackupMode(): void {
     this.isSwitchModeModalOpen.set(true);
+  }
+
+  familyDriveUrl(): string {
+    const folderId = this.backupModeService.familyFolderId();
+    if (folderId) return this.googleDriveService.getDriveFolderUrl(folderId);
+
+    const fileId = this.backupModeService.sharedFileId();
+    return fileId ? `https://drive.google.com/file/d/${fileId}/view` : '#';
+  }
+
+  switchModePrimaryMessage(): string {
+    if (this.backupModeService.mode() === 'family') {
+      return 'Switching to single mode will copy the latest family expenses into your private backup before disconnecting this device from family mode.';
+    }
+
+    return 'Switching to family mode will keep your private backup safe. After reconnecting, the owner can create a shared family folder and share one folder ID with the partner.';
+  }
+
+  switchModeChecklist(): string[] {
+    if (this.backupModeService.mode() === 'family') {
+      return [
+        '1. Your family Drive folder/file will not be deleted.',
+        '2. Your partner will keep access until you remove Drive sharing manually.',
+        '3. Receipt files remain in Drive; old links are preserved.',
+        '4. You will be signed out and asked to choose a backup mode again.',
+      ];
+    }
+
+    return [
+      '1. Your single-user backup remains in your private Drive app data.',
+      '2. During family setup, the app copies your current data into the shared family backup.',
+      '3. New family setup uses one shared Drive folder containing the backup file and Receipts folder.',
+      '4. You must share that family folder in Google Drive with your partner.',
+    ];
   }
 
   onSwitchModeCancelled(): void {
@@ -1226,6 +1317,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         metadata: {
           monthlyIncome: this.expenseStore.monthlyIncome(),
           currency: this.currencyService.currency(),
+          ...(this.expenseStore.receiptFolderId() ? { receiptFolderId: this.expenseStore.receiptFolderId()! } : {}),
         },
         expenses: this.expenseStore.entries(),
         limits: this.expenseStore.limits(),

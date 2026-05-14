@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { ExpenseEntry, ExpenseLimit } from '../models';
+import { ExpenseEntry, ExpenseLimit, ExpenseReceipt } from '../models';
 import { AuthService } from './auth.service';
 
 // ─── Data Models ──────────────────────────────────────────────────────────────
@@ -10,6 +10,7 @@ export interface BackupDocument {
   metadata: {
     monthlyIncome: number;
     currency: string;
+    receiptFolderId?: string;
   };
   expenses: ExpenseEntry[];
   limits: ExpenseLimit[];
@@ -53,6 +54,7 @@ export interface SpenzaConfig {
   version: string;
   mode: 'single' | 'family' | null;
   sharedFileId: string | null;
+  familyFolderId?: string | null;
   ownerRole: 'owner' | 'partner' | null;
   lastUpdated: string;
 }
@@ -62,6 +64,7 @@ export function buildInitialConfig(): SpenzaConfig {
     version: '1.0',
     mode: null,
     sharedFileId: null,
+    familyFolderId: null,
     ownerRole: null,
     lastUpdated: new Date().toISOString(),
   };
@@ -75,11 +78,29 @@ function noCacheHeaders(token: string): HeadersInit {
   };
 }
 
+function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
 export class GoogleDriveService {
   readonly #authService = inject(AuthService);
+
+  private buildMultipartBody(metadata: object, content: string, boundary: string): string {
+    return (
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n` +
+      `\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n` +
+      `\r\n` +
+      `${content}\r\n` +
+      `--${boundary}--`
+    );
+  }
 
   /**
    * Queries Drive for an existing spenza-backup.json in appDataFolder.
@@ -262,6 +283,75 @@ export class GoogleDriveService {
     return data.id as string;
   }
 
+  async createFamilyFolderBundle(): Promise<{
+    familyFolderId: string;
+    backupFileId: string;
+    receiptFolderId: string;
+  }> {
+    const familyFolderId = await this.createDriveFolder('Spenza Family', 'root');
+    const receiptFolderId = await this.createDriveFolder('Receipts', familyFolderId);
+    const backupFileId = await this.createBackupFileInFolder(familyFolderId);
+
+    return { familyFolderId, backupFileId, receiptFolderId };
+  }
+
+  async findBackupFileInFolder(folderId: string): Promise<string | null> {
+    const token = await this.#authService.ensureToken();
+    const q = encodeURIComponent(
+      `name='spenza-backup.json' and '${escapeDriveQueryValue(folderId)}' in parents and trashed=false`
+    );
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'findBackupFileInFolder' } as DriveApiError;
+    }
+
+    const data = await response.json();
+    const files: Array<{ id: string }> = data.files ?? [];
+    return files.length > 0 ? files[0].id : null;
+  }
+
+  async findOrCreateReceiptsFolderInFamilyFolder(familyFolderId: string): Promise<string> {
+    const token = await this.#authService.ensureToken();
+    const existing = await this.findFolderInParent(token, 'Receipts', familyFolderId);
+    return existing ?? this.createDriveFolder('Receipts', familyFolderId);
+  }
+
+  async createBackupFileInFolder(folderId: string): Promise<string> {
+    const token = await this.#authService.ensureToken();
+    const initialDocument = buildInitialDocument(new Date().toISOString());
+    const boundary = 'spenza_boundary_001';
+    const body = this.buildMultipartBody(
+      { name: 'spenza-backup.json', parents: [folderId] },
+      JSON.stringify(initialDocument),
+      boundary
+    );
+
+    const response = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'createBackupFileInFolder' } as DriveApiError;
+    }
+
+    const data = await response.json();
+    return data.id as string;
+  }
+
   /**
    * Serializes document and uploads it to the backup file identified by
    * fileId. Stamps document.lastUpdated before uploading.
@@ -413,5 +503,137 @@ export class GoogleDriveService {
       const message = await response.text();
       throw { status: response.status, message, operation: 'writeConfigFile' } as DriveApiError;
     }
+  }
+
+  async ensureReceiptsFolder(): Promise<string> {
+    const token = await this.#authService.ensureToken();
+    return this.findOrCreateReceiptsFolder(token);
+  }
+
+  getDriveFolderUrl(folderId: string): string {
+    return `https://drive.google.com/drive/folders/${folderId}`;
+  }
+
+  async uploadReceiptFile(
+    file: File,
+    entryId: string,
+    expenseDate: string,
+    receiptFolderId?: string | null,
+  ): Promise<ExpenseReceipt> {
+    const token = await this.#authService.ensureToken();
+    const folderId = receiptFolderId || await this.findOrCreateReceiptsFolder(token);
+    const safeName = file.name.replace(/[^\w.\- ()]/g, '_');
+    const timestamp = new Date().toISOString();
+    const fileName = `${expenseDate}_${entryId}_${safeName}`;
+    const boundary = `spenza_receipt_${crypto.randomUUID()}`;
+    const metadata = JSON.stringify({
+      name: fileName,
+      parents: [folderId],
+      description: `Spenza receipt for expense ${entryId}`,
+    });
+
+    const body = new Blob([
+      `--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      metadata,
+      '\r\n',
+      `--${boundary}\r\n`,
+      `Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`,
+      file,
+      '\r\n',
+      `--${boundary}--`,
+    ], { type: `multipart/related; boundary=${boundary}` });
+
+    const response = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'uploadReceiptFile' } as DriveApiError;
+    }
+
+    const data = await response.json() as {
+      id: string;
+      name?: string;
+      mimeType?: string;
+      size?: string;
+      webViewLink?: string;
+    };
+
+    return {
+      fileId: data.id,
+      fileName: data.name ?? file.name,
+      mimeType: data.mimeType ?? file.type,
+      size: Number(data.size ?? file.size),
+      viewUrl: data.webViewLink ?? `https://drive.google.com/file/d/${data.id}/view`,
+      uploadedAt: timestamp,
+    };
+  }
+
+  private async findOrCreateReceiptsFolder(token: string): Promise<string> {
+    const folderName = 'Spenza Receipts';
+    const existing = await this.findFolderInParent(token, folderName, 'root');
+    if (existing) return existing;
+
+    return this.createDriveFolder(folderName, 'root');
+  }
+
+  private async findFolderInParent(
+    token: string,
+    folderName: string,
+    parentId: string,
+  ): Promise<string | null> {
+    const q = encodeURIComponent(
+      `name='${escapeDriveQueryValue(folderName)}' and mimeType='application/vnd.google-apps.folder' and '${escapeDriveQueryValue(parentId)}' in parents and trashed=false`
+    );
+    const findResponse = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
+    );
+
+    if (!findResponse.ok) {
+      const message = await findResponse.text();
+      throw { status: findResponse.status, message, operation: 'findReceiptsFolder' } as DriveApiError;
+    }
+
+    const findData = await findResponse.json();
+    const existingFolders: Array<{ id: string }> = findData.files ?? [];
+    return existingFolders.length > 0 ? existingFolders[0].id : null;
+  }
+
+  private async createDriveFolder(folderName: string, parentId: string): Promise<string> {
+    const token = await this.#authService.ensureToken();
+    const createResponse = await fetch(
+      'https://www.googleapis.com/drive/v3/files?fields=id',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: JSON.stringify({
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentId],
+        }),
+      }
+    );
+
+    if (!createResponse.ok) {
+      const message = await createResponse.text();
+      throw { status: createResponse.status, message, operation: 'createReceiptsFolder' } as DriveApiError;
+    }
+
+    const createData = await createResponse.json();
+    return createData.id as string;
   }
 }

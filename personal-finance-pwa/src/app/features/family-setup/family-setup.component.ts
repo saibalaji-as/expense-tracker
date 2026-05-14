@@ -97,7 +97,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
             <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.created.title' | translate }}</h1>
             <p class="text-muted-foreground text-sm mb-4">{{ 'family.created.description' | translate }}</p>
 
-            <!-- File ID display -->
+            <!-- Family folder ID display -->
             <div class="flex items-center gap-2 rounded-2xl border border-border bg-card/60 px-4 py-3 mb-3">
               <code class="flex-1 font-mono text-xs break-all text-foreground">{{ createdFileId() }}</code>
               <button type="button" (click)="onCopyFileId()"
@@ -119,7 +119,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
             </div>
 
             <!-- Open in Drive link -->
-            <a [href]="'https://drive.google.com/file/d/' + createdFileId() + '/view'"
+            <a [href]="createdDriveUrl()"
               target="_blank" rel="noreferrer"
               class="inline-flex items-center gap-2 text-sm text-primary hover:underline mb-6">
               <lucide-icon name="external-link" class="h-4 w-4" />
@@ -234,18 +234,43 @@ export class FamilySetupComponent {
   }
 
   async onPartnerConnect(): Promise<void> {
-    const fileId = this.partnerFileIdInput.trim();
-    if (!fileId) return;
+    const sharedId = this.partnerFileIdInput.trim();
+    if (!sharedId) return;
 
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     try {
-      // Validate by reading the file
-      await this.googleDriveService.readBackupFile(fileId);
+      // New family-folder flow: partner enters the shared folder ID.
+      let fileId = await this.googleDriveService.findBackupFileInFolder(sharedId);
+      let familyFolderId: string | null = sharedId;
+
+      // Backward compatibility: old users may still paste a shared backup file ID.
+      if (!fileId) {
+        fileId = sharedId;
+        familyFolderId = null;
+      }
+
+      // Validate by reading the backup file
+      const doc = await this.googleDriveService.readBackupFile(fileId);
+
+      if (familyFolderId && !doc.metadata.receiptFolderId) {
+        const receiptFolderId = await this.googleDriveService.findOrCreateReceiptsFolderInFamilyFolder(familyFolderId);
+        await this.googleDriveService.writeBackupFile(fileId, {
+          ...doc,
+          metadata: {
+            ...doc.metadata,
+            receiptFolderId,
+          },
+        });
+      }
+
       // Set mode first, then shared file ID and role
       await this.backupModeService.setMode('family');
       await this.backupModeService.setSharedFileId(fileId);
+      if (familyFolderId) {
+        await this.backupModeService.setFamilyFolderId(familyFolderId);
+      }
       await this.backupModeService.setOwnerRole('partner');
       await this.router.navigate(['/daily']);
     } catch (err: unknown) {
@@ -278,9 +303,17 @@ export class FamilySetupComponent {
     await this.router.navigate(['/daily']);
   }
 
+  createdDriveUrl(): string {
+    const id = this.createdFileId();
+    if (!id) return '#';
+    return this.googleDriveService.getDriveFolderUrl(id);
+  }
+
   async #createAndFinish(): Promise<void> {
-    // Create the new shared file in My Drive
-    const newFileId = await this.googleDriveService.createBackupFileInMyDrive();
+    // Create the new shared family folder in My Drive.
+    // It contains spenza-backup.json and Receipts/, so the user shares one folder.
+    const bundle = await this.googleDriveService.createFamilyFolderBundle();
+    const newFileId = bundle.backupFileId;
 
     // ── Single → Family migration: copy private backup data into the new shared file ──
     // This ensures years of single-user data are not lost when switching to family mode.
@@ -294,6 +327,19 @@ export class FamilySetupComponent {
             ...privateDoc,
             version: '1.0',
             lastUpdated: new Date().toISOString(),
+            metadata: {
+              ...privateDoc.metadata,
+              receiptFolderId: privateDoc.metadata.receiptFolderId ?? bundle.receiptFolderId,
+            },
+          });
+        } else {
+          const emptyDoc = await this.googleDriveService.readBackupFile(newFileId);
+          await this.googleDriveService.writeBackupFile(newFileId, {
+            ...emptyDoc,
+            metadata: {
+              ...emptyDoc.metadata,
+              receiptFolderId: bundle.receiptFolderId,
+            },
           });
         }
       }
@@ -303,10 +349,26 @@ export class FamilySetupComponent {
       console.warn('[FamilySetup] Could not copy private backup to shared file:', err);
     }
 
+    try {
+      const familyDoc = await this.googleDriveService.readBackupFile(newFileId);
+      if (!familyDoc.metadata.receiptFolderId) {
+        await this.googleDriveService.writeBackupFile(newFileId, {
+          ...familyDoc,
+          metadata: {
+            ...familyDoc.metadata,
+            receiptFolderId: bundle.receiptFolderId,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[FamilySetup] Could not stamp receipt folder on family backup:', err);
+    }
+
     await this.backupModeService.setMode('family');
     await this.backupModeService.setSharedFileId(newFileId);
+    await this.backupModeService.setFamilyFolderId(bundle.familyFolderId);
     await this.backupModeService.setOwnerRole('owner');
-    this.createdFileId.set(newFileId);
+    this.createdFileId.set(bundle.familyFolderId);
     this.step.set('owner-done');
   }
 

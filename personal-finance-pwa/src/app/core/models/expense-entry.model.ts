@@ -7,4 +7,14 @@ export interface ExpenseEntry {
   savings: number;   // limit - amount (can be negative)
   timestamp: string; // ISO 8601 datetime 'YYYY-MM-DDTHH:mm:ssZ'
   comment?: string;  // optional comment for the expense
+  receipt?: ExpenseReceipt; // optional uploaded bill/receipt attachment
+}
+
+export interface ExpenseReceipt {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  viewUrl: string;
+  uploadedAt: string;
 }

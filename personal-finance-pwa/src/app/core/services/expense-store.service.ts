@@ -32,6 +32,7 @@ interface ExpenseState {
   syncStatus: 'idle' | 'syncing' | 'error';
   isOffline: boolean;
   driveFileId: string | null;
+  receiptFolderId: string | null;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export const ExpenseStore = signalStore(
     syncStatus: 'idle',
     isOffline: false,
     driveFileId: null,
+    receiptFolderId: null,
   }),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
@@ -309,6 +311,7 @@ export const ExpenseStore = signalStore(
           limits: [],
           monthlyIncome: 0,
           syncStatus: 'idle',
+          receiptFolderId: null,
         });
       },
 
@@ -399,6 +402,7 @@ export const ExpenseStore = signalStore(
               entries: doc.expenses,
               limits: doc.limits,
               monthlyIncome: doc.metadata.monthlyIncome,
+              receiptFolderId: doc.metadata.receiptFolderId ?? null,
               driveFileId: fileId,
               syncStatus: 'idle',
             });
@@ -423,6 +427,7 @@ export const ExpenseStore = signalStore(
                 entries: [],
                 limits: [],
                 monthlyIncome: 0,
+                receiptFolderId: null,
                 driveFileId: fileId,
                 syncStatus: 'idle',
               });
@@ -437,6 +442,7 @@ export const ExpenseStore = signalStore(
               entries: doc.expenses,
               limits: doc.limits,
               monthlyIncome: doc.metadata.monthlyIncome,
+              receiptFolderId: doc.metadata.receiptFolderId ?? null,
               driveFileId: fileId,
               syncStatus: 'idle',
             });
@@ -458,6 +464,11 @@ export const ExpenseStore = signalStore(
         patchState(store, { driveFileId: newFileId });
       },
 
+      patchReceiptFolderId(receiptFolderId: string): void {
+        patchState(store, { receiptFolderId });
+        void methods.persistToDrive();
+      },
+
       // ─── Task 6.5: persistToDrive ─────────────────────────────────────────
       /**
        * Serializes the current store state and writes it to the Drive backup
@@ -477,6 +488,7 @@ export const ExpenseStore = signalStore(
             metadata: {
               monthlyIncome: store.monthlyIncome(),
               currency: currencyService.currency(),
+              ...(store.receiptFolderId() ? { receiptFolderId: store.receiptFolderId()! } : {}),
             },
             expenses: store.entries(),
             limits: store.limits(),
