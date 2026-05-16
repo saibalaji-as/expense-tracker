@@ -40,7 +40,7 @@ const headers = {
 const SECTION_LABELS = new Set(['Weekly summary', 'Wins', 'Warnings', 'Suggestions', 'Forecast']);
 const TONES = new Set<InsightTone>(['good', 'warn', 'info']);
 const ICONS = new Set<InsightIcon>(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
-const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
 const GEMINI_API_VERSION = 'v1beta';
 const INSIGHT_RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -238,7 +238,7 @@ async function callGeminiWithFallbacks(
     lastFailure = failure;
     console.error('[generate-insights] Gemini request failed', failure);
 
-    if (response.status !== 404) break;
+    if (![404, 429].includes(response.status)) break;
   }
 
   const failure = lastFailure ?? {
@@ -262,10 +262,12 @@ async function callGeminiWithFallbacks(
 
   return {
     ok: false,
-    statusCode: failure.status === 401 || failure.status === 403 ? 503 : 502,
-    clientMessage: failure.status === 401 || failure.status === 403
-      ? 'Gemini API key is not authorized'
-      : 'AI insights service temporarily unavailable',
+    statusCode: failure.status === 429 ? 200 : failure.status === 401 || failure.status === 403 ? 503 : 502,
+    clientMessage: failure.status === 429
+      ? 'AI insights fell back to local summaries'
+      : failure.status === 401 || failure.status === 403
+        ? 'Gemini API key is not authorized'
+        : 'AI insights service temporarily unavailable',
     detail: failure.message,
     model: failure.model,
     upstreamStatus: failure.status,
