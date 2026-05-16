@@ -55,7 +55,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
   try {
     const payload = JSON.parse(event.body || '{}');
-    const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+    const model = process.env.GEMINI_MODEL || 'deep-research-pro-preview-12-2025';
     const apiVersion = process.env.GEMINI_API_VERSION || 'v1beta1';
     const prompt = buildPrompt(payload);
     const response = await fetch(
