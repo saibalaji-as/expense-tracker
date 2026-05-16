@@ -53,9 +53,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
   try {
     const payload = JSON.parse(event.body || '{}');
     const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+    const apiVersion = process.env.GEMINI_API_VERSION || 'v1';
     const prompt = buildPrompt(payload);
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateText?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
