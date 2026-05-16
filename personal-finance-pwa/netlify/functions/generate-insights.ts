@@ -51,13 +51,16 @@ export const handler: Handler = async (event: HandlerEvent) => {
     };
   }
 
-  console.info('[generate-insights] Using API key (length: ' + apiKey.length + '), model: ' + (process.env.GEMINI_MODEL || 'gemini-1.5-flash'));
+  console.info('[generate-insights] Using API key (length: ' + apiKey.length + ')');
 
   try {
     const payload = JSON.parse(event.body || '{}');
-    const model = process.env.GEMINI_MODEL || 'deep-research-pro-preview-12-2025';
+    const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     const apiVersion = process.env.GEMINI_API_VERSION || 'v1beta1';
     const prompt = buildPrompt(payload);
+    
+    console.info('[generate-insights] Requesting', { model, apiVersion });
+
     const response = await fetch(
       `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
@@ -80,27 +83,39 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     if (!response.ok) {
       const message = await response.text();
-      console.error('[generate-insights] Gemini request failed', {
+      console.error('[generate-insights] Gemini API returned error', {
         status: response.status,
         statusText: response.statusText,
-        message,
+        messageLength: message.length,
         model,
         apiVersion,
       });
+      
+      // Return 503 Service Unavailable instead of 502, since it's an external API issue
       return {
-        statusCode: 502,
+        statusCode: 503,
         headers,
         body: JSON.stringify({
-          error: 'Gemini request failed',
-          status: response.status,
-          statusText: response.statusText,
-          message,
+          error: 'AI insights service temporarily unavailable',
+          detail: 'Please try again later. Local insights will be used in the meantime.',
         }),
       };
     }
 
     const data = await response.json() as GeminiResponse;
     const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('\n') ?? '';
+    
+    if (!text || text.trim().length === 0) {
+      console.warn('[generate-insights] Gemini returned empty response');
+      return {
+        statusCode: 503,
+        headers,
+        body: JSON.stringify({
+          error: 'AI insights service returned empty response',
+        }),
+      };
+    }
+
     const sections = normalizeSections(JSON.parse(stripJsonFence(text)));
 
     return {
@@ -109,8 +124,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
       body: JSON.stringify({ provider: 'gemini', sections }),
     };
   } catch (error) {
+    console.error('[generate-insights] Error', {
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      errorName: error instanceof Error ? error.name : 'Unknown',
+    });
     return {
-      statusCode: 500,
+      statusCode: 503,
       headers,
       body: JSON.stringify({
         error: 'Could not generate insights',
