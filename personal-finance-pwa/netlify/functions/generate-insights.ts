@@ -15,6 +15,7 @@ interface GeminiCandidate {
   content?: {
     parts?: Array<{ text?: string }>;
   };
+  finishReason?: string;
 }
 
 interface GeminiResponse {
@@ -99,6 +100,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const generated = await callGeminiWithFallbacks(apiKey, models, prompt);
     if (!generated.ok) {
+      if (generated.statusCode === 200) {
+        return fallbackResponse(generated.detail);
+      }
+
       return {
         statusCode: generated.statusCode,
         headers,
@@ -112,27 +117,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const data = generated.data;
-    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('\n') ?? '';
-    
-    if (!text || text.trim().length === 0) {
-      console.warn('[generate-insights] Gemini returned empty response');
-      return fallbackResponse('Gemini returned empty response');
-    }
-
-    const sections = parseGeminiSections(text);
-    if (!sections) {
-      console.warn('[generate-insights] Gemini returned malformed JSON', {
-        model: generated.model,
-        preview: stripJsonFence(text).slice(0, 300),
-      });
-      return fallbackResponse('Gemini returned malformed JSON');
-    }
-
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ provider: 'gemini', model: generated.model, sections }),
+      body: JSON.stringify({ provider: 'gemini', model: generated.model, sections: generated.sections }),
     };
   } catch (error) {
     console.error('[generate-insights] Error', {
@@ -181,7 +169,7 @@ async function callGeminiWithFallbacks(
   models: string[],
   prompt: string
 ): Promise<
-  | { ok: true; model: string; data: GeminiResponse }
+  | { ok: true; model: string; sections: InsightSection[] }
   | {
       ok: false;
       statusCode: number;
@@ -199,6 +187,7 @@ async function callGeminiWithFallbacks(
     code?: string;
     message: string;
   } | null = null;
+  let lastMalformed: { model: string; finishReason?: string; preview: string } | null = null;
 
   for (const model of models) {
     const response = await fetch(
@@ -224,7 +213,22 @@ async function callGeminiWithFallbacks(
     );
 
     if (response.ok) {
-      return { ok: true, model, data: await response.json() as GeminiResponse };
+      const data = await response.json() as GeminiResponse;
+      const candidate = data.candidates?.[0];
+      const text = candidate?.content?.parts?.map((part) => part.text ?? '').join('\n') ?? '';
+      const sections = parseGeminiSections(text);
+
+      if (sections) {
+        return { ok: true, model, sections };
+      }
+
+      lastMalformed = {
+        model,
+        finishReason: candidate?.finishReason,
+        preview: stripJsonFence(text).slice(0, 300),
+      };
+      console.warn('[generate-insights] Gemini returned unparsable sections', lastMalformed);
+      continue;
     }
 
     const failure = await readGeminiFailure(response, model);
@@ -238,8 +242,20 @@ async function callGeminiWithFallbacks(
     model: models[0] ?? 'unknown',
     status: 503,
     statusText: 'Unavailable',
-    message: 'No Gemini response was received.',
+    message: lastMalformed
+      ? `Gemini returned malformed JSON from ${lastMalformed.model}${lastMalformed.finishReason ? ` (${lastMalformed.finishReason})` : ''}.`
+      : 'No Gemini response was received.',
   };
+
+  if (lastMalformed && !lastFailure) {
+    return {
+      ok: false,
+      statusCode: 200,
+      clientMessage: 'AI insights fell back to local summaries',
+      detail: failure.message,
+      model: lastMalformed.model,
+    };
+  }
 
   return {
     ok: false,
@@ -285,24 +301,32 @@ function stripJsonFence(text: string): string {
 
 function parseGeminiSections(text: string): InsightSection[] | null {
   const cleaned = stripJsonFence(text);
+  const attempts = [
+    cleaned,
+    extractJsonObject(cleaned),
+    extractJsonArray(cleaned),
+  ].filter((value): value is string => Boolean(value));
 
-  try {
-    return normalizeSections(JSON.parse(cleaned));
-  } catch {
-    const extracted = extractJsonObject(cleaned);
-    if (!extracted) return null;
-
+  for (const attempt of attempts) {
     try {
-      return normalizeSections(JSON.parse(extracted));
+      return normalizeSections(JSON.parse(attempt));
     } catch {
-      return null;
+      // Try the next extracted candidate.
     }
   }
+
+  return null;
 }
 
 function extractJsonObject(text: string): string | null {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
+  return start >= 0 && end > start ? text.slice(start, end + 1) : null;
+}
+
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
   return start >= 0 && end > start ? text.slice(start, end + 1) : null;
 }
 
@@ -320,12 +344,46 @@ function fallbackResponse(reason: string) {
 }
 
 function normalizeSections(parsed: unknown): InsightSection[] {
-  const record = parsed as { sections?: unknown };
-  if (!Array.isArray(record.sections)) {
+  if (typeof parsed === 'string') {
+    return normalizeSections(JSON.parse(parsed));
+  }
+
+  if (Array.isArray(parsed)) {
+    return normalizeSectionArray(parsed);
+  }
+
+  const record = parsed as {
+    sections?: unknown;
+    insights?: unknown;
+    items?: unknown;
+    weeklyInsights?: unknown;
+  };
+  const sections = parseSectionCandidate(record.sections)
+    ?? parseSectionCandidate(record.insights)
+    ?? parseSectionCandidate(record.items)
+    ?? parseSectionCandidate(record.weeklyInsights);
+
+  if (!sections) {
     throw new Error('Gemini response did not include sections array.');
   }
 
-  return record.sections.slice(0, 5).map((item): InsightSection => {
+  return sections;
+}
+
+function parseSectionCandidate(candidate: unknown): InsightSection[] | null {
+  if (typeof candidate === 'string') {
+    try {
+      return normalizeSections(JSON.parse(candidate));
+    } catch {
+      return null;
+    }
+  }
+
+  return Array.isArray(candidate) ? normalizeSectionArray(candidate) : null;
+}
+
+function normalizeSectionArray(sections: unknown[]): InsightSection[] {
+  return completeSections(sections.slice(0, 5).map((item): InsightSection => {
     const section = item as Partial<InsightSection>;
     const label = typeof section.label === 'string' && SECTION_LABELS.has(section.label)
       ? section.label
@@ -339,6 +397,23 @@ function normalizeSections(parsed: unknown): InsightSection[] {
       detail: typeof section.detail === 'string' ? section.detail.slice(0, 220) : '',
       tone,
       icon,
+    };
+  }));
+}
+
+function completeSections(sections: InsightSection[]): InsightSection[] {
+  const byLabel = new Map(sections.map((section) => [section.label, section]));
+
+  return Array.from(SECTION_LABELS).map((label): InsightSection => {
+    const existing = byLabel.get(label);
+    if (existing) return existing;
+
+    return {
+      label,
+      title: label,
+      detail: 'Not enough AI detail was returned for this section.',
+      tone: 'info',
+      icon: 'lightbulb',
     };
   });
 }
