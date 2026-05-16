@@ -13,6 +13,7 @@ import { StorageService } from './storage.service';
 import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
 import { BackupModeService } from './backup-mode.service';
 import { AppCurrency, CurrencyService } from './currency.service';
+import { toLocalDateString } from '../utils/local-date';
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export const ExpenseStore = signalStore(
     entries: [],
     limits: [],
     monthlyIncome: 0,
-    selectedMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
+    selectedMonth: toLocalDateString().slice(0, 7), // YYYY-MM
     syncStatus: 'idle',
     isOffline: false,
     driveFileId: null,
@@ -58,7 +59,7 @@ export const ExpenseStore = signalStore(
   withComputed((store) => ({
     /** Entries whose date equals today's ISO date string (YYYY-MM-DD) */
     todayEntries: computed(() => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = toLocalDateString();
       return store.entries().filter((e) => e.date === today);
     }),
 
@@ -179,6 +180,10 @@ export const ExpenseStore = signalStore(
     backupModeService = inject(BackupModeService),
     currencyService = inject(CurrencyService),
   ) => {
+    let localRevision = 0;
+    let persistedRevision = 0;
+    let persistQueue = Promise.resolve();
+
     const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
       currency === 'INR' || currency === 'USD' || currency === 'AED';
 
@@ -212,6 +217,21 @@ export const ExpenseStore = signalStore(
         lastKnownDriveModifiedTime: modifiedTime,
         syncStatus: 'idle',
       });
+      localRevision = 0;
+      persistedRevision = 0;
+    };
+
+    const markLocalChangeAndPersist = (): void => {
+      localRevision += 1;
+      void methods.persistToDrive();
+    };
+
+    const activeDriveFileId = (): string | null => {
+      if (backupModeService.getMode() === 'family') {
+        return backupModeService.getSharedFileId();
+      }
+
+      return store.driveFileId();
     };
 
     const methods = {
@@ -251,7 +271,34 @@ export const ExpenseStore = signalStore(
           }
         }
         
-        void methods.persistToDrive();
+        markLocalChangeAndPersist();
+      },
+
+      addEntries(entries: ExpenseEntry[]): void {
+        if (entries.length === 0) return;
+        patchState(store, { entries: [...entries, ...store.entries()] });
+
+        for (const entry of entries) {
+          const limit = store.limitMap()[entry.type];
+          if (!limit) continue;
+
+          const monthEntries = store.selectedMonthEntries();
+          const categoryTotal = monthEntries
+            .filter(e => e.type === entry.type)
+            .reduce((sum, e) => sum + e.amount, 0);
+          const limitAmount = (limit.userPercentage * store.monthlyIncome()) / 100;
+          const percent = limitAmount > 0 ? (categoryTotal / limitAmount) * 100 : 0;
+
+          if (percent >= 80) {
+            budgetThresholdExceeded$.next({
+              category: entry.type,
+              percent: Math.round(percent),
+              timestamp: Date.now()
+            });
+          }
+        }
+
+        markLocalChangeAndPersist();
       },
 
       // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
@@ -365,9 +412,58 @@ export const ExpenseStore = signalStore(
        * Sets all entries, limits, and income in one patchState, then persists
        * to Drive once — avoids N individual write calls.
        */
-      importFromSheets(entries: ExpenseEntry[], limits: ExpenseLimit[], monthlyIncome: number): void {
+      async importFromSheets(entries: ExpenseEntry[], limits: ExpenseLimit[], monthlyIncome: number): Promise<void> {
+        const expectedFileId = activeDriveFileId();
+        if (!store.driveFileId() || (expectedFileId && store.driveFileId() !== expectedFileId)) {
+          await methods.loadFromDrive();
+        }
+
+        const fileId = store.driveFileId();
+        if (!fileId) {
+          throw new Error('Drive backup is not ready yet. Please reopen Settings and try again.');
+        }
+
+        if (expectedFileId && fileId !== expectedFileId) {
+          throw new Error('Spenza is not connected to the active family backup. Please sign in again and retry.');
+        }
+
         patchState(store, { entries, limits, monthlyIncome });
-        void methods.persistToDrive();
+        localRevision += 1;
+        await methods.persistToDrive();
+
+        if (store.syncStatus() === 'error') {
+          throw new Error('Imported data could not be saved to Google Drive.');
+        }
+      },
+
+      async restoreFromBackupDocument(doc: Awaited<ReturnType<GoogleDriveService['readBackupFile']>>): Promise<void> {
+        const expectedFileId = activeDriveFileId();
+        if (!store.driveFileId() || (expectedFileId && store.driveFileId() !== expectedFileId)) {
+          await methods.loadFromDrive();
+        }
+
+        const fileId = store.driveFileId();
+        if (!fileId) {
+          throw new Error('Drive backup is not ready yet. Please complete setup and try again.');
+        }
+
+        if (expectedFileId && fileId !== expectedFileId) {
+          throw new Error('Spenza is not connected to the active family backup. Please sign in again and retry.');
+        }
+
+        setCurrencyFromBackup(doc.metadata.currency);
+        patchState(store, {
+          entries: doc.expenses,
+          limits: doc.limits,
+          monthlyIncome: doc.metadata.monthlyIncome,
+          receiptFolderId: store.receiptFolderId() ?? doc.metadata.receiptFolderId ?? null,
+        });
+        localRevision += 1;
+        await methods.persistToDrive();
+
+        if (store.syncStatus() === 'error') {
+          throw new Error('Restored data could not be saved to Google Drive.');
+        }
       },
 
       /**
@@ -376,7 +472,7 @@ export const ExpenseStore = signalStore(
        */
       setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): void {
         patchState(store, { limits, monthlyIncome });
-        void methods.persistToDrive();
+        markLocalChangeAndPersist();
       },
 
       // ─── Task 6.7: deleteEntry ────────────────────────────────────────────
@@ -387,7 +483,7 @@ export const ExpenseStore = signalStore(
       deleteEntry(entryId: string): void {
         const updatedEntries = store.entries().filter((e) => e.id !== entryId);
         patchState(store, { entries: updatedEntries });
-        void methods.persistToDrive();
+        markLocalChangeAndPersist();
       },
 
       // ─── Task 6.7: updateEntry ────────────────────────────────────────────
@@ -400,7 +496,7 @@ export const ExpenseStore = signalStore(
           e.id === updatedEntry.id ? updatedEntry : e
         );
         patchState(store, { entries: updatedEntries });
-        void methods.persistToDrive();
+        markLocalChangeAndPersist();
       },
 
       // ─── Task 6.2: loadFromDrive ──────────────────────────────────────────
@@ -493,7 +589,7 @@ export const ExpenseStore = signalStore(
 
       patchReceiptFolderId(receiptFolderId: string): void {
         patchState(store, { receiptFolderId });
-        void methods.persistToDrive();
+        markLocalChangeAndPersist();
       },
 
       // ─── Task 6.5: persistToDrive ─────────────────────────────────────────
@@ -503,37 +599,48 @@ export const ExpenseStore = signalStore(
        * has not completed).
        */
       async persistToDrive(): Promise<void> {
-        const fileId = store.driveFileId();
-        if (!fileId) {
-          console.warn('[ExpenseStore] persistToDrive called before driveFileId is set — skipping');
-          return;
-        }
-        try {
-          const doc = {
-            version: '1.0',
-            lastUpdated: new Date().toISOString(),
-            metadata: {
-              monthlyIncome: store.monthlyIncome(),
-              currency: currencyService.currency(),
-              ...(store.receiptFolderId() ? { receiptFolderId: store.receiptFolderId()! } : {}),
-            },
-            expenses: store.entries(),
-            limits: store.limits(),
-          };
-          const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
-          patchState(store, {
-            lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
-            syncStatus: 'idle',
-          });
-        } catch (err) {
-          patchState(store, { syncStatus: 'error' });
-          driveError$.next(err as DriveApiError | DriveParseError);
-        }
+        const revisionRequested = localRevision;
+
+        persistQueue = persistQueue.then(async () => {
+          if (persistedRevision >= revisionRequested) return;
+
+          const fileId = store.driveFileId();
+          if (!fileId) {
+            console.warn('[ExpenseStore] persistToDrive called before driveFileId is set — skipping');
+            return;
+          }
+
+          try {
+            const revisionBeingPersisted = localRevision;
+            const doc = {
+              version: '1.0',
+              lastUpdated: new Date().toISOString(),
+              metadata: {
+                monthlyIncome: store.monthlyIncome(),
+                currency: currencyService.currency(),
+                ...(store.receiptFolderId() ? { receiptFolderId: store.receiptFolderId()! } : {}),
+              },
+              expenses: store.entries(),
+              limits: store.limits(),
+            };
+            const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
+            persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
+            patchState(store, {
+              lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
+              syncStatus: 'idle',
+            });
+          } catch (err) {
+            patchState(store, { syncStatus: 'error' });
+            driveError$.next(err as DriveApiError | DriveParseError);
+          }
+        });
+
+        await persistQueue;
       },
 
       async refreshFromDriveIfChanged(): Promise<boolean> {
         const fileId = store.driveFileId();
-        if (!fileId || store.syncStatus() === 'syncing') {
+        if (!fileId || store.syncStatus() === 'syncing' || localRevision !== persistedRevision) {
           return false;
         }
 

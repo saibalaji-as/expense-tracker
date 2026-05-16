@@ -68,6 +68,25 @@ const FALLBACK_TRANSLATIONS: Record<string, string> = {
   'daily.receipt.tooLarge': 'Bill file must be 10 MB or smaller.',
   'daily.receipt.offline': 'Go online to upload a bill.',
   'daily.receipt.view': 'View bill',
+  'daily.receipt.extracting': 'Reading bill and finding expense details...',
+  'daily.receipt.smartFill.title': 'Smart fill suggestions',
+  'daily.receipt.smartFill.apply': 'Apply',
+  'daily.receipt.smartFill.applied': 'Suggestions applied. Please review before saving.',
+  'daily.receipt.smartFill.notFound': 'Not found',
+  'daily.receipt.smartFill.lowConfidence': 'Please confirm',
+  'daily.receipt.smartFill.possibleTotals': 'Possible totals',
+  'daily.receipt.smartFill.unreadable': 'Could not read this bill clearly. You can still save the bill and enter details manually.',
+  'daily.receipt.smartFill.failed': 'Smart extraction could not read this bill. You can still enter details manually.',
+  'daily.receipt.editor.title': 'Adjust bill image',
+  'daily.receipt.editor.subtitle': 'Crop, rotate, and enhance before scanning',
+  'daily.receipt.editor.rotate': 'Rotate',
+  'daily.receipt.editor.enhance': 'Enhance',
+  'daily.receipt.editor.useOriginal': 'Use original',
+  'daily.receipt.editor.useEdited': 'Use edited',
+  'daily.receipt.editor.cropLeft': 'Crop left',
+  'daily.receipt.editor.cropTop': 'Crop top',
+  'daily.receipt.editor.cropWidth': 'Crop width',
+  'daily.receipt.editor.cropHeight': 'Crop height',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -99,7 +118,9 @@ export class I18nService {
     if (!params) return template;
 
     return Object.entries(params).reduce(
-      (text, [paramKey, value]) => text.replaceAll(`{{${paramKey}}}`, String(value)),
+      (text, [paramKey, value]) => text
+        .replaceAll(`{{${paramKey}}}`, String(value))
+        .replaceAll(`{${paramKey}}`, String(value)),
       template
     );
   }

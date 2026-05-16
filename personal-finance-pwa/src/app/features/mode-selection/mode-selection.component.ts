@@ -80,7 +80,6 @@ export class ModeSelectionComponent implements OnInit {
   }
 
   async onSelectFamily(): Promise<void> {
-    await this.backupModeService.setMode('family');
     await this.router.navigate(['/family-setup']);
   }
 }

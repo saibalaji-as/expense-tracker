@@ -331,13 +331,13 @@ interface BeforeInstallPromptEvent extends Event {
         @if (backupModeService.mode() === 'family' && backupModeService.ownerRole() === 'partner') {
           <p class="text-sm font-medium">Family Backup — Partner</p>
 
-          <!-- Shared File ID read-only field -->
+          <!-- Shared Family ID read-only field -->
           <div class="mt-3">
             <input
               type="text"
-              [value]="backupModeService.sharedFileId() ?? ''"
+              [value]="backupModeService.familyFolderId() ?? backupModeService.sharedFileId() ?? ''"
               readonly
-              aria-label="Shared File ID"
+              aria-label="Shared Family ID"
               class="w-full rounded-2xl border border-border bg-muted/40 px-4 py-2.5 font-mono text-xs text-foreground outline-none cursor-default"
             />
           </div>
@@ -376,41 +376,43 @@ interface BeforeInstallPromptEvent extends Event {
 
       </app-section-card>
 
-      <!-- Receipt folder sharing -->
-      <app-section-card
-        [title]="'settings.receipts.title' | translate"
-        [description]="'settings.receipts.description' | translate"
-      >
-        <div class="rounded-2xl border border-border bg-card/40 p-4">
-          @if (expenseStore.receiptFolderId()) {
-            <p class="text-sm font-semibold">{{ 'settings.receipts.ready' | translate }}</p>
-            <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.shareHint' | translate }}</p>
-            <a
-              [href]="receiptFolderUrl()"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
-            >
-              <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
-              {{ 'settings.receipts.openFolder' | translate }}
-            </a>
-          } @else {
-            <p class="text-sm font-semibold">{{ 'settings.receipts.notReady' | translate }}</p>
-            <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.setupHint' | translate }}</p>
-            <button
-              type="button"
-              (click)="onSetupReceiptFolder()"
-              [disabled]="isSettingUpReceiptFolder()"
-              class="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              @if (isSettingUpReceiptFolder()) {
-                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-              }
-              {{ 'settings.receipts.setup' | translate }}
-            </button>
-          }
-        </div>
-      </app-section-card>
+      @if (backupModeService.mode() !== 'family') {
+        <!-- Receipt folder sharing -->
+        <app-section-card
+          [title]="'settings.receipts.title' | translate"
+          [description]="'settings.receipts.description' | translate"
+        >
+          <div class="rounded-2xl border border-border bg-card/40 p-4">
+            @if (expenseStore.receiptFolderId()) {
+              <p class="text-sm font-semibold">{{ 'settings.receipts.ready' | translate }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.shareHint' | translate }}</p>
+              <a
+                [href]="receiptFolderUrl()"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
+              >
+                <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
+                {{ 'settings.receipts.openFolder' | translate }}
+              </a>
+            } @else {
+              <p class="text-sm font-semibold">{{ 'settings.receipts.notReady' | translate }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.setupHint' | translate }}</p>
+              <button
+                type="button"
+                (click)="onSetupReceiptFolder()"
+                [disabled]="isSettingUpReceiptFolder()"
+                class="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                @if (isSettingUpReceiptFolder()) {
+                  <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                }
+                {{ 'settings.receipts.setup' | translate }}
+              </button>
+            }
+          </div>
+        </app-section-card>
+      }
 
       <!-- Import from Google Sheets -->
       <app-section-card [title]="'settings.import.title' | translate" [description]="'settings.import.description' | translate">
@@ -618,6 +620,42 @@ interface BeforeInstallPromptEvent extends Event {
           {{ 'settings.data.exportCsv' | translate }}
         </button>
 
+        <input
+          #jsonRestoreInput
+          type="file"
+          accept="application/json,.json"
+          class="hidden"
+          (change)="onRestoreJsonSelected($event)"
+        />
+
+        <button
+          type="button"
+          (click)="jsonRestoreInput.click()"
+          [disabled]="isRestoringJson()"
+          class="ml-2 inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-sm font-medium hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          @if (isRestoringJson()) {
+            <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+          } @else {
+            <lucide-icon [img]="importIcon" class="h-4 w-4" />
+          }
+          Restore JSON Backup
+        </button>
+
+        <p class="mt-2 text-xs text-muted-foreground">
+          Restores a local <code class="rounded bg-muted px-1 py-0.5">spenza-backup.json</code> file into the active Drive backup.
+        </p>
+
+        @if (restoreJsonMessage()) {
+          <p
+            class="mt-2 text-sm"
+            [style.color]="restoreJsonError() ? 'var(--destructive)' : 'var(--success)'"
+            [attr.role]="restoreJsonError() ? 'alert' : 'status'"
+          >
+            {{ restoreJsonMessage() }}
+          </p>
+        }
+
         <!-- Danger zone -->
         <div class="mt-5 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
           <p class="text-xs text-muted-foreground">
@@ -631,6 +669,25 @@ interface BeforeInstallPromptEvent extends Event {
             <lucide-icon [img]="trash2Icon" class="h-4 w-4" />
             Clear Local Data
           </button>
+        </div>
+
+        <div class="mt-4 rounded-2xl border border-destructive bg-destructive/10 p-4">
+          <p class="text-sm font-semibold text-destructive">Delete Spenza Account Data</p>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Testing reset: permanently deletes Spenza-created Drive files and folders, clears this device, cancels local reminders, and signs out.
+          </p>
+          <button
+            type="button"
+            (click)="openDeleteAccountWarning()"
+            [disabled]="isDeletingAccount()"
+            class="mt-3 inline-flex items-center gap-2 rounded-xl bg-destructive px-4 py-2.5 text-sm font-semibold text-destructive-foreground shadow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <lucide-icon [img]="trash2Icon" class="h-4 w-4" />
+            Delete Account Data
+          </button>
+          @if (deleteAccountError()) {
+            <p class="mt-2 text-xs text-destructive" role="alert">{{ deleteAccountError() }}</p>
+          }
         </div>
 
         @if (clearSuccessMessage()) {
@@ -653,6 +710,53 @@ interface BeforeInstallPromptEvent extends Event {
         synced to Google Drive will not be affected. Are you sure?
       </p>
     </app-modal>
+
+    @if (isDeleteAccountWarningOpen()) {
+      <div class="fixed inset-0 z-40 bg-black/60" aria-hidden="true"></div>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Delete Spenza account data"
+        class="fixed inset-x-4 top-1/2 z-50 mx-auto max-w-lg -translate-y-1/2 rounded-2xl border border-destructive bg-card p-6 shadow-2xl"
+      >
+        <h2 class="text-lg font-semibold text-destructive">Delete all Spenza account data?</h2>
+        <div class="mt-4 space-y-2 text-sm text-muted-foreground">
+          <p>This is permanent. Spenza will delete every Drive item it can identify as created by Spenza:</p>
+          <p>spenza-config.json, spenza-backup.json, Spenza Family folders, Receipts folders, and saved receipt files inside those folders.</p>
+          <p>If this account is only a partner on someone else's shared folder, Google Drive may refuse deleting the owner's folder.</p>
+        </div>
+
+        <div class="mt-5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+          @if (deleteAccountCountdown() > 0) {
+            <p class="text-sm font-semibold text-destructive">
+              Deletion starts in {{ deleteAccountCountdown() }} seconds.
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">Close this warning to cancel.</p>
+          } @else {
+            <p class="text-sm font-semibold text-destructive">Deleting Spenza data...</p>
+          }
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            (click)="cancelDeleteAccountWarning()"
+            [disabled]="isDeletingAccount()"
+            class="rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            (click)="deleteAccountNow()"
+            [disabled]="isDeletingAccount()"
+            class="rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Delete now
+          </button>
+        </div>
+      </div>
+    }
 
     <!-- Switch backup mode — primary confirmation modal -->
     <app-modal
@@ -749,6 +853,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly importMessage = signal<string | null>(null);
   readonly importError = signal(false);
   readonly isSettingUpReceiptFolder = signal(false);
+  readonly isRestoringJson = signal(false);
+  readonly restoreJsonMessage = signal<string | null>(null);
+  readonly restoreJsonError = signal(false);
 
   // ─── Local Notification Preferences ──────────────────────────────────────────
   readonly notificationPrefs = signal<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
@@ -775,6 +882,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly rotateError = signal<string | null>(null);
   /** New file ID after a successful rotation — shown with Copy button */
   readonly rotatedFileId = signal<string | null>(null);
+  readonly isDeleteAccountWarningOpen = signal(false);
+  readonly deleteAccountCountdown = signal(10);
+  readonly isDeletingAccount = signal(false);
+  readonly deleteAccountError = signal<string | null>(null);
+
+  private deleteAccountTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly beforeInstallHandler = (event: Event) => {
     event.preventDefault();
@@ -868,6 +981,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener('beforeinstallprompt', this.beforeInstallHandler);
+    this.stopDeleteAccountCountdown();
   }
 
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────
@@ -914,10 +1028,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       // setLimitsAndIncome + addEntry would trigger N writes; use patchState directly
       // by calling loadFromDrive after bulk-setting state via a dedicated path.
       // Simplest: update store state then call persistToDrive once.
-      this.expenseStore.importFromSheets(allExpenses, limits, monthlyIncome);
+      await this.expenseStore.importFromSheets(allExpenses, limits, monthlyIncome);
 
       this.importMessage.set(
-        `Imported ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ${this.currencyService.format(monthlyIncome, this.i18n.locale())}.`
+        `Imported and saved ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ${this.currencyService.format(monthlyIncome, this.i18n.locale())}.`
       );
       this.importSheetId = '';
     } catch (err: any) {
@@ -1099,6 +1213,67 @@ export class SettingsComponent implements OnInit, OnDestroy {
     URL.revokeObjectURL(url);
   }
 
+  async onRestoreJsonSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+
+    this.isRestoringJson.set(true);
+    this.restoreJsonMessage.set(null);
+    this.restoreJsonError.set(false);
+
+    try {
+      const raw = await file.text();
+      const doc = this.parseBackupDocument(raw);
+      await this.expenseStore.restoreFromBackupDocument(doc);
+      this.restoreJsonMessage.set(
+        `Restored and saved ${doc.expenses.length} expenses and ${doc.limits.length} budget limits from ${file.name}.`
+      );
+    } catch (err) {
+      console.error('[Settings] JSON restore failed:', err);
+      this.restoreJsonError.set(true);
+      this.restoreJsonMessage.set(err instanceof Error ? err.message : 'JSON restore failed. Please check the file and try again.');
+    } finally {
+      this.isRestoringJson.set(false);
+    }
+  }
+
+  private parseBackupDocument(raw: string): BackupDocument {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('This file is not valid JSON.');
+    }
+
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !Array.isArray((parsed as BackupDocument).expenses) ||
+      !Array.isArray((parsed as BackupDocument).limits)
+    ) {
+      throw new Error('This is not a valid Spenza backup JSON file.');
+    }
+
+    const candidate = parsed as Partial<BackupDocument>;
+    const expenses = (parsed as BackupDocument).expenses;
+    const limits = (parsed as BackupDocument).limits;
+    const metadata = candidate.metadata ?? { monthlyIncome: 0, currency: this.currencyService.currency() };
+
+    return {
+      version: typeof candidate.version === 'string' ? candidate.version : '1.0',
+      lastUpdated: typeof candidate.lastUpdated === 'string' ? candidate.lastUpdated : new Date().toISOString(),
+      metadata: {
+        monthlyIncome: Number(metadata.monthlyIncome ?? 0) || 0,
+        currency: typeof metadata.currency === 'string' ? metadata.currency : this.currencyService.currency(),
+        ...(typeof metadata.receiptFolderId === 'string' ? { receiptFolderId: metadata.receiptFolderId } : {}),
+      },
+      expenses,
+      limits,
+    };
+  }
+
   // ─── Task 12.6: Clear local data ─────────────────────────────────────────────
 
   openClearModal(): void {
@@ -1115,6 +1290,80 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onClearCancelled(): void {
     this.isClearModalOpen.set(false);
+  }
+
+  openDeleteAccountWarning(): void {
+    this.deleteAccountError.set(null);
+    this.deleteAccountCountdown.set(10);
+    this.isDeleteAccountWarningOpen.set(true);
+    this.stopDeleteAccountCountdown();
+    this.deleteAccountTimer = setInterval(() => {
+      const next = this.deleteAccountCountdown() - 1;
+      this.deleteAccountCountdown.set(next);
+      if (next <= 0) {
+        this.stopDeleteAccountCountdown();
+        void this.executeDeleteAccount();
+      }
+    }, 1000);
+  }
+
+  cancelDeleteAccountWarning(): void {
+    if (this.isDeletingAccount()) return;
+    this.stopDeleteAccountCountdown();
+    this.isDeleteAccountWarningOpen.set(false);
+  }
+
+  deleteAccountNow(): void {
+    this.stopDeleteAccountCountdown();
+    this.deleteAccountCountdown.set(0);
+    void this.executeDeleteAccount();
+  }
+
+  private stopDeleteAccountCountdown(): void {
+    if (this.deleteAccountTimer) {
+      clearInterval(this.deleteAccountTimer);
+      this.deleteAccountTimer = null;
+    }
+  }
+
+  private async executeDeleteAccount(): Promise<void> {
+    if (this.isDeletingAccount()) return;
+
+    this.isDeletingAccount.set(true);
+    this.deleteAccountError.set(null);
+
+    try {
+      await Promise.allSettled([
+        this.notificationService.disable(),
+        this.localNotificationService.cancelDailyReminder(),
+        this.localNotificationService.cancelMonthlyNudge(),
+      ]);
+
+      const deletionResults = await this.googleDriveService.deleteSpenzaDriveData([
+        this.expenseStore.driveFileId(),
+        this.expenseStore.receiptFolderId(),
+        this.backupModeService.getSharedFileId(),
+        this.backupModeService.getFamilyFolderId(),
+      ]);
+      const failed = deletionResults.filter((item) => !item.deleted);
+      if (failed.length > 0) {
+        console.warn('[Settings] Some Spenza Drive items could not be deleted:', failed);
+      }
+
+      await this.syncService.clearQueue();
+      this.expenseStore.clearLocalData();
+      await this.backupModeService.clearAll();
+      await this.storageService.clear();
+      await this.authService.signOut();
+
+      this.isDeleteAccountWarningOpen.set(false);
+      await this.router.navigate(['/auth/callback']);
+    } catch (err) {
+      console.error('[Settings] Delete account failed:', err);
+      this.deleteAccountError.set('Could not delete all Spenza data. Please check Google Drive permissions and try again.');
+    } finally {
+      this.isDeletingAccount.set(false);
+    }
   }
 
   // ─── 12.1: Backup mode — copy shared file ID ─────────────────────────────────

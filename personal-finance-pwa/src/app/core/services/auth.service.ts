@@ -64,6 +64,7 @@ export class AuthService {
    * Await this before checking isAuthenticated() on app startup.
    */
   readonly sessionRestored: Promise<void>;
+  readonly #nativeInitPromise: Promise<void> | null = null;
 
   constructor(
     private readonly storageService: StorageService,
@@ -74,7 +75,7 @@ export class AuthService {
 
     // Initialize the native Google Sign-In plugin once on startup.
     if (this.#isNative) {
-      SocialLogin.initialize({
+      this.#nativeInitPromise = SocialLogin.initialize({
         google: {
           // webClientId is required by the plugin on Android for token verification
           webClientId: '335358015393-9jek528175b4030m56oro1si8vknvlvu.apps.googleusercontent.com',
@@ -179,11 +180,17 @@ export class AuthService {
     return this.#accessToken;
   }
 
+  needsInteractiveWebToken(): boolean {
+    return !this.#isNative && this.isAuthenticated() && !this.#accessToken;
+  }
+
   // ---------------------------------------------------------------------------
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
 
   async #nativeSignIn(): Promise<void> {
+    await this.#nativeInitPromise;
+
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
 
     const result = await SocialLogin.login({

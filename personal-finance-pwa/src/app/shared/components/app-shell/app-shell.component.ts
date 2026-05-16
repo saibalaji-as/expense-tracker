@@ -13,6 +13,7 @@ import {
 } from 'lucide-angular';
 import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { TranslatePipe } from '../../pipes';
 
 interface NavItem {
@@ -37,7 +38,7 @@ interface NavItem {
     <div class="min-h-screen flex flex-col overflow-x-hidden">
 
       <!-- Desktop top nav (hidden on mobile) -->
-      <header class="sticky top-0 z-40 hidden md:block">
+      <header class="sticky top-0 z-40 hidden min-[887px]:block">
         <div class="border-b border-border/60 bg-background/70 backdrop-blur-xl">
           <div class="mx-auto flex h-16 max-w-7xl items-center gap-6 px-6">
 
@@ -51,7 +52,7 @@ interface NavItem {
 
             <!-- Nav links -->
             <nav class="flex flex-1 items-center justify-center gap-1" aria-label="Main navigation">
-              @if (authService.isAuthenticated()) {
+              @if (showNavigation()) {
                 @for (item of navItems; track item.path) {
                   <a
                     [routerLink]="item.path"
@@ -75,7 +76,7 @@ interface NavItem {
       </header>
 
       <!-- Mobile top bar (hidden on desktop) -->
-      <header class="sticky top-0 z-40 md:hidden">
+      <header class="sticky top-0 z-40 min-[887px]:hidden">
         <div class="flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl">
           <a routerLink="/daily" class="flex items-center gap-2">
             <img src="/spenza-logo.svg" alt="Spenza Logo" class="h-8 w-8 object-contain" />
@@ -88,15 +89,15 @@ interface NavItem {
       </header>
 
       <!-- Main content -->
-      <main [class]="'flex-1 overflow-x-hidden ' + (authService.isAuthenticated() ? 'pb-28 md:pb-12' : 'pb-12')">
-        <div class="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
+      <main [class]="'flex-1 overflow-x-hidden ' + (showNavigation() ? 'pb-28 min-[887px]:pb-12' : 'pb-12')">
+        <div class="mx-auto w-full max-w-7xl px-4 py-6 min-[887px]:px-6 min-[887px]:py-8">
           <ng-content />
         </div>
       </main>
 
       <!-- Mobile bottom tab bar -->
-      @if (authService.isAuthenticated()) {
-      <nav class="fixed inset-x-0 bottom-0 z-50 md:hidden" aria-label="Mobile navigation">
+      @if (showNavigation()) {
+      <nav class="fixed inset-x-0 bottom-0 z-50 min-[887px]:hidden" aria-label="Mobile navigation">
         <div class="mx-auto mb-3 max-w-md px-3">
           <div class="glass-card flex items-center justify-around p-2">
             @for (item of navItems; track item.path) {
@@ -130,6 +131,7 @@ interface NavItem {
 })
 export class AppShellComponent {
   readonly authService = inject(AuthService);
+  private readonly backupModeService = inject(BackupModeService);
   readonly navItems: NavItem[] = [
     { path: '/daily',     labelKey: 'nav.daily',     icon: CalendarDays },
     { path: '/monthly',   labelKey: 'nav.monthly',   icon: CalendarRange },
@@ -137,4 +139,17 @@ export class AppShellComponent {
     { path: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
     { path: '/settings',  labelKey: 'nav.settings',  icon: Settings },
   ];
+
+  showNavigation(): boolean {
+    if (!this.authService.isAuthenticated()) return false;
+
+    const mode = this.backupModeService.getMode();
+    if (mode === 'single') return true;
+
+    return (
+      mode === 'family' &&
+      !!this.backupModeService.getSharedFileId() &&
+      !!this.backupModeService.getOwnerRole()
+    );
+  }
 }

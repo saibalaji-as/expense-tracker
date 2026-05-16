@@ -11,6 +11,7 @@ import { DriveApiError, DriveParseError } from './core/services/google-drive.ser
 
 const LOADING_TIMEOUT_MS = 30000;
 const DRIVE_POLL_INTERVAL_MS = 30000;
+const BOOTSTRAP_RETRY_DELAYS_MS = [750, 2000];
 
 @Component({
   selector: 'app-root',
@@ -87,8 +88,23 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.router.url.startsWith('/auth/callback') && this.authService.needsInteractiveWebToken()) {
+      this.clearLoadingTimeout();
+      this.loadingError.set(null);
+      this.isLoading.set(false);
+      return;
+    }
+
+    if (this.authService.needsInteractiveWebToken()) {
+      this.clearLoadingTimeout();
+      this.loadingError.set(null);
+      this.isLoading.set(false);
+      await this.router.navigate(['/auth/callback']);
+      return;
+    }
+
     // Load config from Drive to get cross-device mode/sharedFileId.
-    await this.backupModeService.loadFromDrive();
+    await this.withBootstrapRetries(() => this.backupModeService.loadFromDrive(), 'backup config');
 
     const mode = this.backupModeService.getMode();
     if (mode === null) {
@@ -104,15 +120,46 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    const currentUrl = this.router.url.split('?')[0].split('#')[0];
+    const isSetupRoute = currentUrl === '/mode-select' || currentUrl === '/family-setup';
+
     console.log('[App] Starting Drive bootstrap...');
-    await this.expenseStore.loadFromDrive();
-    if (this.expenseStore.syncStatus() === 'error') {
-      throw new Error('Drive bootstrap failed.');
-    }
+    await this.withBootstrapRetries(async () => {
+      await this.expenseStore.loadFromDrive();
+      if (this.expenseStore.syncStatus() === 'error') {
+        throw new Error('Drive bootstrap failed.');
+      }
+    }, 'backup data');
     console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
 
     this.loadingError.set(null);
     this.startDrivePollLoop();
+
+    if (isSetupRoute) {
+      await this.router.navigate(['/daily']);
+    }
+  }
+
+  private async withBootstrapRetries<T>(operation: () => Promise<T>, label: string): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= BOOTSTRAP_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        return await operation();
+      } catch (err) {
+        if (this.authService.needsInteractiveWebToken()) {
+          await this.router.navigate(['/auth/callback']);
+          throw err;
+        }
+        lastError = err;
+        const delay = BOOTSTRAP_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) break;
+        console.warn(`[App] ${label} load failed, retrying in ${delay}ms:`, err);
+        await new Promise((resolve) => window.setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
   }
 
   private startDrivePollLoop(): void {

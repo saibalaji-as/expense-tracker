@@ -9,7 +9,7 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, DriveApiError, DriveParseError } from '../../core/services/google-drive.service';
 import { TranslatePipe } from '../../shared/pipes';
 
-type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done' | 'partner-setup';
+type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
 
 @Component({
   selector: 'app-family-setup',
@@ -65,33 +65,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
           </div>
         }
 
-        <!-- Step: Owner — existing file found -->
-        @if (step() === 'owner-existing') {
-          <div class="mb-6 text-center">
-            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.existing.title' | translate }}</h1>
-            <p class="text-muted-foreground text-sm">{{ 'family.existing.description' | translate }}</p>
-          </div>
-          @if (errorMessage()) {
-            <div class="glass-card border-destructive/40 bg-destructive/10 p-4 mb-4 rounded-2xl" role="alert">
-              <p class="text-sm text-destructive">{{ errorMessage() }}</p>
-            </div>
-          }
-          <div class="grid gap-3 sm:grid-cols-2">
-            <button type="button" (click)="onOwnerReuseExisting()" [disabled]="isLoading()"
-              class="glass-card flex items-center justify-center gap-2 p-4 rounded-2xl font-semibold text-sm hover:border-primary hover:shadow-glow disabled:opacity-50">
-              {{ 'family.reuse' | translate }}
-            </button>
-            <button type="button" (click)="onOwnerCreateNew()" [disabled]="isLoading()"
-              class="gradient-primary text-primary-foreground shadow-glow rounded-2xl p-4 font-semibold text-sm disabled:opacity-50">
-              @if (isLoading()) {
-                <lucide-icon name="loader-2" class="h-4 w-4 animate-spin inline mr-2" />
-              }
-              {{ 'family.createNew' | translate }}
-            </button>
-          </div>
-        }
-
-        <!-- Step: Owner — done, show file ID -->
+        <!-- Step: Owner — done, show folder ID -->
         @if (step() === 'owner-done') {
           <div class="mb-6">
             <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.created.title' | translate }}</h1>
@@ -133,7 +107,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
           </button>
         }
 
-        <!-- Step: Partner — enter File ID -->
+        <!-- Step: Partner — enter Family Folder ID -->
         @if (step() === 'partner-setup') {
           <div class="mb-6">
             <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.join.title' | translate }}</h1>
@@ -153,7 +127,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-existing' | 'owner-done'
               [(ngModel)]="partnerFileIdInput"
               [placeholder]="'family.fileIdPlaceholder' | translate"
               class="w-full rounded-2xl border border-border bg-card/60 px-4 py-3 font-mono text-xs text-foreground outline-none focus:border-primary mb-3"
-              aria-label="Shared File ID"
+              aria-label="Shared Family Folder ID"
             />
 
             <button type="button" (click)="onPartnerConnect()"
@@ -182,7 +156,6 @@ export class FamilySetupComponent {
   readonly isLoading = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly createdFileId = signal<string | null>(null);
-  readonly existingFileFound = signal<string | null>(null);
   readonly copied = signal(false);
   partnerFileIdInput = '';
 
@@ -191,13 +164,7 @@ export class FamilySetupComponent {
     this.errorMessage.set(null);
     this.isLoading.set(true);
     try {
-      const existingId = await this.googleDriveService.findBackupFileInMyDrive();
-      if (existingId) {
-        this.existingFileFound.set(existingId);
-        this.step.set('owner-existing');
-      } else {
-        await this.#createAndFinish();
-      }
+      await this.#createAndFinish();
     } catch (err) {
       this.errorMessage.set(this.#extractErrorMessage(err));
       this.step.set('role-select');
@@ -209,28 +176,6 @@ export class FamilySetupComponent {
   onSelectPartner(): void {
     this.step.set('partner-setup');
     this.errorMessage.set(null);
-  }
-
-  async onOwnerReuseExisting(): Promise<void> {
-    const fileId = this.existingFileFound();
-    if (!fileId) return;
-    await this.backupModeService.setMode('family');
-    await this.backupModeService.setSharedFileId(fileId);
-    await this.backupModeService.setOwnerRole('owner');
-    this.createdFileId.set(fileId);
-    this.step.set('owner-done');
-  }
-
-  async onOwnerCreateNew(): Promise<void> {
-    this.isLoading.set(true);
-    this.errorMessage.set(null);
-    try {
-      await this.#createAndFinish();
-    } catch (err) {
-      this.errorMessage.set(this.#extractErrorMessage(err));
-    } finally {
-      this.isLoading.set(false);
-    }
   }
 
   async onPartnerConnect(): Promise<void> {
@@ -265,20 +210,14 @@ export class FamilySetupComponent {
         });
       }
 
-      // Set mode first, then shared file ID and role
-      await this.backupModeService.setMode('family');
-      await this.backupModeService.setSharedFileId(fileId);
-      if (familyFolderId) {
-        await this.backupModeService.setFamilyFolderId(familyFolderId);
-      }
-      await this.backupModeService.setOwnerRole('partner');
+      await this.backupModeService.setFamilyConfig(fileId, familyFolderId, 'partner');
       await this.router.navigate(['/daily']);
     } catch (err: unknown) {
       const status = (err as DriveApiError)?.status;
       if (status === 403) {
         this.errorMessage.set('Access denied. Ask the Owner to share the file with your Google account in Google Drive.');
       } else if (status === 404 || err instanceof DriveParseError) {
-        this.errorMessage.set('File not found or invalid. Please check the File ID and try again.');
+        this.errorMessage.set('Folder not found or invalid. Please check the Family Folder ID and try again.');
       } else {
         this.errorMessage.set('Connection failed. Please try again.');
       }
@@ -364,10 +303,7 @@ export class FamilySetupComponent {
       console.warn('[FamilySetup] Could not stamp receipt folder on family backup:', err);
     }
 
-    await this.backupModeService.setMode('family');
-    await this.backupModeService.setSharedFileId(newFileId);
-    await this.backupModeService.setFamilyFolderId(bundle.familyFolderId);
-    await this.backupModeService.setOwnerRole('owner');
+    await this.backupModeService.setFamilyConfig(newFileId, bundle.familyFolderId, 'owner');
     this.createdFileId.set(bundle.familyFolderId);
     this.step.set('owner-done');
   }

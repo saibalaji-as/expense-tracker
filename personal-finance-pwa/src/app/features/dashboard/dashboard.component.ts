@@ -14,15 +14,36 @@ import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
+import { BackupModeService } from '../../core/services/backup-mode.service';
+import { I18nService } from '../../core/services/i18n.service';
+import { CurrencyService } from '../../core/services/currency.service';
+import { AiInsightPayload, AiInsightSection, AiInsightService } from '../../core/services/ai-insight.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
+import { parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
 import {
   LucideAngularModule,
   LucideIconProvider,
   LUCIDE_ICONS,
   Sparkles,
   ArrowRight,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Lightbulb,
+  Users,
 } from 'lucide-angular';
+
+interface ActivityItem {
+  id: string;
+  actor: string;
+  action: string;
+  amount: number;
+  type: string;
+  time: string;
+  comment?: string;
+}
 
 @Component({
   selector: 'app-dashboard',
@@ -39,7 +60,7 @@ import {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Sparkles, ArrowRight }),
+      useValue: new LucideIconProvider({ Sparkles, ArrowRight, Activity, AlertTriangle, CheckCircle2, Clock3, Lightbulb, Users }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +87,135 @@ import {
             <p class="text-sm font-semibold tabular-nums">{{ avgPerDay() | currencyFormat }}</p>
           </div>
         </div>
+      </div>
+
+      <!-- Phase 1 deterministic insights -->
+      <div class="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+        <section class="glass-card overflow-hidden p-0">
+          <div class="border-b border-border/60 bg-primary/5 px-5 py-4 md:px-6">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="grid h-9 w-9 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
+                    <lucide-icon name="sparkles" class="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h2 class="text-base font-semibold tracking-tight md:text-lg">{{ 'dashboard.insights.title' | translate }}</h2>
+                    <p class="mt-0.5 text-xs text-muted-foreground md:text-sm">{{ 'dashboard.insights.description' | translate }}</p>
+                  </div>
+                </div>
+              </div>
+              <div class="hidden rounded-full border border-primary/20 bg-background/60 px-3 py-1 text-[11px] font-semibold text-primary md:block">
+                @if (aiInsightLoading()) {
+                  {{ 'dashboard.insights.loadingBadge' | translate }}
+                } @else {
+                  {{ aiInsightProvider() === 'gemini' ? ('dashboard.insights.geminiBadge' | translate) : ('dashboard.insights.localBadge' | translate) }}
+                }
+              </div>
+            </div>
+          </div>
+          @if (displayInsightSections().length > 0) {
+            <div class="space-y-4 p-5 md:p-6">
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div class="rounded-2xl border border-border/80 bg-background/55 px-3 py-2.5">
+                  <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.insights.weekTotal' | translate }}</p>
+                  <p class="mt-1 text-base font-semibold tabular-nums">{{ weeklyInsightSummary().total | currencyFormat }}</p>
+                </div>
+                <div class="rounded-2xl border border-border/80 bg-background/55 px-3 py-2.5">
+                  <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.insights.vsLastWeek' | translate }}</p>
+                  <p class="mt-1 text-base font-semibold tabular-nums" [class.text-destructive]="weeklyInsightSummary().delta > 0" [style.color]="weeklyInsightSummary().delta < 0 ? 'var(--success)' : null">
+                    {{ weeklyInsightSummary().delta > 0 ? '+' : '' }}{{ weeklyInsightSummary().delta | currencyFormat }}
+                  </p>
+                </div>
+                <div class="rounded-2xl border border-border/80 bg-background/55 px-3 py-2.5">
+                  <p class="text-[10px] uppercase tracking-widest text-muted-foreground">{{ 'dashboard.insights.monthForecast' | translate }}</p>
+                  <p class="mt-1 text-base font-semibold tabular-nums">{{ monthlyForecast() | currencyFormat }}</p>
+                </div>
+              </div>
+
+              <div class="grid gap-3">
+                @for (insight of displayInsightSections(); track insight.label) {
+                  <div
+                    class="rounded-2xl border px-3.5 py-3"
+                    [class.border-emerald-400\/30]="insight.tone === 'good'"
+                    [class.bg-emerald-400\/10]="insight.tone === 'good'"
+                    [class.border-amber-400\/30]="insight.tone === 'warn'"
+                    [class.bg-amber-400\/10]="insight.tone === 'warn'"
+                    [class.border-primary\/25]="insight.tone === 'info'"
+                    [class.bg-primary\/10]="insight.tone === 'info'"
+                  >
+                    <div class="flex items-start gap-2">
+                      <span
+                        class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl"
+                        [class.bg-emerald-400\/15]="insight.tone === 'good'"
+                        [class.text-emerald-600]="insight.tone === 'good'"
+                        [class.bg-amber-400\/15]="insight.tone === 'warn'"
+                        [class.text-amber-600]="insight.tone === 'warn'"
+                        [class.bg-primary\/15]="insight.tone === 'info'"
+                        [class.text-primary]="insight.tone === 'info'"
+                      >
+                        <lucide-icon [name]="insight.icon" class="h-4 w-4" />
+                      </span>
+                      <div class="min-w-0">
+                        <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ insight.label }}</p>
+                        <p class="text-sm font-semibold text-foreground">{{ insight.title }}</p>
+                        <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ insight.detail }}</p>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          } @else {
+            <div class="m-5 rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground md:m-6">
+              {{ 'dashboard.insights.empty' | translate }}
+            </div>
+          }
+        </section>
+
+        <section class="glass-card overflow-hidden p-0">
+          <div class="border-b border-border/60 px-5 py-4 md:px-6">
+            <div class="flex items-center gap-2">
+              <span class="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
+                <lucide-icon name="activity" class="h-4 w-4" />
+              </span>
+              <div>
+                <h2 class="text-base font-semibold tracking-tight md:text-lg">{{ 'dashboard.activity.title' | translate }}</h2>
+                <p class="mt-0.5 text-xs text-muted-foreground md:text-sm">{{ activityDescription() }}</p>
+              </div>
+            </div>
+          </div>
+          @if (activityTimeline().length > 0) {
+            <div class="max-h-[372px] space-y-2 overflow-y-auto p-5 pr-3 md:p-6 md:pr-4">
+              @for (item of activityTimeline(); track item.id) {
+                <div class="flex gap-3 rounded-2xl border border-border/80 bg-background/55 p-3 transition-all hover:border-primary/30">
+                  <span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <lucide-icon name="users" class="h-4 w-4" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-semibold">{{ item.actor }}</p>
+                        <p class="text-xs text-muted-foreground">{{ item.action }} · {{ item.type }}</p>
+                      </div>
+                      <div class="shrink-0 text-right">
+                        <p class="text-sm font-semibold">{{ item.amount | currencyFormat }}</p>
+                        <p class="text-[10px] text-muted-foreground">{{ item.time }}</p>
+                      </div>
+                    </div>
+                    @if (item.comment) {
+                      <p class="mt-1 truncate text-xs text-muted-foreground">{{ item.comment }}</p>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="m-5 rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground md:m-6">
+              {{ 'dashboard.activity.empty' | translate }}
+            </div>
+          }
+        </section>
       </div>
 
       <!-- 4-chart grid -->
@@ -190,6 +340,10 @@ import {
 export class DashboardComponent implements OnInit {
   readonly expenseStore = inject(ExpenseStore);
   private readonly storageService = inject(StorageService);
+  private readonly backupModeService = inject(BackupModeService);
+  private readonly i18n = inject(I18nService);
+  private readonly currencyService = inject(CurrencyService);
+  private readonly aiInsightService = inject(AiInsightService);
 
   // Chart data signals
   readonly ytdDailyData = signal<ChartData>({ datasets: [] });
@@ -208,6 +362,11 @@ export class DashboardComponent implements OnInit {
   readonly hasMonthlyTypeData = signal(false);
   readonly hasSixMonthData = signal(false);
   readonly hasBudgetRuleData = signal(false);
+  readonly aiInsightSections = signal<AiInsightSection[] | null>(null);
+  readonly aiInsightProvider = signal<'local' | 'gemini'>('local');
+  readonly aiInsightLoading = signal(false);
+  private aiInsightRequestId = 0;
+  private lastAiPayloadKey = '';
 
   // Quick-stat computed signals
   readonly todaySpend = computed(() =>
@@ -215,11 +374,11 @@ export class DashboardComponent implements OnInit {
   );
 
   readonly weekSpend = computed(() => {
-    const now = new Date();
+    const now = parseLocalDate(toLocalDateString());
     const sevenDaysAgo = new Date(now);
     sevenDaysAgo.setDate(now.getDate() - 6);
-    const startStr = sevenDaysAgo.toISOString().slice(0, 10);
-    const todayStr = now.toISOString().slice(0, 10);
+    const startStr = toLocalDateString(sevenDaysAgo);
+    const todayStr = toLocalDateString(now);
     return this.expenseStore
       .entries()
       .filter((e) => e.date >= startStr && e.date <= todayStr)
@@ -227,7 +386,7 @@ export class DashboardComponent implements OnInit {
   });
 
   readonly avgPerDay = computed(() => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = toLocalDateString().slice(0, 7);
     const monthEntries = this.expenseStore
       .entries()
       .filter((e) => e.date.startsWith(currentMonth));
@@ -236,6 +395,184 @@ export class DashboardComponent implements OnInit {
     const today = new Date();
     const dayOfMonth = today.getDate();
     return total / dayOfMonth;
+  });
+
+  readonly weeklyInsightSummary = computed(() => {
+    const entries = this.expenseStore.entries();
+    const current = this.entriesBetween(entries, 6, 0);
+    const previous = this.entriesBetween(entries, 13, 7);
+    const total = this.sumEntries(current);
+    const previousTotal = this.sumEntries(previous);
+    return {
+      total,
+      previousTotal,
+      delta: Number((total - previousTotal).toFixed(2)),
+      topCategory: this.topCategory(current),
+    };
+  });
+
+  readonly monthlyForecast = computed(() => {
+    const today = parseLocalDate(toLocalDateString());
+    const month = toLocalDateString().slice(0, 7);
+    const monthEntries = this.expenseStore.entries().filter((entry) => entry.date.startsWith(month));
+    const spent = this.sumEntries(monthEntries);
+    const daysElapsed = Math.max(1, today.getDate());
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    return Math.round((spent / daysElapsed) * daysInMonth);
+  });
+
+  readonly displayInsightSections = computed<AiInsightSection[]>(() =>
+    this.aiInsightSections() ?? this.localInsightSections()
+  );
+
+  readonly localInsightSections = computed<AiInsightSection[]>(() => {
+    const entries = this.expenseStore.entries();
+    const current = this.entriesBetween(entries, 6, 0);
+    if (current.length === 0) return [];
+
+    const summary = this.weeklyInsightSummary();
+    const warnings = this.categoryLimitWarnings();
+    const topCategory = summary.topCategory;
+    const sections: AiInsightSection[] = [];
+
+    sections.push({
+      label: this.i18n.t('dashboard.insights.weeklySummary'),
+      tone: 'info',
+      icon: 'sparkles',
+      title: this.i18n.t('dashboard.insights.weeklySummaryTitle', { amount: this.formatMoney(summary.total) }),
+      detail: this.i18n.t('dashboard.insights.weeklySummaryDetail', {
+        count: current.length,
+        comparison: this.formatMoney(Math.abs(summary.delta)),
+        direction: summary.delta > 0
+          ? this.i18n.t('dashboard.insights.moreThanLastWeek')
+          : summary.delta < 0
+            ? this.i18n.t('dashboard.insights.lessThanLastWeek')
+            : this.i18n.t('dashboard.insights.sameAsLastWeek'),
+      }),
+    });
+
+    sections.push({
+      label: this.i18n.t('dashboard.insights.wins'),
+      tone: summary.delta <= 0 ? 'good' : 'info',
+      icon: 'check-circle-2',
+      title: summary.delta <= 0
+        ? this.i18n.t('dashboard.insights.spendDownTitle')
+        : this.i18n.t('dashboard.insights.loggingWinTitle'),
+      detail: summary.delta <= 0
+        ? this.i18n.t('dashboard.insights.spendDownDetail', { amount: this.formatMoney(Math.abs(summary.delta)) })
+        : this.i18n.t('dashboard.insights.loggingWinDetail', { count: current.length }),
+    });
+
+    if (warnings.length > 0) {
+      const warning = warnings[0];
+      sections.push({
+        label: this.i18n.t('dashboard.insights.warnings'),
+        tone: 'warn',
+        icon: 'alert-triangle',
+        title: this.i18n.t('dashboard.insights.limitRiskTitle'),
+        detail: this.i18n.t('dashboard.insights.limitRiskDetail', {
+          category: warning.type,
+          percent: warning.percent,
+        }),
+      });
+    } else {
+      sections.push({
+        label: this.i18n.t('dashboard.insights.warnings'),
+        tone: 'good',
+        icon: 'check-circle-2',
+        title: this.i18n.t('dashboard.insights.noWarningTitle'),
+        detail: this.i18n.t('dashboard.insights.noWarningDetail'),
+      });
+    }
+
+    if (topCategory) {
+      sections.push({
+        label: this.i18n.t('dashboard.insights.suggestions'),
+        tone: 'info',
+        icon: 'lightbulb',
+        title: this.i18n.t('dashboard.insights.topCategoryTitle'),
+        detail: this.i18n.t('dashboard.insights.topCategoryDetail', {
+          category: topCategory.type,
+          amount: this.formatMoney(topCategory.amount),
+        }),
+      });
+    } else {
+      sections.push({
+        label: this.i18n.t('dashboard.insights.suggestions'),
+        tone: 'info',
+        icon: 'lightbulb',
+        title: this.i18n.t('dashboard.insights.keepTrackingTitle'),
+        detail: this.i18n.t('dashboard.insights.keepTrackingDetail'),
+      });
+    }
+
+    sections.push({
+      label: this.i18n.t('dashboard.insights.forecast'),
+      tone: 'info',
+      icon: 'clock-3',
+      title: this.i18n.t('dashboard.insights.forecastTitle'),
+      detail: this.i18n.t('dashboard.insights.forecastDetail', { amount: this.formatMoney(this.monthlyForecast()) }),
+    });
+
+    return sections;
+  });
+
+  readonly aiInsightPayload = computed<AiInsightPayload | null>(() => {
+    const entries = this.expenseStore.entries();
+    const current = this.entriesBetween(entries, 6, 0);
+    if (current.length === 0) return null;
+
+    const previous = this.entriesBetween(entries, 13, 7);
+    const summary = this.weeklyInsightSummary();
+    const categoryTotals = this.categoryTotals(current);
+    const month = toLocalDateString().slice(0, 7);
+    const monthEntries = entries.filter((entry) => entry.date.startsWith(month));
+
+    return {
+      period: 'week',
+      locale: this.i18n.locale(),
+      currency: this.currencyService.currency(),
+      totalSpent: summary.total,
+      previousPeriodTotal: this.sumEntries(previous),
+      delta: summary.delta,
+      entryCount: current.length,
+      monthForecast: this.monthlyForecast(),
+      categoryTotals,
+      budgetUsage: this.budgetUsage(monthEntries),
+      topExpenses: [...current]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5)
+        .map((entry) => ({
+          date: entry.date,
+          amount: entry.amount,
+          type: entry.type,
+        })),
+    };
+  });
+
+  readonly activityTimeline = computed<ActivityItem[]>(() => {
+    return [...this.expenseStore.entries()]
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, 8)
+      .map((entry) => {
+        const isUpdated = !!entry.updatedByRole || !!entry.updatedByEmail;
+        return {
+          id: entry.id,
+          actor: this.actorLabel(entry),
+          action: this.i18n.t(isUpdated ? 'dashboard.activity.updated' : 'dashboard.activity.added'),
+          amount: entry.amount,
+          type: entry.type,
+          time: this.relativeTime(entry.timestamp),
+          comment: entry.comment,
+        };
+      });
+  });
+
+  readonly activityDescription = computed(() => {
+    if (this.backupModeService.getMode() === 'family') {
+      return this.i18n.t('dashboard.activity.familyDescription');
+    }
+    return this.i18n.t('dashboard.activity.singleDescription');
   });
 
   // Doughnut chart options with cutout for donut effect
@@ -275,6 +612,11 @@ export class DashboardComponent implements OnInit {
         summary.needsTotal > 0 || summary.wantsTotal > 0 || summary.savingsTotal > 0
       );
     });
+
+    effect(() => {
+      const payload = this.aiInsightPayload();
+      void this.refreshAiInsights(payload);
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -307,6 +649,145 @@ export class DashboardComponent implements OnInit {
     'Subscriptions':          'subscriptions',
     'Miscellaneous':          'misc',
   };
+
+  private formatMoney(amount: number): string {
+    return this.currencyService.format(Math.round(amount), this.i18n.locale());
+  }
+
+  private entriesBetween(entries: ExpenseEntry[], daysAgoStart: number, daysAgoEnd: number): ExpenseEntry[] {
+    const today = parseLocalDate(toLocalDateString());
+    const start = new Date(today);
+    start.setDate(today.getDate() - daysAgoStart);
+    const end = new Date(today);
+    end.setDate(today.getDate() - daysAgoEnd);
+    const startStr = toLocalDateString(start);
+    const endStr = toLocalDateString(end);
+    return entries.filter((entry) => entry.date >= startStr && entry.date <= endStr);
+  }
+
+  private sumEntries(entries: ExpenseEntry[]): number {
+    return entries.reduce((sum, entry) => sum + entry.amount, 0);
+  }
+
+  private topCategory(entries: ExpenseEntry[]): { type: string; amount: number } | null {
+    const totals = new Map<string, number>();
+    for (const entry of entries) {
+      totals.set(entry.type, (totals.get(entry.type) ?? 0) + entry.amount);
+    }
+    const [top] = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    return top ? { type: top[0], amount: top[1] } : null;
+  }
+
+  private categoryTotals(entries: ExpenseEntry[]): Record<string, number> {
+    const totals: Record<string, number> = {};
+    for (const entry of entries) {
+      totals[entry.type] = Number(((totals[entry.type] ?? 0) + entry.amount).toFixed(2));
+    }
+    return totals;
+  }
+
+  private budgetUsage(entries: ExpenseEntry[]): AiInsightPayload['budgetUsage'] {
+    const income = this.expenseStore.monthlyIncome();
+    const totals = this.categoryTotals(entries);
+
+    return Object.entries(totals)
+      .map(([category, spent]) => {
+        const limit = this.expenseStore.limitMap()[category];
+        const limitAmount = limit && income > 0 ? (limit.userPercentage * income) / 100 : 0;
+        return {
+          category,
+          spent,
+          limit: Number(limitAmount.toFixed(2)),
+          percent: limitAmount > 0 ? Math.round((spent / limitAmount) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.percent - a.percent || b.spent - a.spent)
+      .slice(0, 8);
+  }
+
+  private async refreshAiInsights(payload: AiInsightPayload | null): Promise<void> {
+    if (!payload) {
+      this.aiInsightSections.set(null);
+      this.aiInsightProvider.set('local');
+      this.aiInsightLoading.set(false);
+      this.lastAiPayloadKey = '';
+      return;
+    }
+
+    const payloadKey = JSON.stringify(payload);
+    if (payloadKey === this.lastAiPayloadKey) return;
+    this.lastAiPayloadKey = payloadKey;
+
+    const requestId = ++this.aiInsightRequestId;
+    this.aiInsightLoading.set(true);
+    const result = await this.aiInsightService.generateWeeklyInsights(payload);
+    if (requestId !== this.aiInsightRequestId) return;
+
+    if (result?.sections.length) {
+      this.aiInsightSections.set(result.sections);
+      this.aiInsightProvider.set(result.provider);
+    } else {
+      this.aiInsightSections.set(null);
+      this.aiInsightProvider.set('local');
+    }
+    this.aiInsightLoading.set(false);
+  }
+
+  private categoryLimitWarnings(): Array<{ type: string; percent: number }> {
+    const month = toLocalDateString().slice(0, 7);
+    const income = this.expenseStore.monthlyIncome();
+    if (income <= 0) return [];
+
+    const totals = new Map<string, number>();
+    for (const entry of this.expenseStore.entries().filter((item) => item.date.startsWith(month))) {
+      totals.set(entry.type, (totals.get(entry.type) ?? 0) + entry.amount);
+    }
+
+    return [...totals.entries()]
+      .map(([type, spent]) => {
+        const limit = this.expenseStore.limitMap()[type];
+        const limitAmount = limit ? (limit.userPercentage * income) / 100 : 0;
+        return {
+          type,
+          percent: limitAmount > 0 ? Math.round((spent / limitAmount) * 100) : 0,
+        };
+      })
+      .filter((item) => item.percent >= 80)
+      .sort((a, b) => b.percent - a.percent);
+  }
+
+  private actorLabel(entry: ExpenseEntry): string {
+    const role = entry.updatedByRole ?? entry.createdByRole;
+    const email = entry.updatedByEmail ?? entry.createdByEmail;
+    if (email) return this.nameFromEmail(email);
+    if (role === 'owner') return this.i18n.t('dashboard.activity.owner');
+    if (role === 'partner') return this.i18n.t('dashboard.activity.partner');
+    return this.i18n.t('dashboard.activity.existing');
+  }
+
+  private nameFromEmail(email: string): string {
+    const prefix = email.split('@')[0]?.trim();
+    if (!prefix) return email;
+
+    const firstPart = prefix
+      .split(/[._+\-\d]+/)
+      .find((part) => part.length > 0) ?? prefix;
+
+    return firstPart.charAt(0).toLocaleUpperCase(this.i18n.locale()) + firstPart.slice(1);
+  }
+
+  private relativeTime(timestamp: string): string {
+    const then = new Date(timestamp).getTime();
+    if (!Number.isFinite(then)) return '';
+    const diffMinutes = Math.max(0, Math.round((Date.now() - then) / 60_000));
+    if (diffMinutes < 1) return this.i18n.t('dashboard.activity.now');
+    if (diffMinutes < 60) return this.i18n.t('dashboard.activity.minutesAgo', { count: diffMinutes });
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return this.i18n.t('dashboard.activity.hoursAgo', { count: diffHours });
+    const diffDays = Math.round(diffHours / 24);
+    if (diffDays < 7) return this.i18n.t('dashboard.activity.daysAgo', { count: diffDays });
+    return new Date(timestamp).toLocaleDateString(this.i18n.locale(), { month: 'short', day: 'numeric' });
+  }
 
   // YTD daily line chart
   computeYtdDailyData(entries: ExpenseEntry[]): ChartData {

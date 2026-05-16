@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
+import { setupGuard } from './core/guards/setup.guard';
 
 export const routes: Routes = [
   {
@@ -8,7 +9,7 @@ export const routes: Routes = [
       import('./features/daily-expense/daily-expense.component').then(
         (m) => m.DailyExpenseComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     path: 'monthly',
@@ -16,7 +17,7 @@ export const routes: Routes = [
       import('./features/monthly-expense/monthly-expense.component').then(
         (m) => m.MonthlyExpenseComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     path: 'limits',
@@ -24,7 +25,7 @@ export const routes: Routes = [
       import('./features/expense-limit/expense-limit.component').then(
         (m) => m.ExpenseLimitComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     path: 'dashboard',
@@ -32,7 +33,7 @@ export const routes: Routes = [
       import('./features/dashboard/dashboard.component').then(
         (m) => m.DashboardComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     path: 'settings',
@@ -40,7 +41,7 @@ export const routes: Routes = [
       import('./features/settings/settings.component').then(
         (m) => m.SettingsComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     // Public route — no AuthGuard
@@ -56,7 +57,7 @@ export const routes: Routes = [
       import('./features/mode-selection/mode-selection.component').then(
         (m) => m.ModeSelectionComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   {
     path: 'family-setup',
@@ -64,7 +65,7 @@ export const routes: Routes = [
       import('./features/family-setup/family-setup.component').then(
         (m) => m.FamilySetupComponent
       ),
-    canActivate: [authGuard],
+    canActivate: [authGuard, setupGuard],
   },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },

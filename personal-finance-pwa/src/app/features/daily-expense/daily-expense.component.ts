@@ -30,6 +30,11 @@ import {
   ExternalLink,
   Sparkles,
   Eye,
+  RotateCw,
+  Wand2,
+  Check,
+  Crop,
+  Users,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -38,6 +43,8 @@ import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { GoogleDriveService } from '../../core/services/google-drive.service';
 import { ReceiptExtractionResult, ReceiptExtractionService } from '../../core/services/receipt-extraction.service';
+import { AuthService } from '../../core/services/auth.service';
+import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
 import { ExpenseEntry, ExpenseReceipt } from '../../core/models/expense-entry.model';
 import { PREDEFINED_EXPENSE_TYPES } from '../../core/models';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
@@ -50,6 +57,7 @@ import {
   CATEGORY_DEFS,
   getCategoryDef,
 } from '../../core/models/category-definitions';
+import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
 
 /** Maps PREDEFINED_EXPENSE_TYPES names to category IDs used by CategoryIcon */
 const TYPE_TO_CAT_ID: Record<string, string> = {
@@ -69,6 +77,31 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
   'Miscellaneous':          'misc',
 };
 
+interface SplitBillRow {
+  id: string;
+  type: string;
+  amount: number | null;
+  comment: string;
+}
+
+interface CategoryChoice {
+  id: string;
+  name: string;
+}
+
+interface ReceiptEditorState {
+  file: File;
+  url: string;
+  rotation: 0 | 90 | 180 | 270;
+  enhance: boolean;
+  crop: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}
+
 @Component({
   selector: 'app-daily-expense',
   standalone: true,
@@ -86,7 +119,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users }),
     },
   ],
   template: `
@@ -211,7 +244,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                   <button
                     type="button"
                     (click)="selectCategory(cat)"
-                    [attr.aria-label]="getCategoryNameById(cat.id)"
+                    [attr.aria-label]="getCategoryLabel(cat)"
                     [attr.aria-pressed]="isActiveCat(cat)"
                     class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 relative"
                     [class.border-transparent]="isActiveCat(cat)"
@@ -226,12 +259,12 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     @if (isActiveCat(cat)) {
                       <span 
                         class="absolute inset-0 rounded-full opacity-15"
-                        [style.background-color]="'var(' + cat.colorVar + ')'"
+                        [style.background-color]="'var(' + getCatColorVar(cat.name) + ')'"
                       ></span>
                     }
                     <span class="relative z-10 flex items-center gap-1.5">
-                      <app-category-icon [categoryId]="cat.id" size="xs" />
-                      {{ getCategoryNameById(cat.id) }}
+                      <app-category-icon [categoryId]="getCatId(cat.name)" size="xs" />
+                      {{ getCategoryLabel(cat) }}
                     </span>
                   </button>
                 }
@@ -450,18 +483,47 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                       <lucide-icon name="sparkles" class="h-3.5 w-3.5" />
                       {{ 'daily.receipt.smartFill.title' | translate }}
                     </div>
-                    <button
-                      type="button"
-                      (click)="applyReceiptExtraction(true)"
-                      class="rounded-lg border border-primary/30 bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-primary transition-all hover:border-primary/60"
-                    >
-                      {{ 'daily.receipt.smartFill.apply' | translate }}
-                    </button>
+                    <div class="flex gap-1.5">
+                      @if (extraction.lineItems.length > 1) {
+                        <button
+                          type="button"
+                          (click)="startSplitBillFromExtractedItems()"
+                          class="rounded-lg border border-primary/30 bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-primary transition-all hover:border-primary/60"
+                        >
+                          {{ 'daily.receipt.smartFill.splitItems' | translate }}
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        (click)="applyReceiptExtraction(true)"
+                        class="rounded-lg border border-primary/30 bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-primary transition-all hover:border-primary/60"
+                      >
+                        {{ 'daily.receipt.smartFill.apply' | translate }}
+                      </button>
+                    </div>
                   </div>
+                  @if (extraction.lineItems.length > 0) {
+                    <div class="mb-2 rounded-lg border border-primary/15 bg-background/50 p-2">
+                      <p class="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {{ 'daily.receipt.smartFill.itemsFound' | translate }}
+                      </p>
+                      <div class="max-h-32 space-y-1 overflow-y-auto pr-1">
+                        @for (item of extraction.lineItems; track item.name + '-' + item.amount) {
+                          <div class="flex items-start justify-between gap-2 text-[11px]">
+                            <span class="min-w-0 flex-1 truncate text-foreground">{{ item.name }}</span>
+                            <span class="shrink-0 font-semibold text-primary">{{ item.amount | currencyFormat }}</span>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
                   <div class="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                     <p>
                       <span class="block font-medium text-foreground">{{ 'common.amount' | translate }}</span>
                       {{ extraction.amount ? (extraction.amount | currencyFormat) : ('daily.receipt.smartFill.notFound' | translate) }}
+                      @if (extraction.amount && extraction.amountConfidence < 0.7) {
+                        <span class="mt-0.5 block text-[10px] font-medium text-amber-600">{{ 'daily.receipt.smartFill.lowConfidence' | translate }}</span>
+                      }
                     </p>
                     <p>
                       <span class="block font-medium text-foreground">{{ 'daily.date' | translate }}</span>
@@ -476,6 +538,24 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                       {{ extraction.comment ?? ('daily.receipt.smartFill.notFound' | translate) }}
                     </p>
                   </div>
+                  @if (extraction.amountCandidates.length > 1) {
+                    <div class="mt-2 border-t border-primary/15 pt-2">
+                      <p class="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {{ 'daily.receipt.smartFill.possibleTotals' | translate }}
+                      </p>
+                      <div class="flex flex-wrap gap-1.5">
+                        @for (candidate of extraction.amountCandidates; track candidate) {
+                          <button
+                            type="button"
+                            (click)="useReceiptAmountCandidate(candidate)"
+                            class="rounded-lg border border-primary/25 bg-background/70 px-2.5 py-1 text-[11px] font-semibold text-primary transition-all hover:border-primary/60"
+                          >
+                            {{ candidate | currencyFormat }}
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
                   @if (receiptExtractionApplied()) {
                     <p class="mt-2 text-[11px] font-medium text-primary">{{ 'daily.receipt.smartFill.applied' | translate }}</p>
                   }
@@ -483,12 +563,84 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               } @else if (receiptExtractionError()) {
                 <p class="mt-1 text-xs text-muted-foreground">{{ receiptExtractionError() }}</p>
               }
+
+              @if (splitBillMode()) {
+                <div class="mt-2 rounded-xl border border-border bg-card/50 p-3">
+                  <div class="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <p class="text-xs font-semibold text-foreground">Split bill</p>
+                      <p class="text-[11px] text-muted-foreground">
+                        {{ 'daily.receipt.split.total' | translate }} {{ splitBillTotal() | currencyFormat }} · {{ 'daily.receipt.split.split' | translate }} {{ splitRowsTotal() | currencyFormat }}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      (click)="cancelSplitBill()"
+                      class="rounded-lg border border-border bg-background/60 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground"
+                    >
+                      {{ 'common.cancel' | translate }}
+                    </button>
+                  </div>
+
+                  <div class="space-y-2">
+                    @for (row of splitRows(); track row.id) {
+                      <div class="grid grid-cols-[1fr_96px_32px] gap-2">
+                        <select
+                          [value]="row.type"
+                          (change)="updateSplitRowFromEvent(row.id, 'type', $event)"
+                          class="min-w-0 rounded-xl border border-border bg-background/60 px-2 py-2 text-xs text-foreground outline-none focus:border-primary"
+                        >
+                          @for (cat of availableCategories(); track cat.id) {
+                            <option [value]="cat.name">{{ getCategoryLabel(cat) }}</option>
+                          }
+                        </select>
+                        <input
+                          type="number"
+                          inputmode="decimal"
+                          [value]="row.amount ?? ''"
+                          (input)="updateSplitRowFromEvent(row.id, 'amount', $event)"
+                          class="rounded-xl border border-border bg-background/60 px-2 py-2 text-xs font-semibold text-foreground outline-none focus:border-primary"
+                          placeholder="0"
+                        />
+                        <button
+                          type="button"
+                          (click)="removeSplitRow(row.id)"
+                          [disabled]="splitRows().length <= 2"
+                          class="grid h-9 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                        >
+                          <lucide-icon name="x" class="h-4 w-4" />
+                        </button>
+                        <input
+                          type="text"
+                          [value]="row.comment"
+                          (input)="updateSplitRowFromEvent(row.id, 'comment', $event)"
+                          class="col-span-3 rounded-xl border border-border bg-background/60 px-2 py-2 text-xs text-foreground outline-none focus:border-primary"
+                          [placeholder]="'daily.receipt.split.notePlaceholder' | translate"
+                        />
+                      </div>
+                    }
+                  </div>
+
+                  <div class="mt-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      (click)="addSplitRow()"
+                      class="rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-[11px] font-semibold text-primary"
+                    >
+                      {{ 'daily.receipt.split.addCategory' | translate }}
+                    </button>
+                    @if (!splitBillValid()) {
+                      <p class="text-[11px] text-destructive">{{ 'daily.receipt.split.totalMismatch' | translate }}</p>
+                    }
+                  </div>
+                </div>
+              }
             </div>
 
             <!-- Log button -->
             <button
               type="submit"
-              [disabled]="!(form.get('amount')?.value) || isSavingExpense()"
+              [disabled]="(splitBillMode() ? !splitBillValid() : !(form.get('amount')?.value)) || isSavingExpense()"
               class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               @if (isSavingExpense()) {
@@ -528,13 +680,6 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 </button>
               }
             </div>
-            <input
-              type="date"
-              [value]="selectedDate()"
-              (change)="onDateChange($event)"
-              [max]="maxDate"
-              class="rounded-lg border border-border bg-card/60 px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary transition-all"
-            />
           </div>
 
           <ul class="space-y-2.5">
@@ -566,9 +711,9 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                     </div>
                     <p class="truncate text-xs text-muted-foreground">
                       @if (group.count === 1) {
-                        {{ group.entries[0].timestamp.slice(11, 16) }}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
+                        {{ formatEntryTime(group.entries[0].timestamp) }} · {{ expenseActorLabel(group.entries[0]) }}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
                       } @else {
-                        {{ i18n.t('daily.entries.multiple', { count: group.count }) }}
+                        {{ i18n.t('daily.entries.multiple', { count: group.count }) }} · {{ groupActorSummary(group.entries) }}
                       }
                     </p>
                   </div>
@@ -589,7 +734,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                 </div>
                 <!-- Action buttons: only show for single entries -->
                 @if (group.count === 1) {
-                  <div class="shrink-0 flex flex-col gap-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
+                  <div class="shrink-0 flex flex-col gap-1 opacity-100">
                     <!-- Edit button -->
                     <button
                       type="button"
@@ -682,7 +827,11 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
               
               <!-- Date/Time -->
               <div class="mt-2 text-[10px] text-muted-foreground">
-                {{ entry.date }} at {{ entry.timestamp.slice(11, 16) }}
+                {{ entry.date }} at {{ formatEntryTime(entry.timestamp) }}
+              </div>
+              <div class="mt-2 inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                <lucide-icon name="users" class="h-3.5 w-3.5" />
+                {{ expenseActorLabel(entry) }}
               </div>
               @if (entry.receipt) {
                 @if (isImageReceipt(entry.receipt)) {
@@ -812,7 +961,7 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
                           </span>
                         </div>
                         <p class="text-[10px] text-muted-foreground">
-                          {{ entry.timestamp.slice(11, 16) }}
+                          {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}
                         </p>
                       </div>
                       <!-- Action buttons -->
@@ -873,6 +1022,111 @@ const TYPE_TO_CAT_ID: Record<string, string> = {
       </div>
     }
 
+    @if (receiptEditor(); as editor) {
+      <div
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm"
+        (click)="cancelReceiptEditor()"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="receipt-editor-title"
+      >
+        <div
+          class="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
+          (click)="$event.stopPropagation()"
+        >
+          <div class="flex shrink-0 items-center justify-between gap-3 border-b border-border p-4">
+            <div class="min-w-0">
+              <h2 id="receipt-editor-title" class="truncate text-base font-semibold">{{ 'daily.receipt.editor.title' | translate }}</h2>
+              <p class="text-xs text-muted-foreground">{{ 'daily.receipt.editor.subtitle' | translate }}</p>
+            </div>
+            <button
+              type="button"
+              (click)="cancelReceiptEditor()"
+              [attr.aria-label]="'common.cancel' | translate"
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+            >
+              <lucide-icon name="x" class="h-4 w-4" />
+            </button>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-auto bg-black/90 p-3">
+            <div class="mx-auto flex min-h-[46vh] max-w-2xl items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black">
+              <img
+                [src]="editor.url"
+                [alt]="editor.file.name"
+                class="max-h-[58vh] max-w-full object-contain transition-all"
+                [style.transform]="'rotate(' + editor.rotation + 'deg)'"
+                [style.filter]="editor.enhance ? 'grayscale(1) contrast(1.45) brightness(1.08)' : 'none'"
+                [style.clip-path]="receiptEditorClipPath(editor)"
+              />
+            </div>
+          </div>
+
+          <div class="shrink-0 space-y-3 border-t border-border p-4">
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <button
+                type="button"
+                (click)="rotateReceiptEditor()"
+                class="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
+              >
+                <lucide-icon name="rotate-cw" class="h-4 w-4" />
+                {{ 'daily.receipt.editor.rotate' | translate }}
+              </button>
+              <button
+                type="button"
+                (click)="toggleReceiptEditorEnhance()"
+                class="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-all"
+                [class.border-primary]="editor.enhance"
+                [class.bg-primary\/10]="editor.enhance"
+                [class.text-primary]="editor.enhance"
+                [class.border-border]="!editor.enhance"
+                [class.bg-background\/60]="!editor.enhance"
+                [class.text-foreground]="!editor.enhance"
+              >
+                <lucide-icon name="wand-2" class="h-4 w-4" />
+                {{ 'daily.receipt.editor.enhance' | translate }}
+              </button>
+              <button
+                type="button"
+                (click)="useOriginalReceiptImage()"
+                class="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
+              >
+                <lucide-icon name="crop" class="h-4 w-4" />
+                {{ 'daily.receipt.editor.useOriginal' | translate }}
+              </button>
+              <button
+                type="button"
+                (click)="applyReceiptEditor()"
+                class="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95"
+              >
+                <lucide-icon name="check" class="h-4 w-4" />
+                {{ 'daily.receipt.editor.useEdited' | translate }}
+              </button>
+            </div>
+
+            <div class="grid gap-2 sm:grid-cols-2">
+              <label class="text-[11px] font-medium text-muted-foreground">
+                {{ 'daily.receipt.editor.cropLeft' | translate }}
+                <input type="range" min="0" max="45" [value]="editor.crop.left" (input)="updateReceiptEditorCrop('left', $event)" class="mt-1 w-full accent-primary" />
+              </label>
+              <label class="text-[11px] font-medium text-muted-foreground">
+                {{ 'daily.receipt.editor.cropTop' | translate }}
+                <input type="range" min="0" max="45" [value]="editor.crop.top" (input)="updateReceiptEditorCrop('top', $event)" class="mt-1 w-full accent-primary" />
+              </label>
+              <label class="text-[11px] font-medium text-muted-foreground">
+                {{ 'daily.receipt.editor.cropWidth' | translate }}
+                <input type="range" min="35" max="100" [value]="editor.crop.width" (input)="updateReceiptEditorCrop('width', $event)" class="mt-1 w-full accent-primary" />
+              </label>
+              <label class="text-[11px] font-medium text-muted-foreground">
+                {{ 'daily.receipt.editor.cropHeight' | translate }}
+                <input type="range" min="35" max="100" [value]="editor.crop.height" (input)="updateReceiptEditorCrop('height', $event)" class="mt-1 w-full accent-primary" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+
     @if (receiptPreview(); as preview) {
       <div
         class="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -921,13 +1175,15 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly currencyService = inject(CurrencyService);
   private readonly googleDriveService = inject(GoogleDriveService);
   private readonly receiptExtractionService = inject(ReceiptExtractionService);
+  private readonly authService = inject(AuthService);
+  private readonly backupModeService = inject(BackupModeService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
     expenseType: ['', Validators.required],
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]],
     limit: [{ value: 0, disabled: true }],
-    date: [new Date().toISOString().slice(0, 10), Validators.required], // Default to today
+    date: [toLocalDateString(), Validators.required], // Default to today
     comment: [''],
   });
 
@@ -935,6 +1191,25 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   /** All category definitions for the chip list */
   readonly categoryDefs = CATEGORY_DEFS;
+  readonly availableCategories = computed<CategoryChoice[]>(() => {
+    const choices: CategoryChoice[] = this.categoryDefs.map((category) => ({
+      id: category.id,
+      name: category.name,
+    }));
+    const existingTypes = new Set(choices.map((category) => category.name));
+
+    for (const limit of this.expenseStore.limits()) {
+      if (!existingTypes.has(limit.type)) {
+        choices.push({
+          id: `custom-${limit.type}`,
+          name: limit.type,
+        });
+        existingTypes.add(limit.type);
+      }
+    }
+
+    return choices;
+  });
 
   // ─── Offline toast signal ─────────────────────────────────────────────────
   readonly offlineToast = signal(false);
@@ -988,11 +1263,26 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly uploadingReceipt = signal(false);
   readonly isSavingExpense = signal(false);
   readonly receiptPreview = signal<{ url: string; fileName: string } | null>(null);
+  readonly receiptEditor = signal<ReceiptEditorState | null>(null);
   private receiptPreviewObjectUrl: string | null = null;
+  private receiptEditorObjectUrl: string | null = null;
+  private readonly receiptAutoFilledFields = new Set<'amount' | 'date' | 'type' | 'comment'>();
+  readonly splitBillMode = signal(false);
+  readonly splitRows = signal<SplitBillRow[]>([]);
+
+  private activityActor(): { email?: string; role: OwnerRole | 'single' } {
+    const role = this.backupModeService.getMode() === 'family'
+      ? this.backupModeService.getOwnerRole() ?? 'partner'
+      : 'single';
+    return {
+      email: this.authService.userEmail() ?? undefined,
+      role,
+    };
+  }
 
   // ─── Selected date state ──────────────────────────────────────────────────
-  readonly selectedDate = signal<string>(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
-  readonly isToday = computed(() => this.selectedDate() === new Date().toISOString().slice(0, 10));
+  readonly selectedDate = signal<string>(toLocalDateString()); // YYYY-MM-DD
+  readonly isToday = computed(() => this.selectedDate() === toLocalDateString());
   
   // ─── Entries for selected date ───────────────────────────────────────────
   readonly selectedDateEntries = computed(() => {
@@ -1034,12 +1324,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Date label for display ──────────────────────────────────────────────
   readonly selectedDateLabel = computed(() => {
     if (this.isToday()) return this.i18n.t('common.today');
-    const date = new Date(this.selectedDate());
+    const date = parseLocalDate(this.selectedDate());
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
     
-    if (this.selectedDate() === yesterday.toISOString().slice(0, 10)) {
+    if (this.selectedDate() === toLocalDateString(yesterday)) {
       return this.i18n.t('common.yesterday');
     }
     
@@ -1051,7 +1341,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   });
 
   // ─── Max date for date picker (today) ─────────────────────────────────────
-  readonly maxDate = new Date().toISOString().slice(0, 10);
+  readonly maxDate = toLocalDateString();
 
   // ─── Section card title for entries ──────────────────────────────────────
   readonly entriesSectionTitle = computed(() =>
@@ -1071,7 +1361,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly showAllCategories = signal(false);
   readonly visibleCategories = computed(() => {
     const selected = this.form.get('expenseType')?.value;
-    const allCats = [...this.categoryDefs];
+    const allCats = [...this.availableCategories()];
     
     // If a category is selected, move it to the front
     if (selected) {
@@ -1086,7 +1376,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return this.showAllCategories() ? allCats : allCats.slice(0, 4);
   });
   
-  readonly hasMoreCategories = computed(() => this.categoryDefs.length > 4);
+  readonly hasMoreCategories = computed(() => this.availableCategories().length > 4);
 
   // ─── Voice recognition ────────────────────────────────────────────────────
   readonly isRecording = signal(false);
@@ -1171,7 +1461,20 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return getCategoryDef(this.getCatId(typeName));
   });
 
+  readonly splitBillTotal = computed(() => this.receiptExtraction()?.amount ?? Number(this.form.get('amount')?.value ?? 0) ?? 0);
+  readonly splitRowsTotal = computed(() =>
+    Number(this.splitRows().reduce((sum, row) => sum + Number(row.amount ?? 0), 0).toFixed(2))
+  );
+  readonly splitBillValid = computed(() => {
+    if (!this.splitBillMode()) return true;
+    const total = this.splitBillTotal();
+    if (total <= 0 || this.splitRows().length < 2) return false;
+    const everyRowValid = this.splitRows().every((row) => row.type && Number(row.amount ?? 0) > 0);
+    return everyRowValid && Math.abs(this.splitRowsTotal() - total) < 0.01;
+  });
+
   private typeChangeSub?: Subscription;
+  private dateChangeSub?: Subscription;
   private offlineToastTimer?: ReturnType<typeof setTimeout>;
   private receiptExtractionRunId = 0;
 
@@ -1179,27 +1482,38 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     const expenseTypeControl = this.form.get('expenseType');
     const limitControl = this.form.get('limit');
+    const updateRemainingLimit = (): void => {
+      const type = expenseTypeControl?.value;
+      if (!limitControl) return;
+
+      if (type) {
+        const activeDate = this.form.get('date')?.value ?? this.selectedDate();
+        const limitEntry = this.expenseStore.limitMap()[type];
+        const income = this.expenseStore.monthlyIncome();
+        const monthlyLimit = limitEntry ? (limitEntry.userPercentage / 100) * income : 0;
+        const active = parseLocalDate(activeDate);
+        const daysInMonth = new Date(active.getFullYear(), active.getMonth() + 1, 0).getDate();
+        const dailyLimit = Math.ceil(monthlyLimit / daysInMonth);
+        const spentOnActiveDate = this.expenseStore.entries()
+          .filter(e => e.date === activeDate && e.type === type)
+          .reduce((sum, e) => sum + e.amount, 0);
+
+        limitControl.setValue(dailyLimit - spentOnActiveDate);
+      } else {
+        limitControl.setValue(0);
+      }
+    };
 
     if (expenseTypeControl && limitControl) {
-      this.typeChangeSub = expenseTypeControl.valueChanges.subscribe((type) => {
-        if (type) {
-          const limitEntry = this.expenseStore.limitMap()[type];
-          const income = this.expenseStore.monthlyIncome();
-          const monthlyLimit = limitEntry ? (limitEntry.userPercentage / 100) * income : 0;
+      this.typeChangeSub = expenseTypeControl.valueChanges.subscribe(() => updateRemainingLimit());
+    }
 
-          const now = new Date();
-          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-          const dailyLimit = Math.ceil(monthlyLimit / daysInMonth);
-
-          const todayEntries = this.expenseStore.todayEntries();
-          const spentToday = todayEntries
-            .filter(e => e.type === type)
-            .reduce((sum, e) => sum + e.amount, 0);
-
-          const remainingLimit = dailyLimit - spentToday;
-          limitControl.setValue(remainingLimit);
-        } else {
-          limitControl.setValue(0);
+    const dateControl = this.form.get('date');
+    if (dateControl) {
+      this.dateChangeSub = dateControl.valueChanges.subscribe((date) => {
+        if (date) {
+          this.setActiveDate(date, false);
+          updateRemainingLimit();
         }
       });
     }
@@ -1209,15 +1523,21 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.typeChangeSub?.unsubscribe();
+    this.dateChangeSub?.unsubscribe();
     if (this.offlineToastTimer) {
       clearTimeout(this.offlineToastTimer);
     }
     this.revokeReceiptPreviewUrl();
+    this.revokeReceiptEditorUrl();
   }
 
   // ─── Helper: map type name → category ID ─────────────────────────────────
   getCatId(type: string): string {
     return TYPE_TO_CAT_ID[type] ?? 'misc';
+  }
+
+  getCategoryLabel(category: CategoryChoice): string {
+    return this.getCatName(category.name);
   }
 
   // ─── Helper: calculate daily limit for a category ────────────────────────
@@ -1240,6 +1560,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Helper: map type name → display name ────────────────────────────────
   getCatName(type: string): string {
+    if (!TYPE_TO_CAT_ID[type]) {
+      return type;
+    }
     return this.getCategoryNameById(this.getCatId(type));
   }
 
@@ -1250,7 +1573,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   actionLabel(isEdit: boolean): string {
-    const category = this.getCategoryNameById(this.selectedCategoryDef().id);
+    const typeName = this.form.get('expenseType')?.value ?? '';
+    const category = typeName ? this.getCatName(typeName) : this.getCategoryNameById(this.selectedCategoryDef().id);
     return this.i18n.t(isEdit ? 'daily.updateCategory' : 'daily.logCategory', { category });
   }
 
@@ -1285,12 +1609,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Helper: check if a category chip is active ───────────────────────────
-  isActiveCat(cat: { name: string }): boolean {
+  isActiveCat(cat: CategoryChoice): boolean {
     return this.form.get('expenseType')?.value === cat.name;
   }
 
   // ─── Select category from chip ────────────────────────────────────────────
-  selectCategory(cat: { name: string }): void {
+  selectCategory(cat: CategoryChoice): void {
     this.form.get('expenseType')?.setValue(cat.name);
     // Auto-collapse categories after selection
     this.showAllCategories.set(false);
@@ -1298,7 +1622,41 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Helper: format ISO timestamp for display ─────────────────────────────
   formatTimestamp(ts: string): string {
-    return ts.slice(0, 19).replace('T', ' ');
+    return new Date(ts).toLocaleString(this.i18n.locale());
+  }
+
+  formatEntryTime(ts: string): string {
+    return formatLocalTime(ts, this.i18n.locale());
+  }
+
+  expenseActorLabel(entry: ExpenseEntry): string {
+    const role = entry.updatedByRole ?? entry.createdByRole;
+    const email = entry.updatedByEmail ?? entry.createdByEmail;
+    if (email) return this.nameFromEmail(email);
+    if (role === 'owner') return this.i18n.t('dashboard.activity.owner');
+    if (role === 'partner') return this.i18n.t('dashboard.activity.partner');
+    if (role === 'single') return this.i18n.t('daily.entries.you');
+    return this.i18n.t('dashboard.activity.existing');
+  }
+
+  private nameFromEmail(email: string): string {
+    const prefix = email.split('@')[0]?.trim();
+    if (!prefix) return email;
+
+    const firstPart = prefix
+      .split(/[._+\-\d]+/)
+      .find((part) => part.length > 0) ?? prefix;
+
+    return firstPart.charAt(0).toLocaleUpperCase(this.i18n.locale()) + firstPart.slice(1);
+  }
+
+  groupActorSummary(entries: ExpenseEntry[]): string {
+    const labels = new Set(entries.map((entry) => this.expenseActorLabel(entry)));
+    if (labels.size === 1) return [...labels][0];
+    if (labels.size === 2 && labels.has(this.i18n.t('dashboard.activity.owner')) && labels.has(this.i18n.t('dashboard.activity.partner'))) {
+      return this.i18n.t('daily.entries.ownerAndPartner');
+    }
+    return this.i18n.t('daily.entries.mixedActors');
   }
 
   onReceiptSelected(event: Event): void {
@@ -1308,6 +1666,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.receiptError.set(null);
 
     if (!file) return;
+
+    this.resetReceiptAutoFilledValues();
+    this.cancelSplitBill();
 
     const isSupported = file.type.startsWith('image/') || file.type === 'application/pdf';
     if (!isSupported) {
@@ -1326,6 +1687,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   clearSelectedReceipt(): void {
     this.receiptExtractionRunId += 1;
+    this.resetReceiptAutoFilledValues();
+    this.cancelSplitBill();
+    this.cancelReceiptEditor();
     this.selectedReceiptFile.set(null);
     this.receiptError.set(null);
     this.receiptExtraction.set(null);
@@ -1343,29 +1707,40 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const typeControl = this.form.get('expenseType');
     const commentControl = this.form.get('comment');
 
-    if (extraction.amount && (overwrite || !amountControl?.value)) {
+    const canUseAmount = overwrite || extraction.amountConfidence >= 0.7;
+    if (extraction.amount && canUseAmount && (overwrite || !amountControl?.value || this.receiptAutoFilledFields.has('amount'))) {
       amountControl?.setValue(extraction.amount);
+      this.receiptAutoFilledFields.add('amount');
       applied = true;
     }
 
-    if (extraction.date && (overwrite || !this.isEditMode())) {
+    if (extraction.date && (overwrite || !this.isEditMode() || this.receiptAutoFilledFields.has('date'))) {
       dateControl?.setValue(extraction.date);
+      this.receiptAutoFilledFields.add('date');
       applied = true;
     }
 
-    if (extraction.type && (overwrite || !typeControl?.value)) {
+    if (extraction.type && (overwrite || !typeControl?.value || this.receiptAutoFilledFields.has('type'))) {
       typeControl?.setValue(extraction.type);
+      this.receiptAutoFilledFields.add('type');
       applied = true;
     }
 
-    if (extraction.comment && (overwrite || !commentControl?.value)) {
+    if (extraction.comment && (overwrite || !commentControl?.value || this.receiptAutoFilledFields.has('comment'))) {
       commentControl?.setValue(extraction.comment);
+      this.receiptAutoFilledFields.add('comment');
       applied = true;
     }
 
     if (applied) {
       this.receiptExtractionApplied.set(true);
     }
+  }
+
+  useReceiptAmountCandidate(amount: number): void {
+    this.form.get('amount')?.setValue(Number(amount.toFixed(2)));
+    this.receiptAutoFilledFields.add('amount');
+    this.receiptExtractionApplied.set(true);
   }
 
   formatFileSize(size: number): string {
@@ -1387,6 +1762,68 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     const url = URL.createObjectURL(file);
     this.setReceiptPreview(url, file.name);
+  }
+
+  receiptEditorClipPath(editor: ReceiptEditorState): string {
+    const right = Math.max(0, 100 - editor.crop.left - editor.crop.width);
+    const bottom = Math.max(0, 100 - editor.crop.top - editor.crop.height);
+    return `inset(${editor.crop.top}% ${right}% ${bottom}% ${editor.crop.left}%)`;
+  }
+
+  rotateReceiptEditor(): void {
+    this.receiptEditor.update((editor) => {
+      if (!editor) return editor;
+      return { ...editor, rotation: ((editor.rotation + 90) % 360) as ReceiptEditorState['rotation'] };
+    });
+  }
+
+  toggleReceiptEditorEnhance(): void {
+    this.receiptEditor.update((editor) => editor ? { ...editor, enhance: !editor.enhance } : editor);
+  }
+
+  updateReceiptEditorCrop(field: keyof ReceiptEditorState['crop'], event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) return;
+
+    this.receiptEditor.update((editor) => {
+      if (!editor) return editor;
+      const crop = { ...editor.crop, [field]: value };
+      crop.left = Math.min(crop.left, 100 - crop.width);
+      crop.top = Math.min(crop.top, 100 - crop.height);
+      crop.width = Math.min(crop.width, 100 - crop.left);
+      crop.height = Math.min(crop.height, 100 - crop.top);
+      return { ...editor, crop };
+    });
+  }
+
+  cancelReceiptEditor(): void {
+    this.receiptEditor.set(null);
+    this.revokeReceiptEditorUrl();
+  }
+
+  async useOriginalReceiptImage(): Promise<void> {
+    const editor = this.receiptEditor();
+    if (!editor) return;
+    const file = editor.file;
+    this.cancelReceiptEditor();
+    this.selectedReceiptFile.set(file);
+    void this.extractReceiptFields(file);
+  }
+
+  async applyReceiptEditor(): Promise<void> {
+    const editor = this.receiptEditor();
+    if (!editor) return;
+
+    try {
+      const editedFile = await this.createEditedReceiptImage(editor);
+      this.cancelReceiptEditor();
+      this.selectedReceiptFile.set(editedFile);
+      void this.extractReceiptFields(editedFile);
+    } catch (error) {
+      console.warn('[DailyExpense] Receipt image edit failed, using original file:', error);
+      await this.useOriginalReceiptImage();
+    }
   }
 
   async previewReceipt(receipt: ExpenseReceipt): Promise<void> {
@@ -1423,6 +1860,13 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     }
   }
 
+  private revokeReceiptEditorUrl(): void {
+    if (this.receiptEditorObjectUrl) {
+      URL.revokeObjectURL(this.receiptEditorObjectUrl);
+      this.receiptEditorObjectUrl = null;
+    }
+  }
+
   private async uploadSelectedReceipt(entryId: string, date: string): Promise<ExpenseReceipt | undefined> {
     const file = this.selectedReceiptFile();
     if (!file) return undefined;
@@ -1440,7 +1884,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         this.expenseStore.patchReceiptFolderId(receiptFolderId);
       }
 
-      return await this.googleDriveService.uploadReceiptFile(file, entryId, date, receiptFolderId);
+      const uploadFile = await this.prepareReceiptForUpload(file);
+      return await this.googleDriveService.uploadReceiptFile(uploadFile, entryId, date, receiptFolderId);
     } finally {
       this.uploadingReceipt.set(false);
     }
@@ -1452,25 +1897,210 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.receiptExtractionApplied.set(false);
 
     if (file.type === 'application/pdf') {
-      try {
-        this.selectedReceiptFile.set(await this.receiptExtractionService.convertPdfToCompressedImage(file));
-      } catch (error) {
-        console.warn('[DailyExpense] PDF receipt image conversion failed, keeping original PDF:', error);
-        this.selectedReceiptFile.set(file);
-      }
-
+      this.selectedReceiptFile.set(file);
       void this.extractReceiptFields(file);
       return;
     }
 
+    this.openReceiptEditor(file);
+  }
+
+  private openReceiptEditor(file: File): void {
+    this.revokeReceiptEditorUrl();
+    this.receiptExtractionRunId += 1;
+    this.extractingReceipt.set(false);
+    this.receiptEditorObjectUrl = URL.createObjectURL(file);
+    this.receiptEditor.set({
+      file,
+      url: this.receiptEditorObjectUrl,
+      rotation: 0,
+      enhance: true,
+      crop: {
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+      },
+    });
+  }
+
+  private async createEditedReceiptImage(editor: ReceiptEditorState): Promise<File> {
+    const bitmap = await createImageBitmap(editor.file);
     try {
-      this.selectedReceiptFile.set(await this.compressReceiptImage(file));
-    } catch (error) {
-      console.warn('[DailyExpense] Receipt compression failed, using original file:', error);
-      this.selectedReceiptFile.set(file);
+      const rotated = this.drawRotatedBitmap(bitmap, editor.rotation);
+      const cropLeft = Math.round(rotated.width * editor.crop.left / 100);
+      const cropTop = Math.round(rotated.height * editor.crop.top / 100);
+      const cropWidth = Math.max(1, Math.round(rotated.width * editor.crop.width / 100));
+      const cropHeight = Math.max(1, Math.round(rotated.height * editor.crop.height / 100));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(cropWidth, rotated.width - cropLeft);
+      canvas.height = Math.min(cropHeight, rotated.height - cropTop);
+      const context = canvas.getContext('2d', { willReadFrequently: editor.enhance });
+      if (!context) return editor.file;
+
+      context.drawImage(rotated, cropLeft, cropTop, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+      if (editor.enhance) {
+        this.enhanceReceiptCanvas(canvas);
+      }
+
+      const blob = await this.canvasToJpegBlob(canvas, 0.95);
+      const baseName = editor.file.name.replace(/\.[^.]+$/, '');
+      return new File([blob], `${baseName}-scan.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  private drawRotatedBitmap(bitmap: ImageBitmap, rotation: ReceiptEditorState['rotation']): HTMLCanvasElement {
+    const quarterTurn = rotation === 90 || rotation === 270;
+    const canvas = document.createElement('canvas');
+    canvas.width = quarterTurn ? bitmap.height : bitmap.width;
+    canvas.height = quarterTurn ? bitmap.width : bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) return canvas;
+
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate(rotation * Math.PI / 180);
+    context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+    return canvas;
+  }
+
+  private enhanceReceiptCanvas(canvas: HTMLCanvasElement): void {
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    const data = image.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 138));
+      data[i] = contrasted;
+      data[i + 1] = contrasted;
+      data[i + 2] = contrasted;
+    }
+    context.putImageData(image, 0, 0);
+  }
+
+  private canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Could not create receipt image.'));
+        }
+      }, 'image/jpeg', quality);
+    });
+  }
+
+  private resetReceiptAutoFilledValues(): void {
+    const defaults: Record<'amount' | 'date' | 'type' | 'comment', number | string | null> = {
+      amount: null,
+      date: toLocalDateString(),
+      type: '',
+      comment: '',
+    };
+
+    for (const field of this.receiptAutoFilledFields) {
+      switch (field) {
+        case 'amount':
+          this.form.get('amount')?.setValue(defaults.amount as null);
+          break;
+        case 'date':
+          this.form.get('date')?.setValue(defaults.date as string);
+          break;
+        case 'type':
+          this.form.get('expenseType')?.setValue(defaults.type as string);
+          break;
+        case 'comment':
+          this.form.get('comment')?.setValue(defaults.comment as string);
+          break;
+      }
     }
 
-    void this.extractReceiptFields(file);
+    this.receiptAutoFilledFields.clear();
+  }
+
+  startSplitBill(): void {
+    const total = this.splitBillTotal();
+    if (total <= 0) return;
+
+    const defaultType = this.receiptExtraction()?.type || this.form.get('expenseType')?.value || 'Food & Groceries';
+    const half = Number((total / 2).toFixed(2));
+    const remainder = Number((total - half).toFixed(2));
+
+    this.splitRows.set([
+      { id: crypto.randomUUID(), type: defaultType, amount: half, comment: '' },
+      { id: crypto.randomUUID(), type: 'Miscellaneous', amount: remainder, comment: '' },
+    ]);
+    this.splitBillMode.set(true);
+  }
+
+  startSplitBillFromExtractedItems(): void {
+    const extraction = this.receiptExtraction();
+    if (!extraction || extraction.lineItems.length === 0) {
+      this.startSplitBill();
+      return;
+    }
+
+    const defaultType = extraction.type || this.form.get('expenseType')?.value || 'Food & Groceries';
+    const rows: SplitBillRow[] = extraction.lineItems.map((item) => ({
+      id: crypto.randomUUID(),
+      type: defaultType,
+      amount: item.amount,
+      comment: item.name,
+    }));
+
+    const total = this.splitBillTotal();
+    const rowsTotal = Number(rows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0).toFixed(2));
+    const adjustment = Number((total - rowsTotal).toFixed(2));
+    if (total > 0 && adjustment > 0.01) {
+      rows.push({
+        id: crypto.randomUUID(),
+        type: defaultType,
+        amount: adjustment,
+        comment: this.i18n.t('daily.receipt.split.adjustmentComment'),
+      });
+    }
+
+    this.splitRows.set(rows);
+    this.splitBillMode.set(true);
+  }
+
+  cancelSplitBill(): void {
+    this.splitBillMode.set(false);
+    this.splitRows.set([]);
+  }
+
+  addSplitRow(): void {
+    this.splitRows.update((rows) => [
+      ...rows,
+      { id: crypto.randomUUID(), type: 'Miscellaneous', amount: null, comment: '' },
+    ]);
+  }
+
+  removeSplitRow(rowId: string): void {
+    this.splitRows.update((rows) => rows.length <= 2 ? rows : rows.filter((row) => row.id !== rowId));
+  }
+
+  updateSplitRow(rowId: string, field: 'type' | 'amount' | 'comment', value: string | number | null): void {
+    this.splitRows.update((rows) => rows.map((row) => {
+      if (row.id !== rowId) return row;
+      if (field === 'amount') {
+        const amount = value === '' || value === null ? null : Number(value);
+        return { ...row, amount: Number.isFinite(amount) ? amount : null };
+      }
+      return { ...row, [field]: String(value ?? '') };
+    }));
+  }
+
+  updateSplitRowFromEvent(rowId: string, field: 'type' | 'amount' | 'comment', event: Event): void {
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    this.updateSplitRow(rowId, field, target.value);
   }
 
   private async extractReceiptFields(file: File): Promise<void> {
@@ -1529,6 +2159,26 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     }
   }
 
+  private async prepareReceiptForUpload(file: File): Promise<File> {
+    if (file.type === 'application/pdf') {
+      try {
+        return await this.receiptExtractionService.convertPdfToCompressedImage(file);
+      } catch (error) {
+        console.warn('[DailyExpense] PDF receipt image conversion failed before upload, keeping original PDF:', error);
+        return file;
+      }
+    }
+
+    if (!file.type.startsWith('image/')) return file;
+
+    try {
+      return await this.compressReceiptImage(file);
+    } catch (error) {
+      console.warn('[DailyExpense] Receipt compression failed before upload, using selected file:', error);
+      return file;
+    }
+  }
+
   // ─── onSubmit ─────────────────────────────────────────────────────────────
   async onSubmit(): Promise<void> {
     if (this.form.invalid) {
@@ -1544,6 +2194,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       if (editingEntry) {
         // Update existing entry
         await this.updateEntry(editingEntry);
+      } else if (this.splitBillMode()) {
+        await this.createSplitEntries();
       } else {
         // Create new entry
         await this.createEntry();
@@ -1559,7 +2211,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Create new entry ─────────────────────────────────────────────────────
   private async createEntry(): Promise<void> {
     const id = crypto.randomUUID();
-    const date = this.form.get('date')?.value ?? new Date().toISOString().slice(0, 10);
+    const date = this.form.get('date')?.value ?? toLocalDateString();
     const timestamp = new Date().toISOString();
     const type = this.form.get('expenseType')?.value ?? '';
     const amount = this.form.get('amount')?.value ?? 0;
@@ -1567,6 +2219,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
     const receipt = await this.uploadSelectedReceipt(id, date);
+    const actor = this.activityActor();
 
     const entry: ExpenseEntry = {
       id,
@@ -1578,6 +2231,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       timestamp,
       comment,
       receipt,
+      createdByEmail: actor.email,
+      createdByRole: actor.role,
     };
 
     this.expenseStore.addEntry(entry);
@@ -1604,14 +2259,76 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       expenseType: '', 
       amount: null, 
       limit: 0, 
-      date: new Date().toISOString().slice(0, 10), // Reset to today
+      date,
       comment: '' 
     });
     this.clearSelectedReceipt();
 
-    // Switch the entries list to the date the entry was logged on,
-    // then scroll down so the user sees it immediately
-    this.selectedDate.set(date);
+    // Keep the shared date on the day the user was logging, including past dates.
+    this.setActiveDate(date);
+    this.scrollToTodaysEntries();
+  }
+
+  private async createSplitEntries(): Promise<void> {
+    if (!this.splitBillValid()) {
+      this.receiptError.set(this.i18n.t('daily.receipt.split.totalMismatch'));
+      return;
+    }
+
+    const date = this.form.get('date')?.value ?? toLocalDateString();
+    const timestamp = new Date().toISOString();
+    const baseComment = this.form.get('comment')?.value || this.receiptExtraction()?.comment || undefined;
+    const rows = this.splitRows();
+    const firstId = crypto.randomUUID();
+    const receipt = await this.uploadSelectedReceipt(firstId, date);
+    const actor = this.activityActor();
+
+    const entries = rows.map((row, index): ExpenseEntry => {
+      const id = index === 0 ? firstId : crypto.randomUUID();
+      const amount = Number(row.amount ?? 0);
+      const limit = this.calculateDailyLimit(row.type);
+      const rowComment = row.comment.trim();
+      const comment = rowComment
+        ? rowComment
+        : baseComment
+          ? `${baseComment} · split ${index + 1}/${rows.length}`
+          : `Split bill ${index + 1}/${rows.length}`;
+
+      return {
+        id,
+        date,
+        amount,
+        type: row.type,
+        limit,
+        savings: limit - amount,
+        timestamp,
+        comment,
+        receipt,
+        createdByEmail: actor.email,
+        createdByRole: actor.role,
+      };
+    });
+
+    this.expenseStore.addEntries(entries);
+    for (const entry of entries) {
+      void this.syncService.enqueue(entry);
+    }
+
+    if (this.syncService.isOnline()) {
+      this.syncService.flushQueue().catch(err => {
+        console.error('[DailyExpense] Failed to sync split expense:', err);
+      });
+    }
+
+    this.form.reset({
+      expenseType: '',
+      amount: null,
+      limit: 0,
+      date,
+      comment: ''
+    });
+    this.clearSelectedReceipt();
+    this.setActiveDate(date);
     this.scrollToTodaysEntries();
   }
 
@@ -1624,6 +2341,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const comment = this.form.get('comment')?.value || undefined;
     const date = this.form.get('date')?.value ?? originalEntry.date;
     const uploadedReceipt = await this.uploadSelectedReceipt(originalEntry.id, date);
+    const actor = this.activityActor();
 
     const updatedEntry: ExpenseEntry = {
       ...originalEntry,
@@ -1635,6 +2353,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       comment,
       receipt: uploadedReceipt ?? originalEntry.receipt,
       timestamp: new Date().toISOString(),
+      updatedByEmail: actor.email,
+      updatedByRole: actor.role,
     };
 
     this.expenseStore.updateEntry(updatedEntry);
@@ -1659,14 +2379,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       expenseType: '', 
       amount: null, 
       limit: 0, 
-      date: new Date().toISOString().slice(0, 10), 
+      date, 
       comment: '' 
     });
     this.clearSelectedReceipt();
     this.editingEntry.set(null);
 
-    // Switch entries list to the entry's date and scroll to it
-    this.selectedDate.set(date);
+    // Keep the shared date on the updated entry's date.
+    this.setActiveDate(date);
     this.scrollToTodaysEntries();
   }
 
@@ -1695,18 +2415,19 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   cancelEdit(): void {
     this.editingEntry.set(null);
     this.clearSelectedReceipt();
+    const date = this.selectedDate();
     this.form.reset({ 
       expenseType: '', 
       amount: null, 
       limit: 0, 
-      date: new Date().toISOString().slice(0, 10), 
+      date, 
       comment: '' 
     });
   }
 
   // ─── Set date to today ────────────────────────────────────────────────────
   setToday(): void {
-    this.form.get('date')?.setValue(new Date().toISOString().slice(0, 10));
+    this.setActiveDate(toLocalDateString());
   }
 
   // ─── View detail ──────────────────────────────────────────────────────────
@@ -1754,23 +2475,32 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Date navigation ──────────────────────────────────────────────────────
-  onDateChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const newDate = input.value; // YYYY-MM-DD format
-    console.log('[DailyExpense] Date changed to:', newDate);
-    this.selectedDate.set(newDate);
-    
-    // Load the month if not already loaded
-    const month = newDate.slice(0, 7); // YYYY-MM
+  private setActiveDate(date: string, updateForm = true): void {
+    if (!date) return;
+
+    if (this.selectedDate() !== date) {
+      this.selectedDate.set(date);
+    }
+
+    if (updateForm && this.form.get('date')?.value !== date) {
+      this.form.get('date')?.setValue(date);
+    }
+
+    const month = date.slice(0, 7);
     if (month !== this.expenseStore.selectedMonth()) {
-      // Data is already in the store from Drive bootstrap; just update the selected month filter
       this.expenseStore.setSelectedMonth(month);
     }
   }
 
+  onDateChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const newDate = input.value; // YYYY-MM-DD format
+    console.log('[DailyExpense] Date changed to:', newDate);
+    this.setActiveDate(newDate);
+  }
+
   goToToday(): void {
-    const today = new Date().toISOString().slice(0, 10);
-    this.selectedDate.set(today);
+    this.setActiveDate(toLocalDateString());
   }
 
   // ─── Voice recording ──────────────────────────────────────────────────────

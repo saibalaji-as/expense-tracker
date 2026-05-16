@@ -41,6 +41,7 @@ import {
   Save,
   AlertTriangle,
   CheckCircle2,
+  Trash2,
 } from 'lucide-angular';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 
@@ -91,7 +92,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Plus, Save, AlertTriangle, CheckCircle2 }),
+      useValue: new LucideIconProvider({ Plus, Save, AlertTriangle, CheckCircle2, Trash2 }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -142,29 +143,55 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         >
           <!-- Desktop table -->
           <div class="hidden md:block" formArrayName="limits">
-            <div class="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.7fr_0.9fr] gap-3 border-b border-border px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div class="grid grid-cols-[1.6fr_1fr_0.6fr_0.7fr_0.9fr_0.25fr] gap-3 border-b border-border px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <span>{{ 'limits.category' | translate }}</span>
               <span>{{ 'limits.group' | translate }}</span>
               <span class="text-right">{{ 'limits.recommended' | translate }}</span>
               <span class="text-right">{{ 'limits.yourPercent' | translate }}</span>
               <span class="text-right">{{ 'common.amount' | translate }}</span>
+              <span></span>
             </div>
             <ul class="mt-1">
               @for (group of limitsArray.controls; track $index; let i = $index) {
                 <li
-                  class="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.7fr_0.9fr] items-center gap-3 border-b border-border/60 px-2 py-2.5 last:border-0"
+                  class="grid grid-cols-[1.6fr_1fr_0.6fr_0.7fr_0.9fr_0.25fr] items-center gap-3 border-b border-border/60 px-2 py-2.5 last:border-0"
                   [formGroupName]="i"
                 >
                   <!-- Category -->
                   <div class="flex items-center gap-2.5 min-w-0">
                     <app-category-icon [categoryId]="getCatId(i)" size="sm" />
-                    <span class="truncate text-sm font-medium">{{ getDisplayType(i) }}</span>
+                    @if (isPredefined(i)) {
+                      <span class="truncate text-sm font-medium">{{ getDisplayType(i) }}</span>
+                    } @else {
+                      <div class="min-w-0 flex-1">
+                        <input
+                          type="text"
+                          formControlName="type"
+                          [placeholder]="'limits.custom.namePlaceholder' | translate"
+                          class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+                        />
+                        @if (isCustomTypeInvalid(group)) {
+                          <p class="mt-1 text-[10px] text-destructive">{{ 'limits.custom.nameRequired' | translate }}</p>
+                        }
+                      </div>
+                    }
                   </div>
                   <!-- Group -->
-                  <span
-                    class="text-xs font-medium"
-                    [style.color]="'var(' + getCatColorVar(i) + ')'"
-                  >{{ getGroupName(group.get('category')?.value) }}</span>
+                  @if (isPredefined(i)) {
+                    <span
+                      class="text-xs font-medium"
+                      [style.color]="'var(' + getCatColorVar(i) + ')'"
+                    >{{ getGroupName(group.get('category')?.value) }}</span>
+                  } @else {
+                    <select
+                      formControlName="category"
+                      class="rounded-lg border border-border bg-card/60 px-2 py-1.5 text-xs font-medium text-foreground outline-none focus:border-primary"
+                    >
+                      @for (budgetGroup of budgetGroups; track budgetGroup) {
+                        <option [value]="budgetGroup">{{ getGroupName(budgetGroup) }}</option>
+                      }
+                    </select>
+                  }
                   <!-- Rec % -->
                   <span class="text-right text-xs text-muted-foreground">
                     {{ group.get('recommendedPercentage')?.value }}%
@@ -186,6 +213,15 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                   <span class="text-right text-sm font-semibold tabular-nums">
                     {{ group.get('calculatedAmount')?.value | currencyFormat }}
                   </span>
+                  <button
+                    type="button"
+                    (click)="removeCustomType(i)"
+                    [disabled]="isPredefined(i)"
+                    [attr.aria-label]="'limits.custom.delete' | translate"
+                    class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive disabled:invisible"
+                  >
+                    <lucide-icon [img]="trashIcon" class="h-4 w-4" />
+                  </button>
                 </li>
               }
             </ul>
@@ -198,11 +234,31 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                 <div class="flex items-center gap-3">
                   <app-category-icon [categoryId]="getCatId(i)" size="md" />
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">{{ getDisplayType(i) }}</p>
-                    <p
-                      class="text-[11px]"
-                      [style.color]="'var(' + getCatColorVar(i) + ')'"
-                    >{{ getGroupName(group.get('category')?.value) }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
+                    @if (isPredefined(i)) {
+                      <p class="truncate text-sm font-medium">{{ getDisplayType(i) }}</p>
+                      <p
+                        class="text-[11px]"
+                        [style.color]="'var(' + getCatColorVar(i) + ')'"
+                      >{{ getGroupName(group.get('category')?.value) }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
+                    } @else {
+                      <input
+                        type="text"
+                        formControlName="type"
+                        [placeholder]="'limits.custom.namePlaceholder' | translate"
+                        class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+                      />
+                      <select
+                        formControlName="category"
+                        class="mt-1.5 w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-[11px] font-medium text-foreground outline-none focus:border-primary"
+                      >
+                        @for (budgetGroup of budgetGroups; track budgetGroup) {
+                          <option [value]="budgetGroup">{{ getGroupName(budgetGroup) }}</option>
+                        }
+                      </select>
+                      @if (isCustomTypeInvalid(group)) {
+                        <p class="mt-1 text-[10px] text-destructive">{{ 'limits.custom.nameRequired' | translate }}</p>
+                      }
+                    }
                   </div>
                   <div class="flex items-center gap-1">
                     <label [for]="'pct-mobile-' + i" class="sr-only">{{ getDisplayType(i) }} percentage</label>
@@ -217,6 +273,16 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                     />
                     <span class="text-xs text-muted-foreground">%</span>
                   </div>
+                  @if (!isPredefined(i)) {
+                    <button
+                      type="button"
+                      (click)="removeCustomType(i)"
+                      [attr.aria-label]="'limits.custom.delete' | translate"
+                      class="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <lucide-icon [img]="trashIcon" class="h-4 w-4" />
+                    </button>
+                  }
                 </div>
                 <div class="mt-2 flex items-center justify-between text-xs">
                   <span class="text-muted-foreground">{{ 'daily.monthlyLimit' | translate }}</span>
@@ -241,16 +307,16 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         <!-- Running Total -->
         <app-section-card
           [title]="'limits.running.title' | translate"
-          [description]="runningTotal() === 100 ? ('limits.runningBalanced' | translate) : ('limits.runningAdjust' | translate)"
+          [description]="isAllocationBalanced() ? ('limits.runningBalanced' | translate) : ('limits.runningAdjust' | translate)"
           class="mb-6 block"
         >
           <span action>
             <span
               class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
-              [class]="runningTotal() === 100 ? 'bg-success/15' : 'bg-destructive/15 animate-pulse'"
-              [style.color]="runningTotal() === 100 ? 'var(--success)' : 'var(--destructive)'"
+              [class]="isAllocationBalanced() ? 'bg-success/15' : 'bg-destructive/15 animate-pulse'"
+              [style.color]="isAllocationBalanced() ? 'var(--success)' : 'var(--destructive)'"
             >
-              @if (runningTotal() === 100) {
+              @if (isAllocationBalanced()) {
                 <lucide-icon [img]="checkCircle2Icon" class="h-3.5 w-3.5" />
               } @else {
                 <lucide-icon [img]="alertTriangleIcon" class="h-3.5 w-3.5" />
@@ -286,7 +352,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         <div class="sticky z-30 md:static md:bottom-auto">
           <button
             type="submit"
-            [disabled]="runningTotal() !== 100"
+            [disabled]="!isAllocationBalanced()"
             class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
           >
 	            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> {{ 'limits.save' | translate }}
@@ -339,6 +405,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   readonly saveIcon = Save;
   readonly alertTriangleIcon = AlertTriangle;
   readonly checkCircle2Icon = CheckCircle2;
+  readonly trashIcon = Trash2;
 
   // Task 10.3: running total signal
   readonly runningTotal = signal(0);
@@ -400,12 +467,17 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   }
 
   isPredefined(index: number): boolean {
-    return index < PREDEFINED_EXPENSE_TYPES.length;
+    const type = this.limitsArray.at(index)?.get('type')?.value as string | null;
+    return !!type && PREDEFINED_EXPENSE_TYPES.includes(type);
   }
 
   isIncomeInvalid(): boolean {
     const ctrl = this.form.get('monthlyIncome');
     return !!(ctrl?.invalid && ctrl?.touched);
+  }
+
+  isAllocationBalanced(): boolean {
+    return Math.abs(this.runningTotal() - 100) < 0.05;
   }
 
   isCustomTypeInvalid(group: AbstractControl): boolean {
@@ -459,14 +531,9 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
 
   // Task 10.4: Add custom type
   addCustomType(): void {
-    const group = this.fb.group({
-      type: ['', [Validators.required]],
-      category: ['Wants' as BudgetCategory],
-      recommendedPercentage: [{ value: 0, disabled: true }],
-      userPercentage: [0, [Validators.min(0), Validators.max(100)]],
-      calculatedAmount: [{ value: 0, disabled: true }],
-    });
-    this.limitsArray.push(group);
+    this.limitsArray.push(this.createCustomGroup());
+    this.recalculateAmounts();
+    this.updateRunningTotal();
   }
 
   // Remove custom type
@@ -474,14 +541,17 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     if (this.isPredefined(index)) {
       return; // Safety check - should never happen
     }
-    if (confirm('Remove this custom expense type?')) {
+    if (confirm(this.i18n.t('limits.custom.deleteConfirm'))) {
       this.limitsArray.removeAt(index);
+      this.recalculateAmounts();
+      this.updateRunningTotal();
     }
   }
 
   // Task 10.5: Save handler
   onSave(): void {
     this.form.markAllAsTouched();
+    this.normalizeCustomTypeNames();
     if (this.form.invalid) return;
 
     const savingsPct = this.getSavingsPercentage();
@@ -512,12 +582,27 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
 
     if (storeLimits.length > 0) {
       const limitMap = new Map(storeLimits.map((l) => [l.type, l]));
+      const customLimits = storeLimits.filter((limit) => !PREDEFINED_EXPENSE_TYPES.includes(limit.type));
 
       for (const group of this.limitsArray.controls) {
         const type = group.get('type')?.value as string;
         const stored = limitMap.get(type);
         if (stored) {
           group.get('userPercentage')?.setValue(stored.userPercentage, { emitEvent: false });
+          group.get('category')?.setValue(stored.category, { emitEvent: false });
+        }
+      }
+
+      const existingCustomTypes = new Set(
+        this.limitsArray.controls
+          .map((group) => group.get('type')?.value as string)
+          .filter((type) => type && !PREDEFINED_EXPENSE_TYPES.includes(type))
+      );
+
+      for (const customLimit of customLimits) {
+        if (!existingCustomTypes.has(customLimit.type)) {
+          this.limitsArray.push(this.createCustomGroup(customLimit), { emitEvent: false });
+          existingCustomTypes.add(customLimit.type);
         }
       }
     }
@@ -537,6 +622,16 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
         defaults.recommendedPercentage,
         [Validators.min(0), Validators.max(100)],
       ],
+      calculatedAmount: [{ value: 0, disabled: true }],
+    });
+  }
+
+  private createCustomGroup(limit?: ExpenseLimit): FormGroup {
+    return this.fb.group({
+      type: [limit?.type ?? '', [Validators.required]],
+      category: [limit?.category ?? 'Wants' as BudgetCategory, [Validators.required]],
+      recommendedPercentage: [{ value: limit?.recommendedPercentage ?? 0, disabled: true }],
+      userPercentage: [limit?.userPercentage ?? 0, [Validators.min(0), Validators.max(100)]],
       calculatedAmount: [{ value: 0, disabled: true }],
     });
   }
@@ -574,7 +669,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     const income = Number(this.form.get('monthlyIncome')?.value) || 0;
 
     const limits: ExpenseLimit[] = this.limitsArray.controls.map((ctrl) => ({
-      type: ctrl.get('type')?.value as string,
+      type: String(ctrl.get('type')?.value ?? '').trim(),
       category: ctrl.get('category')?.value as BudgetCategory,
       recommendedPercentage: Number(ctrl.get('recommendedPercentage')?.value) || 0,
       userPercentage: Number(ctrl.get('userPercentage')?.value) || 0,
@@ -584,5 +679,14 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     this.expenseStore.setLimitsAndIncome(limits, income);
     this.saveSuccess.set(true);
     setTimeout(() => this.saveSuccess.set(false), 3000);
+  }
+
+  private normalizeCustomTypeNames(): void {
+    for (let i = 0; i < this.limitsArray.length; i += 1) {
+      if (this.isPredefined(i)) continue;
+      const typeControl = this.limitsArray.at(i).get('type');
+      const normalized = String(typeControl?.value ?? '').trim();
+      typeControl?.setValue(normalized, { emitEvent: false });
+    }
   }
 }

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   OnInit,
   computed,
   inject,
@@ -15,15 +16,18 @@ import {
   ChevronRight,
   ArrowDownRight,
   ArrowUpRight,
+  X,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
+import { ExpenseEntry } from '../../core/models';
 import { ChartBaseComponent, SectionCardComponent, CategoryIconComponent, SparklineComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 import { SparklineDataPoint } from '../../shared/components/sparkline/sparkline.component';
+import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
 
 /** Maps category ID (e.g. 'housing') to the expense type name used in entries (e.g. 'Housing') */
 const CAT_ID_TO_TYPE: Record<string, string> = {
@@ -64,12 +68,23 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
         ChevronRight,
         ArrowDownRight,
         ArrowUpRight,
+        X,
       }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div>
+      @if (monthPickerToast()) {
+        <div
+          class="fixed bottom-20 left-0 right-0 z-50 mx-4 rounded-2xl border border-amber-400/40 bg-amber-500 px-4 py-3 text-sm font-medium text-white shadow-2xl"
+          role="alert"
+          aria-live="polite"
+        >
+          {{ monthPickerToast() }}
+        </div>
+      }
+
       <!-- Page Header -->
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -88,8 +103,9 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
           <span class="px-3 text-sm font-medium whitespace-nowrap">{{ selectedMonthLabel() }}</span>
           <button
             (click)="nextMonth()"
-            aria-label="Next month"
-            class="grid h-8 w-8 place-items-center rounded-full hover:bg-accent transition-all"
+            [disabled]="isCurrentMonth()"
+            [attr.aria-label]="'monthly.nextMonth' | translate"
+            class="grid h-8 w-8 place-items-center rounded-full transition-all hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <lucide-icon [img]="chevronRightIcon" class="h-4 w-4" />
           </button>
@@ -260,50 +276,154 @@ const CAT_ID_TO_TYPE: Record<string, string> = {
         >
           <ul class="space-y-3">
             @for (cat of categoryDefs; track cat.id) {
-              <li class="flex items-center gap-3">
-                <app-category-icon [categoryId]="cat.id" size="sm" />
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center justify-between gap-2 text-sm">
-                    <span class="truncate font-medium">{{ getCategoryName(cat.id) }}</span>
-                    <span
-                      class="shrink-0 tabular-nums text-xs"
-                      [style.color]="isOver(cat.id) ? 'var(--destructive)' : ''"
-                    >
-                      {{ getSpentForCat(cat.id) | currencyFormat }}
-                      <span class="text-muted-foreground">/ {{ getLimitForCat(cat.id) | currencyFormat }}</span>
-                    </span>
+              <li>
+                <button
+                  type="button"
+                  (click)="viewCategoryDetails(cat.id)"
+                  [disabled]="getCategoryEntries(cat.id).length === 0"
+                  class="flex w-full items-center gap-3 rounded-2xl border border-transparent p-2 text-left transition-all hover:border-primary/25 hover:bg-card/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent"
+                >
+                  <app-category-icon [categoryId]="cat.id" size="sm" />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-2 text-sm">
+                      <span class="truncate font-medium">{{ getCategoryName(cat.id) }}</span>
+                      <span
+                        class="shrink-0 tabular-nums text-xs"
+                        [style.color]="isOver(cat.id) ? 'var(--destructive)' : ''"
+                      >
+                        {{ getSpentForCat(cat.id) | currencyFormat }}
+                        <span class="text-muted-foreground">/ {{ getLimitForCat(cat.id) | currencyFormat }}</span>
+                      </span>
+                    </div>
+                    <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        class="h-full rounded-full transition-all"
+                        [style.width.%]="getPct(cat.id)"
+                        [style.background-color]="isOver(cat.id) ? 'var(--destructive)' : 'var(' + cat.colorVar + ')'"
+                      ></div>
+                    </div>
+                    <!-- Sparkline showing last 30 days trend -->
+                    <div class="mt-2 flex items-center gap-2">
+                      <app-sparkline
+                        [data]="getSparklineData(cat.id)"
+                        width="120px"
+                        height="24px"
+                        [strokeWidth]="1.5"
+                        [showTrend]="true"
+                      />
+                      <span class="text-[10px] text-muted-foreground">Last 30 days</span>
+                      @if (getCategoryEntries(cat.id).length > 0) {
+                        <span class="ml-auto text-[10px] font-medium text-primary">
+                          {{ i18n.t('monthly.categoryBreakdown.viewEntries', { count: getCategoryEntries(cat.id).length }) }}
+                        </span>
+                      }
+                    </div>
                   </div>
-                  <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      class="h-full rounded-full transition-all"
-                      [style.width.%]="getPct(cat.id)"
-                      [style.background-color]="isOver(cat.id) ? 'var(--destructive)' : 'var(' + cat.colorVar + ')'"
-                    ></div>
-                  </div>
-                  <!-- Sparkline showing last 30 days trend -->
-                  <div class="mt-2 flex items-center gap-2">
-                    <app-sparkline
-                      [data]="getSparklineData(cat.id)"
-                      width="120px"
-                      height="24px"
-                      [strokeWidth]="1.5"
-                      [showTrend]="true"
-                    />
-                    <span class="text-[10px] text-muted-foreground">Last 30 days</span>
-                  </div>
-                </div>
+                </button>
               </li>
             }
           </ul>
         </app-section-card>
       </div>
+
+      @if (selectedCategoryId(); as catId) {
+        <div
+          class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          (click)="closeCategoryDetails()"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="monthly-category-detail-title"
+        >
+          <div
+            class="relative flex max-h-[84vh] w-full max-w-md flex-col rounded-3xl border border-border bg-card shadow-2xl"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="shrink-0 border-b border-border p-4">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-2">
+                  <app-category-icon [categoryId]="catId" size="sm" />
+                  <div class="min-w-0">
+                    <h2 id="monthly-category-detail-title" class="truncate text-base font-semibold">
+                      {{ getCategoryName(catId) }}
+                    </h2>
+                    <p class="text-xs text-muted-foreground">
+                      {{ selectedMonthLabel() }} · {{ i18n.t('monthly.categoryDetails.entryCount', { count: selectedCategoryEntries().length }) }}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  (click)="closeCategoryDetails()"
+                  [attr.aria-label]="'common.closeDetails' | translate"
+                  class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                >
+                  <lucide-icon [img]="xIcon" class="h-4 w-4" />
+                </button>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <p class="text-[10px] text-muted-foreground">{{ 'monthly.categoryDetails.spent' | translate }}</p>
+                  <p class="font-semibold">{{ getSpentForCat(catId) | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">{{ 'common.limit' | translate }}</p>
+                  <p class="font-semibold">{{ getLimitForCat(catId) | currencyFormat }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-muted-foreground">{{ 'common.savings' | translate }}</p>
+                  <p
+                    class="font-semibold"
+                    [style.color]="getLimitForCat(catId) - getSpentForCat(catId) >= 0 ? 'var(--success)' : 'var(--destructive)'"
+                  >
+                    {{ getLimitForCat(catId) - getSpentForCat(catId) | currencyFormat }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-4">
+              <div class="space-y-2">
+                @for (entry of selectedCategoryEntries(); track entry.id) {
+                  <div class="rounded-2xl border border-border bg-card/40 p-3">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
+                        <p class="mt-0.5 text-[10px] text-muted-foreground">
+                          {{ formatEntryDate(entry.date) }} · {{ formatEntryTime(entry.timestamp) }}
+                        </p>
+                      </div>
+                      <span
+                        class="shrink-0 text-[10px] font-medium"
+                        [style.color]="entry.savings >= 0 ? 'var(--success)' : 'var(--destructive)'"
+                      >
+                        {{ entry.savings >= 0 ? '+' : '' }}{{ entry.savings | currencyFormat }}
+                      </span>
+                    </div>
+                    @if (entry.comment) {
+                      <div class="mt-2 border-t border-border/50 pt-2">
+                        <p class="text-[10px] text-muted-foreground">{{ 'common.comment' | translate }}</p>
+                        <p class="mt-0.5 break-words text-xs leading-relaxed">{{ entry.comment }}</p>
+                      </div>
+                    }
+                  </div>
+                } @empty {
+                  <div class="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                    {{ 'monthly.categoryDetails.empty' | translate }}
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
-export class MonthlyExpenseComponent implements OnInit {
+export class MonthlyExpenseComponent implements OnInit, OnDestroy {
   readonly expenseStore = inject(ExpenseStore);
   private readonly storageService = inject(StorageService);
-  private readonly i18n = inject(I18nService);
+  readonly i18n = inject(I18nService);
   private readonly currencyService = inject(CurrencyService);
 
   /** Expose CATEGORY_DEFS for template iteration */
@@ -314,16 +434,17 @@ export class MonthlyExpenseComponent implements OnInit {
   readonly chevronRightIcon = ChevronRight;
   readonly arrowDownRightIcon = ArrowDownRight;
   readonly arrowUpRightIcon = ArrowUpRight;
+  readonly xIcon = X;
 
   /** Month offset from current month (0 = current, -1 = previous, etc.) */
   readonly monthOffset = signal(0);
+  readonly selectedCategoryId = signal<string | null>(null);
+  readonly monthPickerToast = signal<string | null>(null);
+  private monthPickerToastTimer?: ReturnType<typeof setTimeout>;
 
   /** Derived YYYY-MM string for the selected month */
   readonly selectedMonth = computed(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() + this.monthOffset());
-    return d.toISOString().slice(0, 7);
+    return this.getMonthForOffset(this.monthOffset());
   });
 
   /** Human-readable month/year label */
@@ -350,6 +471,11 @@ export class MonthlyExpenseComponent implements OnInit {
   );
 
   readonly netSavings = computed(() => this.totalLimit() - this.totalSpent());
+
+  readonly selectedCategoryEntries = computed(() => {
+    const catId = this.selectedCategoryId();
+    return catId ? this.getCategoryEntries(catId) : [];
+  });
 
   // ─── Previous month data for trend calculation ────────────────────────────
   readonly previousMonth = computed(() => {
@@ -498,6 +624,13 @@ export class MonthlyExpenseComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
+    this.expenseStore.setSelectedMonth(this.selectedMonth());
+  }
+
+  ngOnDestroy(): void {
+    if (this.monthPickerToastTimer) {
+      clearTimeout(this.monthPickerToastTimer);
+    }
   }
 
   getCategoryName(catId: string): string {
@@ -506,11 +639,103 @@ export class MonthlyExpenseComponent implements OnInit {
   }
 
   prevMonth(): void {
-    this.monthOffset.update(o => o - 1);
+    this.navigateToMonthOffset(this.monthOffset() - 1);
   }
 
   nextMonth(): void {
-    this.monthOffset.update(o => o + 1);
+    const targetOffset = this.monthOffset() + 1;
+    const targetMonth = this.getMonthForOffset(targetOffset);
+    if (this.isFutureMonth(targetMonth)) {
+      this.showMonthPickerToast(this.i18n.t('monthly.monthPicker.futureBlocked'));
+      return;
+    }
+
+    this.navigateToMonthOffset(targetOffset);
+  }
+
+  isCurrentMonth(): boolean {
+    return this.selectedMonth() >= this.currentMonth();
+  }
+
+  private navigateToMonthOffset(targetOffset: number): void {
+    const targetMonth = this.getMonthForOffset(targetOffset);
+
+    if (this.isFutureMonth(targetMonth)) {
+      this.showMonthPickerToast(this.i18n.t('monthly.monthPicker.futureBlocked'));
+      return;
+    }
+
+    if (targetMonth < this.currentMonth() && !this.hasEntriesForMonth(targetMonth)) {
+      this.showMonthPickerToast(this.i18n.t('monthly.monthPicker.noEntries'));
+      return;
+    }
+
+    this.monthOffset.set(targetOffset);
+    this.expenseStore.setSelectedMonth(targetMonth);
+    this.closeCategoryDetails();
+  }
+
+  private getMonthForOffset(offset: number): string {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+    return toLocalDateString(d).slice(0, 7);
+  }
+
+  private currentMonth(): string {
+    return toLocalDateString().slice(0, 7);
+  }
+
+  private isFutureMonth(month: string): boolean {
+    return month > this.currentMonth();
+  }
+
+  private hasEntriesForMonth(month: string): boolean {
+    return this.expenseStore.entries().some((entry) => entry.date.startsWith(month));
+  }
+
+  private showMonthPickerToast(message: string): void {
+    this.monthPickerToast.set(message);
+    if (this.monthPickerToastTimer) {
+      clearTimeout(this.monthPickerToastTimer);
+    }
+    this.monthPickerToastTimer = setTimeout(() => {
+      this.monthPickerToast.set(null);
+      this.monthPickerToastTimer = undefined;
+    }, 3500);
+  }
+
+  viewCategoryDetails(catId: string): void {
+    if (this.getCategoryEntries(catId).length === 0) return;
+    this.selectedCategoryId.set(catId);
+  }
+
+  closeCategoryDetails(): void {
+    this.selectedCategoryId.set(null);
+  }
+
+  getCategoryEntries(catId: string): ExpenseEntry[] {
+    const typeName = CAT_ID_TO_TYPE[catId];
+    if (!typeName) return [];
+
+    return this.expenseStore
+      .selectedMonthEntries()
+      .filter((entry) => entry.type === typeName)
+      .sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date);
+        return dateCompare !== 0 ? dateCompare : b.timestamp.localeCompare(a.timestamp);
+      });
+  }
+
+  formatEntryTime(timestamp: string): string {
+    return formatLocalTime(timestamp, this.i18n.locale());
+  }
+
+  formatEntryDate(date: string): string {
+    return parseLocalDate(date).toLocaleDateString(this.i18n.locale(), {
+      month: 'short',
+      day: 'numeric',
+    });
   }
 
   /** Sum of all entries for a given category ID */

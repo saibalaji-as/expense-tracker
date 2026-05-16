@@ -17,6 +17,10 @@ export class StorageService {
     await Preferences.remove({ key });
   }
 
+  async clear(): Promise<void> {
+    await Preferences.clear();
+  }
+
   async getNotificationPreferences(): Promise<NotificationPreferences> {
     const json = await this.get('notification_preferences');
     if (!json) {

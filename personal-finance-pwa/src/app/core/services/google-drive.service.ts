@@ -28,6 +28,20 @@ export interface DriveFileMetadata {
   modifiedTime: string;
 }
 
+export interface DeletedDriveItem {
+  id: string;
+  name: string;
+  deleted: boolean;
+  error?: string;
+}
+
+export interface FamilyFolderCandidate {
+  id: string;
+  backupFileId: string;
+  ownedByMe: boolean;
+  modifiedTime?: string;
+}
+
 export class DriveParseError extends Error {
   constructor(message: string, public readonly raw: string) {
     super(message);
@@ -91,6 +105,13 @@ function escapeDriveQueryValue(value: string): string {
 @Injectable({ providedIn: 'root' })
 export class GoogleDriveService {
   readonly #authService = inject(AuthService);
+
+  private readonly spenzaDriveNames = [
+    'spenza-backup.json',
+    'spenza-config.json',
+    'Spenza Family',
+    'Spenza Receipts',
+  ];
 
   private buildMultipartBody(metadata: object, content: string, boundary: string): string {
     return (
@@ -237,6 +258,104 @@ export class GoogleDriveService {
     return data.modifiedTime;
   }
 
+  async deleteSpenzaDriveData(extraFileIds: Array<string | null | undefined> = []): Promise<DeletedDriveItem[]> {
+    const knownItems = new Map<string, string>();
+
+    for (const fileId of extraFileIds) {
+      if (fileId) knownItems.set(fileId, 'Saved Spenza item');
+    }
+
+    const [
+      appDataItems,
+      driveItems,
+      privateBackupId,
+      rootBackupId,
+      configId,
+    ] = await Promise.all([
+      this.findSpenzaItemsInAppDataFolder(),
+      this.findSpenzaItemsInMyDrive(),
+      this.findBackupFile().catch(() => null),
+      this.findBackupFileInMyDrive().catch(() => null),
+      this.findConfigFile().catch(() => null),
+    ]);
+
+    for (const item of [...appDataItems, ...driveItems]) {
+      knownItems.set(item.id, item.name);
+    }
+    if (privateBackupId) knownItems.set(privateBackupId, 'spenza-backup.json');
+    if (rootBackupId) knownItems.set(rootBackupId, 'spenza-backup.json');
+    if (configId) knownItems.set(configId, 'spenza-config.json');
+
+    const results: DeletedDriveItem[] = [];
+    for (const [id, name] of knownItems.entries()) {
+      results.push(await this.deleteDriveItem(id, name));
+    }
+
+    return results;
+  }
+
+  private async findSpenzaItemsInAppDataFolder(): Promise<Array<{ id: string; name: string }>> {
+    const token = await this.#authService.ensureToken();
+    const nameQuery = this.spenzaDriveNames
+      .filter((name) => name.startsWith('spenza-'))
+      .map((name) => `name='${escapeDriveQueryValue(name)}'`)
+      .join(' or ');
+    const q = encodeURIComponent(`(${nameQuery}) and trashed=false`);
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,name)&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'findSpenzaItemsInAppDataFolder' } as DriveApiError;
+    }
+
+    const data = await response.json();
+    return data.files ?? [];
+  }
+
+  private async findSpenzaItemsInMyDrive(): Promise<Array<{ id: string; name: string }>> {
+    const token = await this.#authService.ensureToken();
+    const nameQuery = this.spenzaDriveNames
+      .map((name) => `name='${escapeDriveQueryValue(name)}'`)
+      .join(' or ');
+    const q = encodeURIComponent(`(${nameQuery}) and trashed=false`);
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'findSpenzaItemsInMyDrive' } as DriveApiError;
+    }
+
+    const data = await response.json();
+    return data.files ?? [];
+  }
+
+  private async deleteDriveItem(fileId: string, name: string): Promise<DeletedDriveItem> {
+    const token = await this.#authService.ensureToken();
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}`,
+      {
+        method: 'DELETE',
+        headers: noCacheHeaders(token),
+      }
+    );
+
+    if (response.ok || response.status === 404) {
+      return { id: fileId, name, deleted: true };
+    }
+
+    const message = await response.text();
+    return { id: fileId, name, deleted: false, error: message || `HTTP ${response.status}` };
+  }
+
   /**
    * Searches My Drive root for an existing spenza-backup.json.
    * Returns the file's Drive resource ID, or null if not found.
@@ -316,6 +435,39 @@ export class GoogleDriveService {
     const backupFileId = await this.createBackupFileInFolder(familyFolderId);
 
     return { familyFolderId, backupFileId, receiptFolderId };
+  }
+
+  async findExistingFamilyFolderBundle(): Promise<FamilyFolderCandidate | null> {
+    const token = await this.#authService.ensureToken();
+    const q = encodeURIComponent(
+      "name='Spenza Family' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    );
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,ownedByMe,modifiedTime)&orderBy=modifiedTime desc&_=${Date.now()}`,
+      { headers: noCacheHeaders(token) }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw { status: response.status, message, operation: 'findExistingFamilyFolderBundle' } as DriveApiError;
+    }
+
+    const data = await response.json();
+    const folders: Array<{ id: string; ownedByMe?: boolean; modifiedTime?: string }> = data.files ?? [];
+
+    for (const folder of folders) {
+      const backupFileId = await this.findBackupFileInFolder(folder.id);
+      if (backupFileId) {
+        return {
+          id: folder.id,
+          backupFileId,
+          ownedByMe: folder.ownedByMe === true,
+          modifiedTime: folder.modifiedTime,
+        };
+      }
+    }
+
+    return null;
   }
 
   async findBackupFileInFolder(folderId: string): Promise<string | null> {

@@ -11,6 +11,7 @@ const CACHE_KEY_SHARED_FILE_ID = 'spenza_shared_file_id';
 const CACHE_KEY_FAMILY_FOLDER_ID = 'spenza_family_folder_id';
 const CACHE_KEY_OWNER_ROLE = 'spenza_owner_role';
 const CACHE_KEY_CONFIG_FILE_ID = 'spenza_config_file_id';
+const DRIVE_CONFIG_CACHE_MS = 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class BackupModeService {
@@ -24,6 +25,8 @@ export class BackupModeService {
 
   // Drive file ID of spenza-config.json (cached locally)
   #configFileId: string | null = null;
+  #driveLoadPromise: Promise<void> | null = null;
+  #lastDriveLoadAt = 0;
 
   /**
    * Resolves once local cache has been read.
@@ -55,7 +58,26 @@ export class BackupModeService {
    * Creates the config file if it doesn't exist yet.
    * Updates signals and local cache from the Drive config.
    */
-  async loadFromDrive(): Promise<void> {
+  async loadFromDrive(force = false): Promise<void> {
+    const now = Date.now();
+    if (!force && this.#lastDriveLoadAt > 0 && now - this.#lastDriveLoadAt < DRIVE_CONFIG_CACHE_MS) {
+      return;
+    }
+
+    if (this.#driveLoadPromise) {
+      return this.#driveLoadPromise;
+    }
+
+    this.#driveLoadPromise = this.#loadFromDriveNow()
+      .finally(() => {
+        this.#lastDriveLoadAt = Date.now();
+        this.#driveLoadPromise = null;
+      });
+
+    return this.#driveLoadPromise;
+  }
+
+  async #loadFromDriveNow(): Promise<void> {
     try {
       // Find or create the config file
       let fileId = this.#configFileId ?? await this.driveService.findConfigFile();
@@ -67,6 +89,19 @@ export class BackupModeService {
 
       // Read the config
       const config = await this.driveService.readConfigFile(fileId);
+
+      if (config.mode === null || (config.mode === 'family' && !config.sharedFileId)) {
+        const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
+        if (recoveredFamily) {
+          console.info('[BackupModeService] Recovered family setup from existing Spenza Family folder.');
+          await this.setFamilyConfig(
+            recoveredFamily.backupFileId,
+            recoveredFamily.id,
+            recoveredFamily.ownedByMe ? 'owner' : 'partner'
+          );
+          return;
+        }
+      }
 
       // Update signals and cache from Drive config
       const mode = config.mode;
@@ -121,8 +156,15 @@ export class BackupModeService {
       return;
     }
     try {
-      const current = await this.driveService.readConfigFile(fileId);
-      const updated: SpenzaConfig = { ...current, ...updates };
+      const updated: SpenzaConfig = {
+        version: '1.0',
+        mode: this.mode(),
+        sharedFileId: this.sharedFileId(),
+        familyFolderId: this.familyFolderId(),
+        ownerRole: this.ownerRole(),
+        lastUpdated: new Date().toISOString(),
+        ...updates,
+      };
       await this.driveService.writeConfigFile(fileId, updated);
     } catch (err) {
       console.error('[BackupModeService] Failed to save config to Drive:', err);
@@ -153,6 +195,30 @@ export class BackupModeService {
     await this.#saveConfig({ ownerRole: role });
   }
 
+  async setFamilyConfig(fileId: string, folderId: string | null, role: OwnerRole): Promise<void> {
+    this.mode.set('family');
+    this.sharedFileId.set(fileId);
+    this.familyFolderId.set(folderId);
+    this.ownerRole.set(role);
+
+    await Promise.all([
+      this.storageService.set(CACHE_KEY_MODE, 'family'),
+      this.storageService.set(CACHE_KEY_SHARED_FILE_ID, fileId),
+      folderId
+        ? this.storageService.set(CACHE_KEY_FAMILY_FOLDER_ID, folderId)
+        : this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
+      this.storageService.set(CACHE_KEY_OWNER_ROLE, role),
+    ]);
+
+    await this.#saveConfig({
+      mode: 'family',
+      sharedFileId: fileId,
+      familyFolderId: folderId,
+      ownerRole: role,
+    });
+    this.#lastDriveLoadAt = Date.now();
+  }
+
   async clearFamilyState(): Promise<void> {
     this.sharedFileId.set(null);
     this.familyFolderId.set(null);
@@ -177,6 +243,7 @@ export class BackupModeService {
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
     ]);
     await this.#saveConfig({ mode: null, sharedFileId: null, familyFolderId: null, ownerRole: null });
+    this.#lastDriveLoadAt = 0;
   }
 
   getMode(): BackupMode | null { return this.mode(); }

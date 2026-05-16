@@ -8,6 +8,10 @@ export interface ExpenseEntry {
   timestamp: string; // ISO 8601 datetime 'YYYY-MM-DDTHH:mm:ssZ'
   comment?: string;  // optional comment for the expense
   receipt?: ExpenseReceipt; // optional uploaded bill/receipt attachment
+  createdByEmail?: string;
+  createdByRole?: 'owner' | 'partner' | 'single';
+  updatedByEmail?: string;
+  updatedByRole?: 'owner' | 'partner' | 'single';
 }
 
 export interface ExpenseReceipt {
