@@ -53,10 +53,9 @@ export const handler: Handler = async (event: HandlerEvent) => {
   try {
     const payload = JSON.parse(event.body || '{}');
     const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    const apiVersion = process.env.GEMINI_API_VERSION || 'v1';
     const prompt = buildPrompt(payload);
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(model)}:generateText?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,7 +69,6 @@ export const handler: Handler = async (event: HandlerEvent) => {
           generationConfig: {
             temperature: 0.35,
             maxOutputTokens: 900,
-            responseMimeType: 'application/json',
           },
         }),
       }
@@ -82,6 +80,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         status: response.status,
         statusText: response.statusText,
         message,
+        model,
       });
       return {
         statusCode: 502,
