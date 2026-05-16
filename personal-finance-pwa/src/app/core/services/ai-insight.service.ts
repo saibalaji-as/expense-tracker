@@ -4,7 +4,7 @@ import { environment } from '../../../environments/environment';
 
 export type InsightTone = 'good' | 'warn' | 'info';
 export type InsightIcon = 'check-circle-2' | 'alert-triangle' | 'lightbulb' | 'clock-3' | 'sparkles';
-export type AiInsightProvider = 'gemini';
+export type AiInsightProvider = 'gemini' | 'local';
 
 export interface AiInsightSection {
   label: string;

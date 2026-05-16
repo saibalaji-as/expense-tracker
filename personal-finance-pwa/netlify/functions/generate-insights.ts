@@ -41,6 +41,37 @@ const TONES = new Set<InsightTone>(['good', 'warn', 'info']);
 const ICONS = new Set<InsightIcon>(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
 const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
 const GEMINI_API_VERSION = 'v1beta';
+const INSIGHT_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    sections: {
+      type: 'ARRAY',
+      minItems: 5,
+      maxItems: 5,
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: {
+            type: 'STRING',
+            enum: ['Weekly summary', 'Wins', 'Warnings', 'Suggestions', 'Forecast'],
+          },
+          title: { type: 'STRING' },
+          detail: { type: 'STRING' },
+          tone: {
+            type: 'STRING',
+            enum: ['good', 'warn', 'info'],
+          },
+          icon: {
+            type: 'STRING',
+            enum: ['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles'],
+          },
+        },
+        required: ['label', 'title', 'detail', 'tone', 'icon'],
+      },
+    },
+  },
+  required: ['sections'],
+};
 
 export const handler: Handler = async (event: HandlerEvent) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -86,16 +117,17 @@ export const handler: Handler = async (event: HandlerEvent) => {
     
     if (!text || text.trim().length === 0) {
       console.warn('[generate-insights] Gemini returned empty response');
-      return {
-        statusCode: 503,
-        headers,
-        body: JSON.stringify({
-          error: 'AI insights service returned empty response',
-        }),
-      };
+      return fallbackResponse('Gemini returned empty response');
     }
 
-    const sections = normalizeSections(JSON.parse(stripJsonFence(text)));
+    const sections = parseGeminiSections(text);
+    if (!sections) {
+      console.warn('[generate-insights] Gemini returned malformed JSON', {
+        model: generated.model,
+        preview: stripJsonFence(text).slice(0, 300),
+      });
+      return fallbackResponse('Gemini returned malformed JSON');
+    }
 
     return {
       statusCode: 200,
@@ -121,11 +153,11 @@ export const handler: Handler = async (event: HandlerEvent) => {
 function buildPrompt(payload: unknown): string {
   return [
     'You are Spenza, a private household finance assistant.',
-    'Return strict JSON only. No markdown. No extra keys.',
-    'Use the exact schema: {"sections":[{"label":"Weekly summary|Wins|Warnings|Suggestions|Forecast","title":"...","detail":"...","tone":"good|warn|info","icon":"check-circle-2|alert-triangle|lightbulb|clock-3|sparkles"}]}',
-    'Produce exactly five sections, one for each label.',
+    'Return JSON only using the provided response schema.',
+    'Produce exactly five sections in this order: Weekly summary, Wins, Warnings, Suggestions, Forecast.',
     'Be concise, practical, and non-judgmental. Do not invent data. If data is sparse, say that clearly.',
-    'Currency values are already summarized; do not ask for bank data. Comments are intentionally excluded for privacy.',
+    'Keep each title under 12 words and each detail under 30 words.',
+    'Currency values are already summarized. Comments are intentionally excluded for privacy.',
     `Data: ${JSON.stringify(payload)}`,
   ].join('\n');
 }
@@ -183,8 +215,9 @@ async function callGeminiWithFallbacks(
           ],
           generationConfig: {
             temperature: 0.35,
-            maxOutputTokens: 900,
+            maxOutputTokens: 1600,
             responseMimeType: 'application/json',
+            responseSchema: INSIGHT_RESPONSE_SCHEMA,
           },
         }),
       }
@@ -248,6 +281,42 @@ function stripJsonFence(text: string): string {
     .replace(/^```(?:json)?/i, '')
     .replace(/```$/i, '')
     .trim();
+}
+
+function parseGeminiSections(text: string): InsightSection[] | null {
+  const cleaned = stripJsonFence(text);
+
+  try {
+    return normalizeSections(JSON.parse(cleaned));
+  } catch {
+    const extracted = extractJsonObject(cleaned);
+    if (!extracted) return null;
+
+    try {
+      return normalizeSections(JSON.parse(extracted));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  return start >= 0 && end > start ? text.slice(start, end + 1) : null;
+}
+
+function fallbackResponse(reason: string) {
+  return {
+    statusCode: 200,
+    headers,
+    body: JSON.stringify({
+      provider: 'local',
+      sections: [],
+      fallback: true,
+      reason,
+    }),
+  };
 }
 
 function normalizeSections(parsed: unknown): InsightSection[] {
