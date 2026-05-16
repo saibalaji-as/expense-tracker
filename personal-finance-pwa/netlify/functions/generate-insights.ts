@@ -43,6 +43,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
+    console.error('[generate-insights] GEMINI_API_KEY not configured in environment');
     return {
       statusCode: 503,
       headers,
@@ -50,12 +51,15 @@ export const handler: Handler = async (event: HandlerEvent) => {
     };
   }
 
+  console.info('[generate-insights] Using API key (length: ' + apiKey.length + '), model: ' + (process.env.GEMINI_MODEL || 'gemini-1.5-flash'));
+
   try {
     const payload = JSON.parse(event.body || '{}');
     const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+    const apiVersion = process.env.GEMINI_API_VERSION || 'v1beta1';
     const prompt = buildPrompt(payload);
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,6 +85,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         statusText: response.statusText,
         message,
         model,
+        apiVersion,
       });
       return {
         statusCode: 502,
