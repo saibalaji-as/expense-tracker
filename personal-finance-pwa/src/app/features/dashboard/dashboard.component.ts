@@ -105,7 +105,7 @@ interface ActivityItem {
                   </div>
                 </div>
               </div>
-              <div class="hidden rounded-full border border-primary/20 bg-background/60 px-3 py-1 text-[11px] font-semibold text-primary md:block">
+              <div class="shrink-0 rounded-full border border-primary/20 bg-background/70 px-3 py-1 text-[10px] font-semibold text-primary shadow-sm sm:text-[11px]">
                 @if (aiInsightLoading()) {
                   {{ 'dashboard.insights.loadingBadge' | translate }}
                 } @else {
@@ -525,6 +525,7 @@ export class DashboardComponent implements OnInit {
     const previous = this.entriesBetween(entries, 13, 7);
     const summary = this.weeklyInsightSummary();
     const categoryTotals = this.categoryTotals(current);
+    const previousCategoryTotals = this.categoryTotals(previous);
     const month = toLocalDateString().slice(0, 7);
     const monthEntries = entries.filter((entry) => entry.date.startsWith(month));
 
@@ -547,6 +548,11 @@ export class DashboardComponent implements OnInit {
           amount: entry.amount,
           type: entry.type,
         })),
+      dailyTrend: this.dailyTrend(current, 6),
+      categoryChanges: this.categoryChanges(categoryTotals, previousCategoryTotals),
+      repeatedExpenses: this.repeatedExpenses(current),
+      spendingPattern: this.spendingPattern(current),
+      partnerActivity: this.partnerActivity(current),
     };
   });
 
@@ -703,6 +709,113 @@ export class DashboardComponent implements OnInit {
       })
       .sort((a, b) => b.percent - a.percent || b.spent - a.spent)
       .slice(0, 8);
+  }
+
+  private dailyTrend(entries: ExpenseEntry[], days: number): AiInsightPayload['dailyTrend'] {
+    const today = parseLocalDate(toLocalDateString());
+    const byDate = new Map<string, { amount: number; entryCount: number }>();
+    for (const entry of entries) {
+      const current = byDate.get(entry.date) ?? { amount: 0, entryCount: 0 };
+      current.amount = Number((current.amount + entry.amount).toFixed(2));
+      current.entryCount += 1;
+      byDate.set(entry.date, current);
+    }
+
+    return Array.from({ length: days + 1 }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (days - index));
+      const dateStr = toLocalDateString(date);
+      const item = byDate.get(dateStr);
+      return {
+        date: dateStr,
+        amount: item?.amount ?? 0,
+        entryCount: item?.entryCount ?? 0,
+      };
+    });
+  }
+
+  private categoryChanges(
+    currentTotals: Record<string, number>,
+    previousTotals: Record<string, number>
+  ): AiInsightPayload['categoryChanges'] {
+    const categories = new Set([...Object.keys(currentTotals), ...Object.keys(previousTotals)]);
+    return [...categories]
+      .map((category) => {
+        const current = currentTotals[category] ?? 0;
+        const previous = previousTotals[category] ?? 0;
+        const delta = Number((current - previous).toFixed(2));
+        return {
+          category,
+          current,
+          previous,
+          delta,
+          percentChange: previous > 0 ? Math.round((delta / previous) * 100) : null,
+        };
+      })
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      .slice(0, 8);
+  }
+
+  private repeatedExpenses(entries: ExpenseEntry[]): AiInsightPayload['repeatedExpenses'] {
+    const groups = new Map<string, { type: string; amount: number; count: number; total: number }>();
+    for (const entry of entries) {
+      const roundedAmount = Math.round(entry.amount);
+      const key = `${entry.type}::${roundedAmount}`;
+      const group = groups.get(key) ?? { type: entry.type, amount: roundedAmount, count: 0, total: 0 };
+      group.count += 1;
+      group.total = Number((group.total + entry.amount).toFixed(2));
+      groups.set(key, group);
+    }
+
+    return [...groups.values()]
+      .filter((group) => group.count >= 2)
+      .sort((a, b) => b.count - a.count || b.total - a.total)
+      .slice(0, 6);
+  }
+
+  private spendingPattern(entries: ExpenseEntry[]): AiInsightPayload['spendingPattern'] {
+    const trend = this.dailyTrend(entries, 6);
+    const highest = [...trend].sort((a, b) => b.amount - a.amount)[0];
+    const sortedAmounts = entries.map((entry) => entry.amount).sort((a, b) => a - b);
+    const median = sortedAmounts.length
+      ? sortedAmounts[Math.floor(sortedAmounts.length / 2)]
+      : 0;
+    const largePurchaseThreshold = Math.max(1000, Math.round(median * 3));
+
+    let weekendTotal = 0;
+    let weekdayTotal = 0;
+    for (const entry of entries) {
+      const day = parseLocalDate(entry.date).getDay();
+      if (day === 0 || day === 6) {
+        weekendTotal += entry.amount;
+      } else {
+        weekdayTotal += entry.amount;
+      }
+    }
+
+    return {
+      highestDay: highest && highest.amount > 0 ? { date: highest.date, amount: highest.amount } : null,
+      weekendTotal: Number(weekendTotal.toFixed(2)),
+      weekdayTotal: Number(weekdayTotal.toFixed(2)),
+      smallPurchaseCount: entries.filter((entry) => entry.amount <= 100).length,
+      largePurchaseThreshold,
+      largePurchaseCount: entries.filter((entry) => entry.amount >= largePurchaseThreshold).length,
+    };
+  }
+
+  private partnerActivity(entries: ExpenseEntry[]): AiInsightPayload['partnerActivity'] {
+    const byActor = new Map<string, { actor: string; total: number; count: number }>();
+    for (const entry of entries) {
+      const actor = this.actorLabel(entry);
+      const item = byActor.get(actor) ?? { actor, total: 0, count: 0 };
+      item.total = Number((item.total + entry.amount).toFixed(2));
+      item.count += 1;
+      byActor.set(actor, item);
+    }
+
+    return [...byActor.values()]
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
   }
 
   private async refreshAiInsights(payload: AiInsightPayload | null): Promise<void> {

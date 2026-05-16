@@ -35,6 +35,37 @@ export interface AiInsightPayload {
     amount: number;
     type: string;
   }>;
+  dailyTrend: Array<{
+    date: string;
+    amount: number;
+    entryCount: number;
+  }>;
+  categoryChanges: Array<{
+    category: string;
+    current: number;
+    previous: number;
+    delta: number;
+    percentChange: number | null;
+  }>;
+  repeatedExpenses: Array<{
+    type: string;
+    amount: number;
+    count: number;
+    total: number;
+  }>;
+  spendingPattern: {
+    highestDay: { date: string; amount: number } | null;
+    weekendTotal: number;
+    weekdayTotal: number;
+    smallPurchaseCount: number;
+    largePurchaseThreshold: number;
+    largePurchaseCount: number;
+  };
+  partnerActivity: Array<{
+    actor: string;
+    total: number;
+    count: number;
+  }>;
 }
 
 export interface AiInsightResult {
