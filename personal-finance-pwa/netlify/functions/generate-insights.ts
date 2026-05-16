@@ -21,6 +21,14 @@ interface GeminiResponse {
   candidates?: GeminiCandidate[];
 }
 
+interface GeminiError {
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+  };
+}
+
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -31,6 +39,8 @@ const headers = {
 const SECTION_LABELS = new Set(['Weekly summary', 'Wins', 'Warnings', 'Suggestions', 'Forecast']);
 const TONES = new Set<InsightTone>(['good', 'warn', 'info']);
 const ICONS = new Set<InsightIcon>(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
+const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+const GEMINI_API_VERSION = 'v1beta';
 
 export const handler: Handler = async (event: HandlerEvent) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -51,58 +61,27 @@ export const handler: Handler = async (event: HandlerEvent) => {
     };
   }
 
-  console.info('[generate-insights] Using API key (length: ' + apiKey.length + ')');
-
   try {
     const payload = JSON.parse(event.body || '{}');
-    const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    const apiVersion = process.env.GEMINI_API_VERSION || 'v1beta1';
+    const models = modelCandidates(process.env.GEMINI_MODEL);
     const prompt = buildPrompt(payload);
-    
-    console.info('[generate-insights] Requesting', { model, apiVersion });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.35,
-            maxOutputTokens: 900,
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const message = await response.text();
-      console.error('[generate-insights] Gemini API returned error', {
-        status: response.status,
-        statusText: response.statusText,
-        messageLength: message.length,
-        model,
-        apiVersion,
-      });
-      
-      // Return 503 Service Unavailable instead of 502, since it's an external API issue
+    const generated = await callGeminiWithFallbacks(apiKey, models, prompt);
+    if (!generated.ok) {
       return {
-        statusCode: 503,
+        statusCode: generated.statusCode,
         headers,
         body: JSON.stringify({
-          error: 'AI insights service temporarily unavailable',
-          detail: 'Please try again later. Local insights will be used in the meantime.',
+          error: generated.clientMessage,
+          detail: generated.detail,
+          model: generated.model,
+          upstreamStatus: generated.upstreamStatus,
+          upstreamCode: generated.upstreamCode,
         }),
       };
     }
 
-    const data = await response.json() as GeminiResponse;
+    const data = generated.data;
     const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('\n') ?? '';
     
     if (!text || text.trim().length === 0) {
@@ -121,7 +100,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ provider: 'gemini', sections }),
+      body: JSON.stringify({ provider: 'gemini', model: generated.model, sections }),
     };
   } catch (error) {
     console.error('[generate-insights] Error', {
@@ -149,6 +128,118 @@ function buildPrompt(payload: unknown): string {
     'Currency values are already summarized; do not ask for bank data. Comments are intentionally excluded for privacy.',
     `Data: ${JSON.stringify(payload)}`,
   ].join('\n');
+}
+
+function modelCandidates(configuredModel: string | undefined): string[] {
+  const configured = sanitizeModelName(configuredModel);
+  return [
+    ...(configured ? [configured] : []),
+    ...DEFAULT_GEMINI_MODELS,
+  ].filter((model, index, models) => models.indexOf(model) === index);
+}
+
+function sanitizeModelName(model: string | undefined): string | null {
+  const trimmed = model?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/^models\//, '');
+}
+
+async function callGeminiWithFallbacks(
+  apiKey: string,
+  models: string[],
+  prompt: string
+): Promise<
+  | { ok: true; model: string; data: GeminiResponse }
+  | {
+      ok: false;
+      statusCode: number;
+      clientMessage: string;
+      detail: string;
+      model: string;
+      upstreamStatus?: number;
+      upstreamCode?: string;
+    }
+> {
+  let lastFailure: {
+    model: string;
+    status: number;
+    statusText: string;
+    code?: string;
+    message: string;
+  } | null = null;
+
+  for (const model of models) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/${GEMINI_API_VERSION}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.35,
+            maxOutputTokens: 900,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
+
+    if (response.ok) {
+      return { ok: true, model, data: await response.json() as GeminiResponse };
+    }
+
+    const failure = await readGeminiFailure(response, model);
+    lastFailure = failure;
+    console.error('[generate-insights] Gemini request failed', failure);
+
+    if (response.status !== 404) break;
+  }
+
+  const failure = lastFailure ?? {
+    model: models[0] ?? 'unknown',
+    status: 503,
+    statusText: 'Unavailable',
+    message: 'No Gemini response was received.',
+  };
+
+  return {
+    ok: false,
+    statusCode: failure.status === 401 || failure.status === 403 ? 503 : 502,
+    clientMessage: failure.status === 401 || failure.status === 403
+      ? 'Gemini API key is not authorized'
+      : 'AI insights service temporarily unavailable',
+    detail: failure.message,
+    model: failure.model,
+    upstreamStatus: failure.status,
+    upstreamCode: failure.code,
+  };
+}
+
+async function readGeminiFailure(
+  response: Response,
+  model: string
+): Promise<{ model: string; status: number; statusText: string; code?: string; message: string }> {
+  const raw = await response.text();
+  let parsed: GeminiError | null = null;
+  try {
+    parsed = JSON.parse(raw) as GeminiError;
+  } catch {
+    parsed = null;
+  }
+
+  return {
+    model,
+    status: response.status,
+    statusText: response.statusText,
+    code: parsed?.error?.status,
+    message: parsed?.error?.message ?? (raw.slice(0, 500) || response.statusText),
+  };
 }
 
 function stripJsonFence(text: string): string {

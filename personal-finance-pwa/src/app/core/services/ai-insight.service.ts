@@ -53,7 +53,8 @@ export class AiInsightService {
       });
 
       if (!response.ok) {
-        console.info('[AiInsightService] AI insights unavailable:', response.status);
+        const detail = await response.text();
+        console.info('[AiInsightService] AI insights unavailable:', response.status, detail);
         return null;
       }
 
