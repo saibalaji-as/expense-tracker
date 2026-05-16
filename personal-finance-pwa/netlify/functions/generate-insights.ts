@@ -77,10 +77,20 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     if (!response.ok) {
       const message = await response.text();
+      console.error('[generate-insights] Gemini request failed', {
+        status: response.status,
+        statusText: response.statusText,
+        message,
+      });
       return {
         statusCode: 502,
         headers,
-        body: JSON.stringify({ error: 'Gemini request failed', message }),
+        body: JSON.stringify({
+          error: 'Gemini request failed',
+          status: response.status,
+          statusText: response.statusText,
+          message,
+        }),
       };
     }
 
