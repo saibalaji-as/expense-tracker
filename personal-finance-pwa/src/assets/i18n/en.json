@@ -23,6 +23,7 @@
   "settings.ai.privateHint": "Saved privately in this device and your Drive app config, never in shared family backup.",
   "settings.ai.getKey": "Get key",
   "settings.ai.save": "Save",
+  "settings.ai.edit": "Edit",
   "currency.INR.name": "Indian Rupee",
   "currency.INR.region": "India · default for household budgets",
   "currency.INR.hint": "Best when your income and expenses are in INR.",

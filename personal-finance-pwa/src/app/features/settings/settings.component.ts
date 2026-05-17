@@ -45,6 +45,7 @@ import {
   ArrowLeftRight,
   KeyRound,
   Sparkles,
+  Pencil,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -61,7 +62,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -249,42 +250,62 @@ interface BeforeInstallPromptEvent extends Event {
 
           @if (aiProviderMode() === 'user-key') {
             <div class="rounded-2xl border border-border bg-card/40 p-4">
-              <div class="flex flex-col gap-3 md:flex-row md:items-end">
-                <div class="min-w-0 flex-1">
-                  <label for="gemini-api-key" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    {{ 'settings.ai.apiKey' | translate }}
-                  </label>
-                  <input
-                    id="gemini-api-key"
-                    type="password"
-                    autocomplete="off"
-                    [(ngModel)]="geminiApiKeyInput"
-                    [placeholder]="aiSettingsService.maskedKey() || ('settings.ai.apiKeyPlaceholder' | translate)"
-                    class="mt-2 w-full rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
-                  />
-                  <p class="mt-2 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
-                </div>
-                <div class="flex shrink-0 gap-2">
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
-                  >
-                    <lucide-icon [img]="externalLinkIcon" class="h-4 w-4" />
-                    {{ 'settings.ai.getKey' | translate }}
-                  </a>
+              @if (hasSavedGeminiKey() && !isEditingGeminiKey()) {
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div class="min-w-0">
+                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {{ 'settings.ai.apiKey' | translate }}
+                    </p>
+                    <p class="mt-1 text-sm font-semibold">{{ aiSettingsService.maskedKey() }}</p>
+                    <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
+                  </div>
                   <button
                     type="button"
-                    (click)="onSaveAiSettings()"
-                    [disabled]="aiSettingsService.isLoading()"
-                    class="inline-flex items-center justify-center gap-2 rounded-2xl gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                    (click)="onEditGeminiKey()"
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
                   >
-                    <lucide-icon [img]="checkIcon" class="h-4 w-4" />
-                    {{ 'settings.ai.save' | translate }}
+                    <lucide-icon [img]="editIcon" class="h-4 w-4" />
+                    {{ 'settings.ai.edit' | translate }}
                   </button>
                 </div>
-              </div>
+              } @else {
+                <div class="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div class="min-w-0 flex-1">
+                    <label for="gemini-api-key" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {{ 'settings.ai.apiKey' | translate }}
+                    </label>
+                    <input
+                      id="gemini-api-key"
+                      type="password"
+                      autocomplete="off"
+                      [(ngModel)]="geminiApiKeyInput"
+                      [placeholder]="aiSettingsService.maskedKey() || ('settings.ai.apiKeyPlaceholder' | translate)"
+                      class="mt-2 w-full rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+                    />
+                    <p class="mt-2 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
+                  </div>
+                  <div class="flex shrink-0 gap-2">
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
+                    >
+                      <lucide-icon [img]="externalLinkIcon" class="h-4 w-4" />
+                      {{ 'settings.ai.getKey' | translate }}
+                    </a>
+                    <button
+                      type="button"
+                      (click)="onSaveAiSettings()"
+                      [disabled]="aiSettingsService.isLoading()"
+                      class="inline-flex items-center justify-center gap-2 rounded-2xl gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                    >
+                      <lucide-icon [img]="checkIcon" class="h-4 w-4" />
+                      {{ 'settings.ai.save' | translate }}
+                    </button>
+                  </div>
+                </div>
+              }
             </div>
           }
 
@@ -939,6 +960,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly externalLinkIcon = ExternalLink;
   readonly arrowLeftRightIcon = ArrowLeftRight;
   readonly monitorIcon = Monitor;
+  readonly editIcon = Pencil;
 
   // ─── Import from Sheets ───────────────────────────────────────────────────────
   importSheetId = '';
@@ -949,6 +971,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isRestoringJson = signal(false);
   readonly restoreJsonMessage = signal<string | null>(null);
   readonly restoreJsonError = signal(false);
+  readonly isEditingGeminiKey = signal(false);
   geminiApiKeyInput = '';
 
   // ─── Local Notification Preferences ──────────────────────────────────────────
@@ -1031,14 +1054,24 @@ export class SettingsComponent implements OnInit, OnDestroy {
     ].join(' ');
   }
 
+  hasSavedGeminiKey(): boolean {
+    return !!this.aiSettingsService.settings().geminiApiKey;
+  }
+
   async onAiProviderChange(provider: AiProviderMode): Promise<void> {
     const current = this.aiSettingsService.settings();
+    this.isEditingGeminiKey.set(provider === 'user-key' && !current.geminiApiKey);
     await this.aiSettingsService.save({
       provider,
       geminiApiKey: provider === 'user-key'
         ? this.geminiApiKeyInput.trim() || current.geminiApiKey
         : null,
     });
+  }
+
+  onEditGeminiKey(): void {
+    this.geminiApiKeyInput = '';
+    this.isEditingGeminiKey.set(true);
   }
 
   async onSaveAiSettings(): Promise<void> {
@@ -1048,6 +1081,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       geminiApiKey: key,
     });
     this.geminiApiKeyInput = '';
+    this.isEditingGeminiKey.set(false);
   }
 
   receiptFolderUrl(): string {

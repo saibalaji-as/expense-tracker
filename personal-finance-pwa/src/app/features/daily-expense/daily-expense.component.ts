@@ -42,6 +42,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { GoogleDriveService } from '../../core/services/google-drive.service';
+import { AiReceiptExtractionService } from '../../core/services/ai-receipt-extraction.service';
 import { ReceiptExtractionResult, ReceiptExtractionService } from '../../core/services/receipt-extraction.service';
 import { AuthService } from '../../core/services/auth.service';
 import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
@@ -1174,6 +1175,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
   private readonly googleDriveService = inject(GoogleDriveService);
+  private readonly aiReceiptExtractionService = inject(AiReceiptExtractionService);
   private readonly receiptExtractionService = inject(ReceiptExtractionService);
   private readonly authService = inject(AuthService);
   private readonly backupModeService = inject(BackupModeService);
@@ -2050,7 +2052,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const defaultType = extraction.type || this.form.get('expenseType')?.value || 'Food & Groceries';
     const rows: SplitBillRow[] = extraction.lineItems.map((item) => ({
       id: crypto.randomUUID(),
-      type: defaultType,
+      type: item.type || defaultType,
       amount: item.amount,
       comment: item.name,
     }));
@@ -2107,7 +2109,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const runId = ++this.receiptExtractionRunId;
     this.extractingReceipt.set(true);
     try {
-      const extraction = await this.receiptExtractionService.extract(file);
+      const extraction = await this.extractReceiptWithAiFallback(file);
       if (runId !== this.receiptExtractionRunId) return;
       if (!extraction.readable) {
         this.receiptExtraction.set(null);
@@ -2125,6 +2127,20 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         this.extractingReceipt.set(false);
       }
     }
+  }
+
+  private async extractReceiptWithAiFallback(file: File): Promise<ReceiptExtractionResult> {
+    const aiExtraction = await this.aiReceiptExtractionService.extract(file, {
+      locale: this.i18n.locale(),
+      currency: this.currencyService.currency(),
+      categories: this.availableCategories().map((category) => category.name),
+    });
+
+    if (aiExtraction?.readable) {
+      return aiExtraction;
+    }
+
+    return this.receiptExtractionService.extract(file);
   }
 
   private async compressReceiptImage(file: File): Promise<File> {

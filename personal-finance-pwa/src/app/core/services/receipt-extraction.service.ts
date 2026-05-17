@@ -20,6 +20,7 @@ export interface ReceiptLineItem {
   name: string;
   amount: number;
   rawLine: string;
+  type?: string | null;
 }
 
 interface AmountCandidate {
