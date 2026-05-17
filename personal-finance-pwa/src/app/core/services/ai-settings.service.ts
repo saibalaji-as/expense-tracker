@@ -24,26 +24,30 @@ export class AiSettingsService {
   private readonly localKey = 'spenza_ai_settings_private';
   private readonly configFileKey = 'spenza_config_file_id';
   private readonly insightCacheKey = 'ai_weekly_insight_cache_v1';
-  private readonly insightUsageKey = 'ai_weekly_insight_usage_v1';
+  private readonly insightUsageKeys = ['ai_weekly_insight_usage_v1', 'ai_weekly_insight_usage_v2'];
 
   readonly settings = signal<AiSettings>(DEFAULT_AI_SETTINGS);
   readonly isLoading = signal(false);
   readonly lastMessage = signal<string | null>(null);
   readonly lastError = signal<string | null>(null);
 
+  private settingsRevision = 0;
+
   async load(): Promise<void> {
+    const loadRevision = this.settingsRevision;
     this.isLoading.set(true);
     this.lastError.set(null);
 
     try {
       const local = await this.readLocal();
-      if (local) this.settings.set(local);
+      if (local && loadRevision === this.settingsRevision) this.settings.set(local);
 
       if (this.authService.isAuthenticated()) {
         const drive = await this.readDrive();
-        if (drive) {
-          this.settings.set(drive);
-          await this.writeLocal(drive);
+        if (drive && loadRevision === this.settingsRevision) {
+          const resolved = this.resolveLoadedSettings(local, drive);
+          this.settings.set(resolved);
+          await this.writeLocal(resolved);
         }
       }
     } catch (error) {
@@ -56,6 +60,7 @@ export class AiSettingsService {
 
   async save(settings: AiSettings): Promise<void> {
     const normalized = this.normalize(settings);
+    this.settingsRevision++;
     this.isLoading.set(true);
     this.lastError.set(null);
     this.lastMessage.set(null);
@@ -123,7 +128,7 @@ export class AiSettingsService {
   private async resetInsightCache(): Promise<void> {
     await Promise.all([
       this.storageService.remove(this.insightCacheKey),
-      this.storageService.remove(this.insightUsageKey),
+      ...this.insightUsageKeys.map((key) => this.storageService.remove(key)),
     ]);
   }
 
@@ -198,5 +203,13 @@ export class AiSettingsService {
       provider,
       geminiApiKey: geminiApiKey || null,
     };
+  }
+
+  private resolveLoadedSettings(local: AiSettings | null, drive: AiSettings): AiSettings {
+    if (local?.provider === 'user-key' && local.geminiApiKey && drive.provider !== 'user-key') {
+      return local;
+    }
+
+    return drive;
   }
 }

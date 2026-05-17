@@ -323,8 +323,38 @@ function normalizeCategories(categories: string[] | undefined): string[] {
 
 function normalizeCategory(category: unknown, categories: string[]): string | null {
   if (typeof category !== 'string') return null;
-  const normalized = category.trim().toLowerCase();
-  return categories.find((item) => item.toLowerCase() === normalized) ?? null;
+  const normalized = categoryKey(category);
+  const direct = categories.find((item) => categoryKey(item) === normalized);
+  if (direct) return direct;
+
+  const aliases: Record<string, string> = {
+    food: 'Food & Groceries',
+    grocery: 'Food & Groceries',
+    groceries: 'Food & Groceries',
+    restaurant: 'Dining Out',
+    restaurants: 'Dining Out',
+    dining: 'Dining Out',
+    transport: 'Transportation',
+    shopping: 'Shopping/Clothing',
+    clothing: 'Shopping/Clothing',
+    savings: 'Savings/Emergency Fund',
+    emergency: 'Savings/Emergency Fund',
+    misc: 'Miscellaneous',
+    miscellaneous: 'Miscellaneous',
+  };
+
+  const alias = aliases[normalized];
+  return alias ? categories.find((item) => categoryKey(item) === categoryKey(alias)) ?? null : null;
+}
+
+function categoryKey(category: string): string {
+  return category
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function normalizeDate(date: unknown): string | null {

@@ -483,6 +483,11 @@ interface ReceiptEditorState {
                     <div class="flex items-center gap-2 text-xs font-semibold text-primary">
                       <lucide-icon name="sparkles" class="h-3.5 w-3.5" />
                       {{ 'daily.receipt.smartFill.title' | translate }}
+                      <span
+                        class="rounded-full border border-primary/25 bg-background/70 px-2 py-0.5 text-[10px] font-semibold text-primary"
+                      >
+                        {{ (receiptExtractionSource() === 'gemini' ? 'daily.receipt.smartFill.geminiBadge' : 'daily.receipt.smartFill.localBadge') | translate }}
+                      </span>
                     </div>
                     <div class="flex gap-1.5">
                       @if (extraction.lineItems.length > 1) {
@@ -503,6 +508,11 @@ interface ReceiptEditorState {
                       </button>
                     </div>
                   </div>
+                  @if (receiptExtractionSource() === 'local' && receiptExtractionFallbackReason()) {
+                    <p class="mb-2 text-[11px] text-muted-foreground">
+                      {{ 'daily.receipt.smartFill.fallbackHint' | translate }}
+                    </p>
+                  }
                   @if (extraction.lineItems.length > 0) {
                     <div class="mb-2 rounded-lg border border-primary/15 bg-background/50 p-2">
                       <p class="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -1261,6 +1271,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly receiptExtraction = signal<ReceiptExtractionResult | null>(null);
   readonly receiptExtractionError = signal<string | null>(null);
   readonly receiptExtractionApplied = signal(false);
+  readonly receiptExtractionSource = signal<'gemini' | 'local' | null>(null);
+  readonly receiptExtractionFallbackReason = signal<string | null>(null);
   readonly extractingReceipt = signal(false);
   readonly uploadingReceipt = signal(false);
   readonly isSavingExpense = signal(false);
@@ -1471,7 +1483,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     if (!this.splitBillMode()) return true;
     const total = this.splitBillTotal();
     if (total <= 0 || this.splitRows().length < 2) return false;
-    const everyRowValid = this.splitRows().every((row) => row.type && Number(row.amount ?? 0) > 0);
+    const everyRowValid = this.splitRows().every((row) =>
+      this.isAvailableCategoryName(row.type) && Number(row.amount ?? 0) > 0
+    );
     return everyRowValid && Math.abs(this.splitRowsTotal() - total) < 0.01;
   });
 
@@ -1622,6 +1636,47 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.showAllCategories.set(false);
   }
 
+  private isAvailableCategoryName(type: string | null | undefined): boolean {
+    return !!this.matchAvailableCategory(type);
+  }
+
+  private matchAvailableCategory(type: string | null | undefined): string | null {
+    const normalized = this.categoryMatchKey(type);
+    if (!normalized) return null;
+
+    const direct = this.availableCategories().find((category) => this.categoryMatchKey(category.name) === normalized);
+    if (direct) return direct.name;
+
+    const aliases: Record<string, string> = {
+      food: 'Food & Groceries',
+      grocery: 'Food & Groceries',
+      groceries: 'Food & Groceries',
+      restaurant: 'Dining Out',
+      restaurants: 'Dining Out',
+      dining: 'Dining Out',
+      transport: 'Transportation',
+      shopping: 'Shopping/Clothing',
+      clothing: 'Shopping/Clothing',
+      savings: 'Savings/Emergency Fund',
+      emergency: 'Savings/Emergency Fund',
+      misc: 'Miscellaneous',
+      miscellaneous: 'Miscellaneous',
+    };
+
+    const alias = aliases[normalized];
+    return alias && this.availableCategories().some((category) => category.name === alias) ? alias : null;
+  }
+
+  private categoryMatchKey(type: string | null | undefined): string {
+    return String(type ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, 'and')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+  }
+
   // ─── Helper: format ISO timestamp for display ─────────────────────────────
   formatTimestamp(ts: string): string {
     return new Date(ts).toLocaleString(this.i18n.locale());
@@ -1697,6 +1752,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.receiptExtraction.set(null);
     this.receiptExtractionError.set(null);
     this.receiptExtractionApplied.set(false);
+    this.receiptExtractionSource.set(null);
+    this.receiptExtractionFallbackReason.set(null);
   }
 
   applyReceiptExtraction(overwrite = false): void {
@@ -1897,6 +1954,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.receiptExtraction.set(null);
     this.receiptExtractionError.set(null);
     this.receiptExtractionApplied.set(false);
+    this.receiptExtractionSource.set(null);
+    this.receiptExtractionFallbackReason.set(null);
 
     if (file.type === 'application/pdf') {
       this.selectedReceiptFile.set(file);
@@ -2031,7 +2090,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const total = this.splitBillTotal();
     if (total <= 0) return;
 
-    const defaultType = this.receiptExtraction()?.type || this.form.get('expenseType')?.value || 'Food & Groceries';
+    const defaultType = this.matchAvailableCategory(this.receiptExtraction()?.type)
+      ?? this.matchAvailableCategory(this.form.get('expenseType')?.value)
+      ?? 'Food & Groceries';
     const half = Number((total / 2).toFixed(2));
     const remainder = Number((total - half).toFixed(2));
 
@@ -2049,10 +2110,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const defaultType = extraction.type || this.form.get('expenseType')?.value || 'Food & Groceries';
+    const defaultType = this.matchAvailableCategory(extraction.type)
+      ?? this.matchAvailableCategory(this.form.get('expenseType')?.value)
+      ?? 'Food & Groceries';
     const rows: SplitBillRow[] = extraction.lineItems.map((item) => ({
       id: crypto.randomUUID(),
-      type: item.type || defaultType,
+      type: this.matchAvailableCategory(item.type) ?? defaultType,
       amount: item.amount,
       comment: item.name,
     }));
@@ -2130,17 +2193,22 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   private async extractReceiptWithAiFallback(file: File): Promise<ReceiptExtractionResult> {
-    const aiExtraction = await this.aiReceiptExtractionService.extract(file, {
+    const aiAttempt = await this.aiReceiptExtractionService.extractWithStatus(file, {
       locale: this.i18n.locale(),
       currency: this.currencyService.currency(),
       categories: this.availableCategories().map((category) => category.name),
     });
 
-    if (aiExtraction?.readable) {
-      return aiExtraction;
+    if (aiAttempt.extraction?.readable) {
+      this.receiptExtractionSource.set('gemini');
+      this.receiptExtractionFallbackReason.set(null);
+      return aiAttempt.extraction;
     }
 
-    return this.receiptExtractionService.extract(file);
+    const localExtraction = await this.receiptExtractionService.extract(file);
+    this.receiptExtractionSource.set('local');
+    this.receiptExtractionFallbackReason.set(aiAttempt.fallbackReason);
+    return localExtraction;
   }
 
   private async compressReceiptImage(file: File): Promise<File> {
@@ -2197,8 +2265,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── onSubmit ─────────────────────────────────────────────────────────────
   async onSubmit(): Promise<void> {
-    if (this.form.invalid) {
+    const dateControl = this.form.get('date');
+    const amountControl = this.form.get('amount');
+    const formInvalid = this.splitBillMode()
+      ? dateControl?.invalid || !this.splitBillValid()
+      : this.form.invalid;
+
+    if (formInvalid) {
       this.form.markAllAsTouched();
+      if (this.splitBillMode() && !amountControl?.value) {
+        amountControl?.markAsUntouched();
+      }
       return;
     }
 

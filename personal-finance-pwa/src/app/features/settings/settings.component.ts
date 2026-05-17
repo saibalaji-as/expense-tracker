@@ -1076,8 +1076,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async onSaveAiSettings(): Promise<void> {
     const key = this.geminiApiKeyInput.trim() || this.aiSettingsService.settings().geminiApiKey;
+    if (!key) {
+      this.aiSettingsService.lastError.set('Paste your Gemini API key before saving.');
+      this.isEditingGeminiKey.set(true);
+      return;
+    }
+
     await this.aiSettingsService.save({
-      provider: key ? 'user-key' : 'disabled',
+      provider: 'user-key',
       geminiApiKey: key,
     });
     this.geminiApiKeyInput = '';

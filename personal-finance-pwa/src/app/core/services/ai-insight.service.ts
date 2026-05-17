@@ -101,7 +101,7 @@ export class AiInsightService {
   private readonly storageService = inject(StorageService);
   private readonly aiSettingsService = inject(AiSettingsService);
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
-  private readonly usageKey = 'ai_weekly_insight_usage_v1';
+  private readonly usageKey = 'ai_weekly_insight_usage_v2';
   private readonly maxCallsPerDay = 2;
   private readonly cacheTtlMs = 12 * 60 * 60 * 1000;
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
@@ -137,7 +137,6 @@ export class AiInsightService {
 
     try {
       const nextCallCount = usage.callCount + 1;
-      await this.setUsage({ dateKey: todayKey, callCount: nextCallCount });
 
       const response = await fetch(`${this.functionsBaseUrl()}/generate-insights`, {
         method: 'POST',
@@ -168,6 +167,7 @@ export class AiInsightService {
         signature,
         result,
       });
+      await this.setUsage({ dateKey: todayKey, callCount: nextCallCount });
       return result;
     } catch (error) {
       console.info('[AiInsightService] Falling back to local insights:', error);

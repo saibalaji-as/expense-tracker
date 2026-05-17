@@ -9,6 +9,12 @@ interface AiReceiptExtractionResponse {
   extraction: ReceiptExtractionResult;
 }
 
+export interface AiReceiptExtractionAttempt {
+  extraction: ReceiptExtractionResult | null;
+  fallbackReason: string | null;
+  usedGemini: boolean;
+}
+
 export interface AiReceiptExtractionPayload {
   fileName: string;
   mimeType: string;
@@ -26,16 +32,28 @@ export class AiReceiptExtractionService {
     file: File,
     context: Pick<AiReceiptExtractionPayload, 'locale' | 'currency' | 'categories'>
   ): Promise<ReceiptExtractionResult | null> {
+    const attempt = await this.extractWithStatus(file, context);
+    return attempt.extraction;
+  }
+
+  async extractWithStatus(
+    file: File,
+    context: Pick<AiReceiptExtractionPayload, 'locale' | 'currency' | 'categories'>
+  ): Promise<AiReceiptExtractionAttempt> {
     await this.aiSettingsService.load();
-    if (this.aiSettingsService.isDisabled()) return null;
+    if (this.aiSettingsService.isDisabled()) {
+      return { extraction: null, fallbackReason: 'AI is off in Settings.', usedGemini: false };
+    }
 
     const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    if (!userGeminiKey) return null;
+    if (!userGeminiKey) {
+      return { extraction: null, fallbackReason: 'No Gemini API key is active.', usedGemini: false };
+    }
 
     const maxInlineSize = 5 * 1024 * 1024;
     if (file.size > maxInlineSize) {
       console.info('[AiReceiptExtractionService] Receipt too large for AI extraction; using local OCR.');
-      return null;
+      return { extraction: null, fallbackReason: 'Bill file is too large for Gemini inline extraction.', usedGemini: false };
     }
 
     try {
@@ -56,14 +74,18 @@ export class AiReceiptExtractionService {
       if (!response.ok) {
         const detail = await response.text();
         console.info('[AiReceiptExtractionService] AI receipt extraction unavailable:', response.status, detail);
-        return null;
+        return { extraction: null, fallbackReason: `Gemini extraction failed with HTTP ${response.status}.`, usedGemini: false };
       }
 
       const result = await response.json() as AiReceiptExtractionResponse;
-      return result.provider === 'gemini' && result.extraction?.readable ? result.extraction : null;
+      if (result.provider === 'gemini' && result.extraction?.readable) {
+        return { extraction: result.extraction, fallbackReason: null, usedGemini: true };
+      }
+
+      return { extraction: null, fallbackReason: 'Gemini could not read this bill clearly.', usedGemini: false };
     } catch (error) {
       console.info('[AiReceiptExtractionService] Falling back to local receipt OCR:', error);
-      return null;
+      return { extraction: null, fallbackReason: 'Could not reach Gemini extraction service.', usedGemini: false };
     }
   }
 
