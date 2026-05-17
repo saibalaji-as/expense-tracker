@@ -32,7 +32,7 @@ interface GeminiError {
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Gemini-Api-Key',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
 };
@@ -83,13 +83,15 @@ export const handler: Handler = async (event: HandlerEvent) => {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const userApiKey = event.headers['x-gemini-api-key'] ?? event.headers['X-Gemini-Api-Key'];
+  const apiKey = typeof userApiKey === 'string' && userApiKey.trim()
+    ? userApiKey.trim()
+    : null;
   if (!apiKey) {
-    console.error('[generate-insights] GEMINI_API_KEY not configured in environment');
     return {
-      statusCode: 503,
+      statusCode: 400,
       headers,
-      body: JSON.stringify({ error: 'Gemini is not configured' }),
+      body: JSON.stringify({ error: 'User Gemini API key is required' }),
     };
   }
 

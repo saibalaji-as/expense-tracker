@@ -21,6 +21,7 @@ import { GoogleDriveService, BackupDocument } from '../../core/services/google-d
 import { StorageService } from '../../core/services/storage.service';
 import { AppLanguage, I18nService } from '../../core/services/i18n.service';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
+import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { SectionCardComponent, ModalComponent } from '../../shared/components';
@@ -42,6 +43,8 @@ import {
   RefreshCw,
   ExternalLink,
   ArrowLeftRight,
+  KeyRound,
+  Sparkles,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -58,7 +61,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -202,6 +205,94 @@ interface BeforeInstallPromptEvent extends Event {
                 <p class="mt-1 text-[11px] text-muted-foreground">{{ option.hintKey | translate }}</p>
               </div>
             </button>
+          }
+        </div>
+      </app-section-card>
+
+      <!-- AI Insights -->
+      <app-section-card
+        [title]="'settings.ai.title' | translate"
+        [description]="'settings.ai.description' | translate"
+      >
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              (click)="onAiProviderChange('user-key')"
+              [attr.aria-pressed]="aiProviderMode() === 'user-key'"
+              [class]="aiProviderButtonClass('user-key')"
+            >
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <lucide-icon name="key-round" class="h-5 w-5" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold">{{ 'settings.ai.userKey.title' | translate }}</span>
+                <span class="mt-1 block text-xs text-muted-foreground">{{ 'settings.ai.userKey.description' | translate }}</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              (click)="onAiProviderChange('disabled')"
+              [attr.aria-pressed]="aiProviderMode() === 'disabled'"
+              [class]="aiProviderButtonClass('disabled')"
+            >
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                <lucide-icon [img]="monitorIcon" class="h-5 w-5" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold">{{ 'settings.ai.disabled.title' | translate }}</span>
+                <span class="mt-1 block text-xs text-muted-foreground">{{ 'settings.ai.disabled.description' | translate }}</span>
+              </span>
+            </button>
+          </div>
+
+          @if (aiProviderMode() === 'user-key') {
+            <div class="rounded-2xl border border-border bg-card/40 p-4">
+              <div class="flex flex-col gap-3 md:flex-row md:items-end">
+                <div class="min-w-0 flex-1">
+                  <label for="gemini-api-key" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {{ 'settings.ai.apiKey' | translate }}
+                  </label>
+                  <input
+                    id="gemini-api-key"
+                    type="password"
+                    autocomplete="off"
+                    [(ngModel)]="geminiApiKeyInput"
+                    [placeholder]="aiSettingsService.maskedKey() || ('settings.ai.apiKeyPlaceholder' | translate)"
+                    class="mt-2 w-full rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+                  />
+                  <p class="mt-2 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
+                </div>
+                <div class="flex shrink-0 gap-2">
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
+                  >
+                    <lucide-icon [img]="externalLinkIcon" class="h-4 w-4" />
+                    {{ 'settings.ai.getKey' | translate }}
+                  </a>
+                  <button
+                    type="button"
+                    (click)="onSaveAiSettings()"
+                    [disabled]="aiSettingsService.isLoading()"
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                  >
+                    <lucide-icon [img]="checkIcon" class="h-4 w-4" />
+                    {{ 'settings.ai.save' | translate }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+
+          @if (aiSettingsService.lastMessage()) {
+            <p class="text-sm text-emerald-600">{{ aiSettingsService.lastMessage() }}</p>
+          }
+          @if (aiSettingsService.lastError()) {
+            <p class="text-sm text-destructive">{{ aiSettingsService.lastError() }}</p>
           }
         </div>
       </app-section-card>
@@ -828,6 +919,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
+  readonly aiSettingsService = inject(AiSettingsService);
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -846,6 +938,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly refreshCwIcon = RefreshCw;
   readonly externalLinkIcon = ExternalLink;
   readonly arrowLeftRightIcon = ArrowLeftRight;
+  readonly monitorIcon = Monitor;
 
   // ─── Import from Sheets ───────────────────────────────────────────────────────
   importSheetId = '';
@@ -856,6 +949,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isRestoringJson = signal(false);
   readonly restoreJsonMessage = signal<string | null>(null);
   readonly restoreJsonError = signal(false);
+  geminiApiKeyInput = '';
 
   // ─── Local Notification Preferences ──────────────────────────────────────────
   readonly notificationPrefs = signal<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
@@ -900,6 +994,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     
     // Load notification preferences from storage
     this.loadNotificationPreferences();
+    this.loadAiSettings();
     
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
@@ -921,6 +1016,38 @@ export class SettingsComponent implements OnInit, OnDestroy {
   currentSpeechLanguageLabel(): string {
     const current = this.i18n.languageOptions.find((language) => language.code === this.i18n.language());
     return current ? `${current.nativeLabel} · ${current.speechLang}` : 'English · en-IN';
+  }
+
+  aiProviderMode(): AiProviderMode {
+    return this.aiSettingsService.settings().provider;
+  }
+
+  aiProviderButtonClass(mode: AiProviderMode): string {
+    return [
+      'flex items-start gap-3 rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+      this.aiProviderMode() === mode
+        ? 'border-primary bg-accent shadow-glow'
+        : 'border-border bg-card/40 hover:border-primary/40 hover:bg-card/70',
+    ].join(' ');
+  }
+
+  async onAiProviderChange(provider: AiProviderMode): Promise<void> {
+    const current = this.aiSettingsService.settings();
+    await this.aiSettingsService.save({
+      provider,
+      geminiApiKey: provider === 'user-key'
+        ? this.geminiApiKeyInput.trim() || current.geminiApiKey
+        : null,
+    });
+  }
+
+  async onSaveAiSettings(): Promise<void> {
+    const key = this.geminiApiKeyInput.trim() || this.aiSettingsService.settings().geminiApiKey;
+    await this.aiSettingsService.save({
+      provider: key ? 'user-key' : 'disabled',
+      geminiApiKey: key,
+    });
+    this.geminiApiKeyInput = '';
   }
 
   receiptFolderUrl(): string {
@@ -947,6 +1074,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       console.error('[Settings] Failed to load notification preferences:', error);
       // Keep default preferences on error
     }
+  }
+
+  private async loadAiSettings(): Promise<void> {
+    await this.aiSettingsService.load();
   }
 
   /**

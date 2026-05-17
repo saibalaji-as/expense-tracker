@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
-import { GoogleDriveService, SpenzaConfig } from './google-drive.service';
+import { DriveApiError, GoogleDriveService, SpenzaConfig } from './google-drive.service';
 
 export type BackupMode = 'single' | 'family';
 export type OwnerRole = 'owner' | 'partner';
@@ -79,16 +79,7 @@ export class BackupModeService {
 
   async #loadFromDriveNow(): Promise<void> {
     try {
-      // Find or create the config file
-      let fileId = this.#configFileId ?? await this.driveService.findConfigFile();
-      if (!fileId) {
-        fileId = await this.driveService.createConfigFile();
-      }
-      this.#configFileId = fileId;
-      await this.storageService.set(CACHE_KEY_CONFIG_FILE_ID, fileId);
-
-      // Read the config
-      const config = await this.driveService.readConfigFile(fileId);
+      const { config } = await this.#readConfigWithRecovery();
 
       if (config.mode === null || (config.mode === 'family' && !config.sharedFileId)) {
         const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
@@ -150,13 +141,10 @@ export class BackupModeService {
    * Persists a config update to Drive and updates local cache.
    */
   async #saveConfig(updates: Partial<SpenzaConfig>): Promise<void> {
-    const fileId = this.#configFileId;
-    if (!fileId) {
-      console.warn('[BackupModeService] No config file ID — cannot save to Drive');
-      return;
-    }
     try {
+      const { fileId, config: existing } = await this.#readConfigWithRecovery();
       const updated: SpenzaConfig = {
+        ...existing,
         version: '1.0',
         mode: this.mode(),
         sharedFileId: this.sharedFileId(),
@@ -169,6 +157,39 @@ export class BackupModeService {
     } catch (err) {
       console.error('[BackupModeService] Failed to save config to Drive:', err);
     }
+  }
+
+  async #readConfigWithRecovery(): Promise<{ fileId: string; config: SpenzaConfig }> {
+    const fileId = await this.#ensureConfigFileId();
+    try {
+      return { fileId, config: await this.driveService.readConfigFile(fileId) };
+    } catch (error) {
+      if (!this.#isNotFound(error)) throw error;
+
+      console.info('[BackupModeService] Cached Drive config ID was not found. Re-discovering config file.');
+      this.#configFileId = null;
+      await this.storageService.remove(CACHE_KEY_CONFIG_FILE_ID);
+
+      const recoveredFileId = await this.#ensureConfigFileId();
+      return { fileId: recoveredFileId, config: await this.driveService.readConfigFile(recoveredFileId) };
+    }
+  }
+
+  async #ensureConfigFileId(): Promise<string> {
+    let fileId = this.#configFileId ?? await this.driveService.findConfigFile();
+    if (!fileId) {
+      fileId = await this.driveService.createConfigFile();
+    }
+    this.#configFileId = fileId;
+    await this.storageService.set(CACHE_KEY_CONFIG_FILE_ID, fileId);
+    return fileId;
+  }
+
+  #isNotFound(error: unknown): boolean {
+    return typeof error === 'object'
+      && error !== null
+      && 'status' in error
+      && (error as DriveApiError).status === 404;
   }
 
   async setMode(mode: BackupMode): Promise<void> {

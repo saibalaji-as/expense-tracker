@@ -74,6 +74,10 @@ export interface SpenzaConfig {
   sharedFileId: string | null;
   familyFolderId?: string | null;
   ownerRole: 'owner' | 'partner' | null;
+  aiSettings?: {
+    provider: 'default' | 'user-key' | 'disabled';
+    geminiApiKey?: string | null;
+  };
   lastUpdated: string;
 }
 
@@ -84,6 +88,10 @@ export function buildInitialConfig(): SpenzaConfig {
     sharedFileId: null,
     familyFolderId: null,
     ownerRole: null,
+    aiSettings: {
+      provider: 'disabled',
+      geminiApiKey: null,
+    },
     lastUpdated: new Date().toISOString(),
   };
 }

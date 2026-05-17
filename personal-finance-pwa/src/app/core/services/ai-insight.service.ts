@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { environment } from '../../../environments/environment';
+import { AiSettingsService } from './ai-settings.service';
 import { StorageService } from './storage.service';
 
 export type InsightTone = 'good' | 'warn' | 'info';
@@ -98,6 +99,7 @@ interface AiInsightUsage {
 @Injectable({ providedIn: 'root' })
 export class AiInsightService {
   private readonly storageService = inject(StorageService);
+  private readonly aiSettingsService = inject(AiSettingsService);
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v1';
   private readonly maxCallsPerDay = 2;
@@ -105,6 +107,16 @@ export class AiInsightService {
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
   async generateWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
+    await this.aiSettingsService.load();
+    if (this.aiSettingsService.isDisabled()) {
+      return null;
+    }
+
+    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
+    if (!userGeminiKey) {
+      return null;
+    }
+
     const cache = await this.getCache();
     const signature = this.signatureFor(payload);
     const todayKey = this.todayKey();
@@ -129,7 +141,10 @@ export class AiInsightService {
 
       const response = await fetch(`${this.functionsBaseUrl()}/generate-insights`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Gemini-Api-Key': userGeminiKey,
+        },
         body: JSON.stringify(payload),
       });
 
