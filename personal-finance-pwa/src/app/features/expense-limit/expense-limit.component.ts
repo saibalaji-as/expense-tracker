@@ -22,13 +22,16 @@ import { BudgetCategory, ExpenseLimit } from '../../core/models/expense-limit.mo
 import {
   DEFAULT_BUDGET_PERCENTAGES,
   PREDEFINED_EXPENSE_TYPES,
-} from '../../core/models/expense-type.constants';
+  getCategoryDef,
+  getCategoryIdByName,
+} from '../../core/models/category-definitions';
 import { METADATA_MONTHLY_INCOME } from '../../core/models/app-metadata.model';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
+import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { ModalComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
@@ -43,27 +46,8 @@ import {
   CheckCircle2,
   Trash2,
 } from 'lucide-angular';
-import { CATEGORY_DEFS } from '../../core/models/category-definitions';
 
 const BUDGET_CATEGORIES: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 'Buffer'];
-
-/** Maps predefined type names to CATEGORY_DEFS IDs */
-const TYPE_TO_CAT_ID: Record<string, string> = {
-  'Housing':               'housing',
-  'Food & Groceries':      'food',
-  'Transportation':        'transport',
-  'Utilities':             'utilities',
-  'Healthcare':            'health',
-  'Entertainment':         'entertainment',
-  'Dining Out':            'dining',
-  'Shopping/Clothing':     'shopping',
-  'Savings/Emergency Fund':'savings',
-  'Investments':           'investments',
-  'Education':             'education',
-  'Personal Care':         'personal',
-  'Subscriptions':         'subscriptions',
-  'Miscellaneous':         'misc',
-};
 
 /** Maps BudgetCategory (capitalized) to group color CSS variable */
 const GROUP_COLOR_VARS: Record<BudgetCategory, string> = {
@@ -105,6 +89,20 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
           {{ 'limits.description' | translate }}
         </p>
       </div>
+
+      @if (requiresIncomeSetup()) {
+        <div class="mb-6 flex gap-3 rounded-2xl border border-primary/30 bg-primary/10 p-4 text-primary shadow-sm">
+          <div class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary/15">
+            <lucide-icon [img]="alertTriangleIcon" class="h-5 w-5" />
+          </div>
+          <div class="min-w-0">
+            <p class="font-semibold">{{ 'limits.onboarding.title' | translate }}</p>
+            <p class="mt-1 text-sm text-foreground/80">
+              {{ 'limits.onboarding.description' | translate }}
+            </p>
+          </div>
+        </div>
+      }
 
       <form [formGroup]="form" (ngSubmit)="onSave()" novalidate>
 
@@ -352,7 +350,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         <div class="sticky z-30 md:static md:bottom-auto">
           <button
             type="submit"
-            [disabled]="!isAllocationBalanced()"
+            [disabled]="!isAllocationBalanced() || form.invalid"
             class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
           >
 	            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> {{ 'limits.save' | translate }}
@@ -382,6 +380,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   private readonly storageService = inject(StorageService);
   private readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
+  private readonly feedback = inject(UserFeedbackService);
 
   readonly budgetCategories = BUDGET_CATEGORIES;
   readonly budgetGroups = BUDGET_GROUPS;
@@ -389,8 +388,8 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   getDisplayType(index: number): string {
     const type = this.limitsArray.at(index)?.get('type')?.value as string | null;
     if (!type) return '';
-    const categoryId = TYPE_TO_CAT_ID[type];
-    if (!categoryId) return type;
+    const categoryId = getCategoryIdByName(type);
+    if (categoryId === 'custom') return type;
     return this.i18n.t(`category.${categoryId}`);
   }
 
@@ -476,6 +475,10 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     return !!(ctrl?.invalid && ctrl?.touched);
   }
 
+  requiresIncomeSetup(): boolean {
+    return this.expenseStore.monthlyIncome() <= 0;
+  }
+
   isAllocationBalanced(): boolean {
     return Math.abs(this.runningTotal() - 100) < 0.05;
   }
@@ -488,14 +491,13 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   /** Returns the CATEGORY_DEFS id for the limit at the given index */
   getCatId(index: number): string {
     const typeName = this.limitsArray.controls[index]?.get('type')?.value as string;
-    return TYPE_TO_CAT_ID[typeName] ?? 'misc';
+    const categoryId = getCategoryIdByName(typeName);
+    return categoryId === 'custom' ? 'misc' : categoryId;
   }
 
   /** Returns the CSS variable name (without var()) for the category color at the given index */
   getCatColorVar(index: number): string {
-    const catId = this.getCatId(index);
-    const def = CATEGORY_DEFS.find((c) => c.id === catId);
-    return def?.colorVar ?? '--cat-misc';
+    return getCategoryDef(this.getCatId(index)).colorVar;
   }
 
   /** Sums userPercentage for all limits in the given budget group */
@@ -552,14 +554,28 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   onSave(): void {
     this.form.markAllAsTouched();
     this.normalizeCustomTypeNames();
-    if (this.form.invalid) return;
+    if (this.form.invalid) {
+      this.feedback.warning(
+        'Budget limits were not saved.',
+        'Enter a monthly income greater than 0 and fill any custom category names before saving.'
+      );
+      return;
+    }
+
+    if (!this.isAllocationBalanced()) {
+      this.feedback.warning(
+        'Budget limits were not saved.',
+        `Your allocation is ${this.runningTotal()}%. Adjust the percentages until the total is exactly 100%.`
+      );
+      return;
+    }
 
     const savingsPct = this.getSavingsPercentage();
     if (savingsPct < 20) {
       this.pendingSave = true;
       this.showSavingsWarning.set(true);
     } else {
-      this.executeSave();
+      void this.executeSave();
     }
   }
 
@@ -567,7 +583,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     this.showSavingsWarning.set(false);
     if (this.pendingSave) {
       this.pendingSave = false;
-      this.executeSave();
+      void this.executeSave();
     }
   }
 
@@ -676,9 +692,22 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     }));
 
     // setLimitsAndIncome automatically persists to Google Drive
-    this.expenseStore.setLimitsAndIncome(limits, income);
-    this.saveSuccess.set(true);
-    setTimeout(() => this.saveSuccess.set(false), 3000);
+    try {
+      await this.expenseStore.setLimitsAndIncome(limits, income);
+      this.feedback.success(
+        'Budget limits saved.',
+        'Your monthly income and category limits were saved to your Drive backup.'
+      );
+      this.saveSuccess.set(true);
+      setTimeout(() => this.saveSuccess.set(false), 3000);
+    } catch (error) {
+      this.feedback.error(
+        'Budget limits were not saved.',
+        error instanceof Error
+          ? error.message
+          : 'Check your connection and Drive access, then try again.'
+      );
+    }
   }
 
   private normalizeCustomTypeNames(): void {

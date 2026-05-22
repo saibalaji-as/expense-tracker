@@ -1,10 +1,11 @@
 import type { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import * as admin from 'firebase-admin';
-import { getReminderSlot, resolveTimezone } from './scheduler-utils';
+import { getHourlyReminderMessage } from './reminder-messages';
+import { getDailyReminderSlot, getReminderSlot, resolveTimezone } from './scheduler-utils';
 
-// Netlify scheduled function — runs every 30 minutes so half-hour timezones
-// like Asia/Kolkata can still receive reminders at local minute 00.
-export const config = { schedule: '*/30 * * * *' };
+// Netlify scheduled function — runs every minute so push fallback reminders can
+// respect the user's chosen reminder minute even when the app is closed.
+export const config = { schedule: '* * * * *' };
 
 // Initialize Firebase Admin SDK (singleton pattern)
 if (!admin.apps.length) {
@@ -29,7 +30,7 @@ export const handler: Handler = async (
   _context: HandlerContext
 ) => {
   try {
-    console.log('Starting hourly reminder check...');
+    console.log('Starting reminder check...');
 
     const utcNow = new Date();
 
@@ -49,15 +50,18 @@ export const handler: Handler = async (
     for (const doc of usersSnapshot.docs) {
       const data = doc.data();
       const userId = doc.id;
-      const { fcmToken, timezone } = data;
+      const { fcmToken, timezone, dailyReminderEnabled, reminderHour, reminderMinute } = data;
 
       // Resolve timezone — falls back to "UTC" for missing/invalid values
       const resolvedTz = resolveTimezone(timezone);
 
-      // Exact hourly slot gate: 08:00, 09:00, ... 22:00 local time.
-      const reminderSlot = getReminderSlot(utcNow, resolvedTz);
+      // Prefer the user-selected daily reminder time when available. Older
+      // push-only registrations keep the existing hourly 08:00-22:00 behavior.
+      const reminderSlot = dailyReminderEnabled === true
+        ? getDailyReminderSlot(utcNow, resolvedTz, reminderHour, reminderMinute)
+        : getReminderSlot(utcNow, resolvedTz);
       if (!reminderSlot) {
-        console.log(`⏭️  Skipping user ${userId} (outside hourly active slot in ${resolvedTz})`);
+        console.log(`⏭️  Skipping user ${userId} (outside reminder slot in ${resolvedTz})`);
         skippedCount++;
         continue;
       }
@@ -87,10 +91,11 @@ export const handler: Handler = async (
       }
 
       // Build FCM message
+      const reminderMessage = getHourlyReminderMessage(reminderSlot);
       const message = {
         notification: {
-          title: 'Spenza 💸',
-          body: "Don't forget to log your expenses!",
+          title: reminderMessage.title,
+          body: reminderMessage.body,
         },
         token: fcmToken,
         webpush: {
@@ -149,7 +154,7 @@ export const handler: Handler = async (
       message: `Processed ${usersSnapshot.size} enabled users: ${sentCount} sent, ${skippedCount} skipped, ${errorCount} errors, ${tokenRemovedCount} tokens removed`,
     };
 
-    console.log('Hourly reminder check complete:', summary);
+    console.log('Reminder check complete:', summary);
 
     return {
       statusCode: 200,

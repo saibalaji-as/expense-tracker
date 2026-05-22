@@ -3,7 +3,7 @@
 import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/category-definitions';
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
 

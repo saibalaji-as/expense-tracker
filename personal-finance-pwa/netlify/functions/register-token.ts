@@ -53,7 +53,7 @@ export const handler: Handler = async (
   try {
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { userId, fcmToken, timezone, timestamp } = body;
+    const { userId, fcmToken, timezone, timestamp, dailyReminderEnabled, reminderHour, reminderMinute } = body;
 
     // Validate required fields
     if (!userId || !fcmToken) {
@@ -77,6 +77,9 @@ export const handler: Handler = async (
       fcmToken,
       timezone: resolvedTz,
       enabled: true,
+      dailyReminderEnabled: dailyReminderEnabled === true,
+      reminderHour: Number.isInteger(reminderHour) ? reminderHour : null,
+      reminderMinute: Number.isInteger(reminderMinute) ? reminderMinute : null,
       registeredAt: timestamp || Date.now(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()

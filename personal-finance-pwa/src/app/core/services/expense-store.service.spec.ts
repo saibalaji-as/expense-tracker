@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { ExpenseEntry } from '../models/expense-entry.model';
 import { ExpenseLimit, BudgetCategory } from '../models/expense-limit.model';
 import { BudgetRuleSummary } from '../models/budget-rule-summary.model';
-import { PREDEFINED_EXPENSE_TYPES, DEFAULT_BUDGET_PERCENTAGES } from '../models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES, DEFAULT_BUDGET_PERCENTAGES } from '../models/category-definitions';
 
 // ─── Pure logic helpers (mirrors ExpenseStore computed signals) ───────────────
 

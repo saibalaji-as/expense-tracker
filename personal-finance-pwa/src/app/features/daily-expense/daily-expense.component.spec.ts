@@ -8,7 +8,7 @@ import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { ExpenseLimit } from '../../core/models/expense-limit.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/category-definitions';
 
 // ─── Pure logic helpers (extracted from component for testability) ─────────────
 
@@ -48,6 +48,45 @@ function getTodayEntries(entries: ExpenseEntry[]): ExpenseEntry[] {
 /** Validates form: type must be non-empty, amount must be > 0 */
 function isFormValid(type: string, amount: number | null): boolean {
   return type.length > 0 && amount !== null && amount > 0;
+}
+
+/** Mirrors receipt smart-fill type fallback behavior */
+function appliedReceiptType(
+  extractedType: string | null | undefined,
+  availableTypes: readonly string[]
+): string | null {
+  const normalize = (value: string | null | undefined) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, 'and')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+
+  const normalized = normalize(extractedType);
+  const direct = availableTypes.find((type) => normalize(type) === normalized);
+  if (direct) return direct;
+
+  const aliases: Record<string, string> = {
+    food: 'Food & Groceries',
+    grocery: 'Food & Groceries',
+    groceries: 'Food & Groceries',
+    restaurant: 'Dining Out',
+    restaurants: 'Dining Out',
+    dining: 'Dining Out',
+    transport: 'Transportation',
+    shopping: 'Shopping/Clothing',
+    clothing: 'Shopping/Clothing',
+    savings: 'Savings/Emergency Fund',
+    emergency: 'Savings/Emergency Fund',
+    misc: 'Miscellaneous',
+    miscellaneous: 'Miscellaneous',
+  };
+  const alias = aliases[normalized];
+  if (alias && availableTypes.includes(alias)) return alias;
+
+  return availableTypes.includes('Miscellaneous') ? 'Miscellaneous' : null;
 }
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
@@ -515,5 +554,19 @@ describe('Unit: Form validation logic', () => {
 
   it('null amount is invalid (required error)', () => {
     expect(isFormValid('Food', null)).toBe(false);
+  });
+});
+
+describe('Receipt smart-fill type fallback', () => {
+  it('uses Miscellaneous when extraction has no recognized expense type', () => {
+    const type = appliedReceiptType(null, PREDEFINED_EXPENSE_TYPES);
+
+    expect(type).toBe('Miscellaneous');
+    expect(isFormValid(type ?? '', 1075.46)).toBe(true);
+  });
+
+  it('normalizes recognized receipt categories before applying them', () => {
+    expect(appliedReceiptType('groceries', PREDEFINED_EXPENSE_TYPES)).toBe('Food & Groceries');
+    expect(appliedReceiptType('misc', PREDEFINED_EXPENSE_TYPES)).toBe('Miscellaneous');
   });
 });

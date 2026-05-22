@@ -221,9 +221,12 @@ export const ExpenseStore = signalStore(
       persistedRevision = 0;
     };
 
-    const markLocalChangeAndPersist = (): void => {
+    const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
-      void methods.persistToDrive();
+      await methods.persistToDrive();
+      if (store.syncStatus() === 'error') {
+        throw new Error('Your changes could not be saved to Google Drive. Check your connection and Drive access, then try again.');
+      }
     };
 
     const activeDriveFileId = (): string | null => {
@@ -243,7 +246,7 @@ export const ExpenseStore = signalStore(
        * Task 7.2: After adding entry, checks if category spending exceeds 80%
        * of its configured limit and emits a budget threshold event if so.
        */
-      addEntry(entry: ExpenseEntry): void {
+      async addEntry(entry: ExpenseEntry): Promise<void> {
         patchState(store, { entries: [entry, ...store.entries()] });
         
         // Task 7.2: Check budget threshold after adding entry
@@ -271,10 +274,10 @@ export const ExpenseStore = signalStore(
           }
         }
         
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
-      addEntries(entries: ExpenseEntry[]): void {
+      async addEntries(entries: ExpenseEntry[]): Promise<void> {
         if (entries.length === 0) return;
         patchState(store, { entries: [...entries, ...store.entries()] });
 
@@ -298,7 +301,7 @@ export const ExpenseStore = signalStore(
           }
         }
 
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
       // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
@@ -470,9 +473,9 @@ export const ExpenseStore = signalStore(
        * Directly updates limits and monthly income in the store
        * without making any remote API calls, then persists to Drive.
        */
-      setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): void {
+      async setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): Promise<void> {
         patchState(store, { limits, monthlyIncome });
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
       // ─── Task 6.7: deleteEntry ────────────────────────────────────────────
@@ -480,10 +483,10 @@ export const ExpenseStore = signalStore(
        * Removes an expense entry from the in-memory store by its ID,
        * then persists the updated state to Google Drive.
        */
-      deleteEntry(entryId: string): void {
+      async deleteEntry(entryId: string): Promise<void> {
         const updatedEntries = store.entries().filter((e) => e.id !== entryId);
         patchState(store, { entries: updatedEntries });
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
       // ─── Task 6.7: updateEntry ────────────────────────────────────────────
@@ -491,12 +494,12 @@ export const ExpenseStore = signalStore(
        * Updates an existing expense entry in the in-memory store,
        * then persists the updated state to Google Drive.
        */
-      updateEntry(updatedEntry: ExpenseEntry): void {
+      async updateEntry(updatedEntry: ExpenseEntry): Promise<void> {
         const updatedEntries = store.entries().map((e) =>
           e.id === updatedEntry.id ? updatedEntry : e
         );
         patchState(store, { entries: updatedEntries });
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
       // ─── Task 6.2: loadFromDrive ──────────────────────────────────────────
@@ -587,9 +590,9 @@ export const ExpenseStore = signalStore(
         patchState(store, { driveFileId: newFileId, lastKnownDriveModifiedTime: null });
       },
 
-      patchReceiptFolderId(receiptFolderId: string): void {
+      async patchReceiptFolderId(receiptFolderId: string): Promise<void> {
         patchState(store, { receiptFolderId });
-        markLocalChangeAndPersist();
+        await markLocalChangeAndPersist();
       },
 
       // ─── Task 6.5: persistToDrive ─────────────────────────────────────────

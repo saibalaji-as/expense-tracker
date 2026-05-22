@@ -8,6 +8,7 @@ import { ExpenseStore, driveError$ } from './core/services/expense-store.service
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
+import { shouldRedirectToIncomeSetup } from './core/guards/setup-income-gate';
 
 const LOADING_TIMEOUT_MS = 30000;
 const DRIVE_POLL_INTERVAL_MS = 30000;
@@ -135,8 +136,23 @@ export class App implements OnInit, OnDestroy {
     this.loadingError.set(null);
     this.startDrivePollLoop();
 
+    const needsIncomeSetup = this.expenseStore.monthlyIncome() <= 0;
+
     if (isSetupRoute) {
-      await this.router.navigate(['/daily']);
+      await this.router.navigate([needsIncomeSetup ? '/limits' : '/daily'], {
+        queryParams: needsIncomeSetup ? { onboarding: 'income' } : undefined,
+      });
+      return;
+    }
+
+    if (
+      shouldRedirectToIncomeSetup(
+        currentUrl,
+        this.expenseStore.driveFileId(),
+        this.expenseStore.monthlyIncome()
+      )
+    ) {
+      await this.router.navigate(['/limits'], { queryParams: { onboarding: 'income' } });
     }
   }
 

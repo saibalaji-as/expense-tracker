@@ -1,10 +1,10 @@
 // Feature: personal-finance-pwa, Property 17: Notification interval slider-input binding
-// Feature: personal-finance-pwa, Property 19: CSV export completeness
+// Feature: personal-finance-pwa, Property 19: Backup JSON export completeness
 // Feature: time-based-hourly-reminders — Task 7.1: SettingsComponent unit tests
 import * as fc from 'fast-check';
 import { describe, it, expect, vi } from 'vitest';
-import { ExpenseEntry } from '../../core/models/expense-entry.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/expense-type.constants';
+import { ExpenseEntry, ExpenseLimit } from '../../core/models';
+import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/category-definitions';
 
 // ─── Pure logic helpers (mirrors SettingsComponent logic) ─────────────────────
 
@@ -29,77 +29,24 @@ class IntervalControl {
   }
 }
 
-/**
- * Mirrors SettingsComponent.#entriesToCsv private method
- */
-function entriesToCsv(entries: ExpenseEntry[]): string {
-  const header = 'id,date,amount,type,limit,savings,timestamp';
-  const rows = entries.map((e) => {
-    const escape = (val: string | number) => {
-      const str = String(val);
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    };
-    return [
-      escape(e.id),
-      escape(e.date),
-      escape(e.amount),
-      escape(e.type),
-      escape(e.limit),
-      escape(e.savings),
-      escape(e.timestamp),
-    ].join(',');
-  });
-  return [header, ...rows].join('\n');
-}
-
-/**
- * Parse CSV back to entries for round-trip testing
- */
-function parseCsv(csv: string): Array<Record<string, string>> {
-  const lines = csv.split('\n');
-  if (lines.length < 1) return [];
-
-  const headers = lines[0].split(',');
-  const result: Array<Record<string, string>> = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim()) continue;
-
-    // Simple CSV parser (handles quoted fields)
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let j = 0; j < line.length; j++) {
-      const char = line[j];
-      if (char === '"') {
-        if (inQuotes && line[j + 1] === '"') {
-          current += '"';
-          j++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        values.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    values.push(current);
-
-    const row: Record<string, string> = {};
-    for (let k = 0; k < headers.length; k++) {
-      row[headers[k]] = values[k] ?? '';
-    }
-    result.push(row);
-  }
-
-  return result;
+function buildBackupJson(
+  entries: ExpenseEntry[],
+  limits: ExpenseLimit[],
+  monthlyIncome: number,
+  currency: string,
+  receiptFolderId: string | null
+): string {
+  return `${JSON.stringify({
+    version: '1.0',
+    lastUpdated: new Date('2026-05-20T00:00:00.000Z').toISOString(),
+    metadata: {
+      monthlyIncome,
+      currency,
+      ...(receiptFolderId ? { receiptFolderId } : {}),
+    },
+    expenses: entries,
+    limits,
+  }, null, 2)}\n`;
 }
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
@@ -118,6 +65,13 @@ const expenseEntryArb = fc.record<ExpenseEntry>({
   savings:   fc.float({ min: Math.fround(-10000), max: Math.fround(10000), noNaN: true }),
   timestamp: fc.integer({ min: new Date('2020-01-01').getTime(), max: new Date('2030-12-31').getTime() })
                .map(n => new Date(n).toISOString()),
+});
+
+const expenseLimitArb = fc.record<ExpenseLimit>({
+  type: fc.constantFrom(...PREDEFINED_EXPENSE_TYPES),
+  recommendedPercentage: fc.float({ min: 0, max: Math.fround(100), noNaN: true }),
+  userPercentage: fc.float({ min: 0, max: Math.fround(100), noNaN: true }),
+  category: fc.constantFrom('Needs', 'Wants', 'Savings', 'Growth', 'Buffer'),
 });
 
 // ─── Property 17: Notification Interval Slider-Input Binding ─────────────────
@@ -185,95 +139,72 @@ describe('Property 17: Notification Interval Slider-Input Binding', () => {
   });
 });
 
-// ─── Property 19: CSV Export Completeness ────────────────────────────────────
+// ─── Property 19: Backup JSON Export Completeness ────────────────────────────
 
-describe('Property 19: CSV Export Completeness', () => {
-  it('CSV has exactly one data row per entry', () => {
+describe('Property 19: Backup JSON Export Completeness', () => {
+  it('backup JSON has exactly one expense item per entry', () => {
     fc.assert(
       fc.property(
         fc.array(expenseEntryArb, { minLength: 0, maxLength: 20 }),
         (entries) => {
-          const csv = entriesToCsv(entries);
-          const lines = csv.split('\n').filter(l => l.trim());
-          // 1 header + N data rows
-          expect(lines.length).toBe(entries.length + 1);
+          const parsed = JSON.parse(buildBackupJson(entries, [], 0, 'INR', null));
+          expect(parsed.expenses).toHaveLength(entries.length);
         }
       ),
       { numRuns: 100 }
     );
   });
 
-  it('CSV header row contains all required fields', () => {
+  it('backup JSON contains the restore-compatible top-level fields', () => {
     fc.assert(
       fc.property(
         fc.array(expenseEntryArb, { minLength: 0, maxLength: 5 }),
-        (entries) => {
-          const csv = entriesToCsv(entries);
-          const header = csv.split('\n')[0];
-          expect(header).toBe('id,date,amount,type,limit,savings,timestamp');
+        fc.array(expenseLimitArb, { minLength: 0, maxLength: 5 }),
+        (entries, limits) => {
+          const parsed = JSON.parse(buildBackupJson(entries, limits, 50000, 'INR', 'receipt-folder-id'));
+
+          expect(parsed.version).toBe('1.0');
+          expect(typeof parsed.lastUpdated).toBe('string');
+          expect(Array.isArray(parsed.expenses)).toBe(true);
+          expect(Array.isArray(parsed.limits)).toBe(true);
+          expect(parsed.metadata).toEqual({
+            monthlyIncome: 50000,
+            currency: 'INR',
+            receiptFolderId: 'receipt-folder-id',
+          });
         }
       ),
       { numRuns: 100 }
     );
   });
 
-  it('CSV round-trip: parsing back yields entries with equivalent field values', () => {
+  it('backup JSON round-trip preserves expenses and limits', () => {
     fc.assert(
       fc.property(
         fc.array(expenseEntryArb, { minLength: 1, maxLength: 10 }),
-        (entries) => {
-          const csv = entriesToCsv(entries);
-          const parsed = parseCsv(csv);
+        fc.array(expenseLimitArb, { minLength: 1, maxLength: 10 }),
+        (entries, limits) => {
+          const parsed = JSON.parse(buildBackupJson(entries, limits, 25000, 'AED', null));
 
-          expect(parsed.length).toBe(entries.length);
-
-          for (let i = 0; i < entries.length; i++) {
-            const original = entries[i];
-            const row = parsed[i];
-
-            expect(row['id']).toBe(original.id);
-            expect(row['date']).toBe(original.date);
-            expect(parseFloat(row['amount'])).toBeCloseTo(original.amount, 5);
-            expect(row['type']).toBe(original.type);
-            expect(parseFloat(row['limit'])).toBeCloseTo(original.limit, 5);
-            expect(parseFloat(row['savings'])).toBeCloseTo(original.savings, 5);
-            expect(row['timestamp']).toBe(original.timestamp);
-          }
+          expect(parsed.expenses).toEqual(JSON.parse(JSON.stringify(entries)));
+          expect(parsed.limits).toEqual(JSON.parse(JSON.stringify(limits)));
+          expect(parsed.metadata.monthlyIncome).toBe(25000);
+          expect(parsed.metadata.currency).toBe('AED');
+          expect(parsed.metadata.receiptFolderId).toBeUndefined();
         }
       ),
       { numRuns: 100 }
     );
   });
 
-  it('CSV export handles empty entries array', () => {
+  it('backup JSON handles empty entries and limits arrays', () => {
     fc.assert(
       fc.property(fc.constant([]), (entries: ExpenseEntry[]) => {
-        const csv = entriesToCsv(entries);
-        expect(csv).toBe('id,date,amount,type,limit,savings,timestamp');
+        const parsed = JSON.parse(buildBackupJson(entries, [], 0, 'USD', null));
+        expect(parsed.expenses).toEqual([]);
+        expect(parsed.limits).toEqual([]);
       }),
       { numRuns: 1 }
-    );
-  });
-
-  it('CSV fields with commas are properly quoted', () => {
-    fc.assert(
-      fc.property(
-        fc.record<ExpenseEntry>({
-          id:        fc.uuid(),
-          date:      fc.constant('2024-01-01'),
-          amount:    fc.float({ min: Math.fround(0.01), max: Math.fround(1000), noNaN: true }),
-          type:      fc.constant('Food, Drinks'),  // contains comma
-          limit:     fc.float({ min: 0, max: Math.fround(1000), noNaN: true }),
-          savings:   fc.float({ min: Math.fround(-1000), max: Math.fround(1000), noNaN: true }),
-          timestamp: fc.constant('2024-01-01T00:00:00.000Z'),
-        }),
-        (entry) => {
-          const csv = entriesToCsv([entry]);
-          const parsed = parseCsv(csv);
-          expect(parsed[0]['type']).toBe(entry.type);
-        }
-      ),
-      { numRuns: 50 }
     );
   });
 });
@@ -438,8 +369,8 @@ describe('SettingsComponent — Task 7.1: interval picker removed (Requirements 
     expect(source).not.toContain('pencilIcon');
   });
 
-  it('does not import Pencil from lucide-angular', () => {
-    expect(source).not.toContain('Pencil');
+  it('does not use the removed interval pencil icon binding', () => {
+    expect(source).not.toContain('pencilIcon');
   });
 
   it('does not import ReactiveFormsModule', () => {
@@ -696,7 +627,7 @@ describe('SettingsComponent — Task 12.3: source-level checks', () => {
   });
 
   it('secondary warning contains the correct partner access message', () => {
-    expect(source).toContain('Your partner can still access the shared file until you remove their access in Google Drive.');
+    expect(source).toContain('Your partner can still access the shared family Drive folder/file until you remove their access in Google Drive.');
   });
 
   it('secondary warning contains Open file in Google Drive link', () => {
@@ -705,7 +636,8 @@ describe('SettingsComponent — Task 12.3: source-level checks', () => {
   });
 
   it('primary confirmation contains the correct warning message', () => {
-    expect(source).toContain('Switching modes will disconnect you from your current backup. Your existing data will not be deleted from Google Drive. Continue?');
+    expect(source).toContain('Switching to single mode will copy the latest family expenses into your private backup before disconnecting this device from family mode.');
+    expect(source).toContain('Switching to family mode will keep your private backup safe.');
   });
 });
 

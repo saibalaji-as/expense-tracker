@@ -1,0 +1,486 @@
+# Spenza Project Context
+
+## Scope
+- Product: Spenza personal/household expense tracker.
+- Primary app root: `personal-finance-pwa/`.
+- Deployment root config: repository-level `netlify.toml`.
+- App targets:
+  - Web PWA deployed to Netlify.
+  - Android shell through Capacitor.
+- Current source of truth for user data: Google Drive JSON backup, not Google Sheets.
+
+## Tech Stack
+- Angular `^21.1.0`, standalone components, strict templates, zoneless change detection.
+- TypeScript `~5.9.2`, strict compiler settings, ES2022 target.
+- State: `@ngrx/signals` signal store plus Angular `signal`/`computed`/`effect`.
+- UI: Tailwind CSS `^3.4.19`, CSS custom properties, light/dark themes, Lucide icons via `lucide-angular`.
+- Charts: Chart.js `^4.5.1` through `ng2-charts`.
+- Persistence:
+  - Capacitor Preferences for local key/value cache.
+  - Google Drive API JSON files for authoritative app data/config.
+  - IndexedDB via `idb` for legacy/offline Sheets queue.
+  - Firestore only for FCM token registry.
+- Native/mobile:
+  - Capacitor `^8.3.x`.
+  - `@capgo/capacitor-social-login` for native Google sign-in.
+  - Capacitor local and push notifications.
+- AI/OCR:
+  - Local OCR: `tesseract.js` with `eng+tam+hin`.
+  - PDF parsing/rendering: `pdfjs-dist`.
+  - Gemini calls are proxied through Netlify functions and require a user-supplied Gemini API key.
+- Tests:
+  - Angular unit-test builder configured in `angular.json`.
+  - Vitest config exists for `src/**/*.spec.ts` with node environment.
+  - Netlify function utility tests under `netlify/functions-tests/`.
+
+## Build And Deployment
+- Netlify build:
+  - Base: `personal-finance-pwa`.
+  - Command: `npm ci && npm run build`.
+  - Publish: `dist/personal-finance-pwa/browser`.
+  - Functions: `personal-finance-pwa/netlify/functions`.
+- Angular production build:
+  - Output hashing enabled.
+  - Service worker enabled through `ngsw-config.json`.
+  - Environment file replacement: `environment.ts` -> `environment.prod.ts`.
+  - Initial bundle warning/error budgets: `500kB`/`1MB`.
+  - Component style budgets: `4kB`/`8kB`.
+- Capacitor config:
+  - `appId`: `com.spenza.app`.
+  - `appName`: `Spenza`.
+  - `webDir`: `dist/personal-finance-pwa/browser`.
+  - Native function base URL comes from `environment.netlifyFunctionsUrl`.
+- Netlify scheduled function:
+  - `send-reminders` runs every minute.
+  - For users with daily reminder preferences synced to FCM, push reminders fire at the selected local hour/minute.
+  - Older push-only registrations without daily reminder preferences keep the legacy hourly slots: local 08:00-22:00 exactly at minute `00`.
+
+## Runtime Configuration
+- Web OAuth client ID is currently injected in `src/index.html` through `window.__GOOGLE_CLIENT_ID__`.
+- Native Google OAuth client IDs are hardcoded in `AuthService`/`capacitor.config.ts` comments.
+- Firebase web config and VAPID key are in `src/app/core/config/firebase.config.ts`.
+- Netlify required environment variables:
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_CLIENT_EMAIL`
+  - `FIREBASE_PRIVATE_KEY`
+  - Optional `GEMINI_MODEL` for Netlify Gemini function model override.
+- Production Netlify functions URL: `https://spenzaio.netlify.app/.netlify/functions`.
+- Development native functions URL: `http://localhost:8888/.netlify/functions`.
+
+## Folder Structure
+- `src/app/app.ts`: root bootstrap orchestration, Drive bootstrap, polling, loading/error state.
+- `src/app/app.config.ts`: app providers, hash routing, service worker, auth interceptor, local notification initializer.
+- `src/app/app.routes.ts`: lazy standalone routes.
+- `src/app/core/models/`: business models, constants, budget/category definitions.
+- `src/app/core/services/`: persistence, auth, Drive, Sheets, sync, notification, AI, i18n, currency, theme services.
+- `src/app/core/guards/`: auth/setup route guards.
+- `src/app/core/interceptors/`: Google API auth retry interceptor.
+- `src/app/core/utils/local-date.ts`: local-date helpers; use for `YYYY-MM-DD` app dates.
+- `src/app/features/`: route-level standalone features.
+- `src/app/shared/components/`: reusable UI primitives and visual widgets.
+- `src/app/shared/pipes/`: currency/date/percentage/translate pipes.
+- `src/assets/i18n/`: translations for `en`, `ta`, `hi`.
+- `netlify/functions/`: serverless AI and notification endpoints.
+- `android/`: Capacitor Android project and native notification support.
+
+## Routes
+- `/daily`: daily expense entry/list; guarded by auth/setup.
+- `/monthly`: monthly analysis; guarded.
+- `/limits`: budget limit setup; guarded.
+- `/dashboard`: analytics, activity, AI/local insights; guarded.
+- `/settings`: backup, AI, notifications, import/export, account reset; guarded.
+- `/auth/callback`: public Google sign-in/re-consent page.
+- `/mode-select`: backup mode selection; guarded.
+- `/family-setup`: family owner/partner setup; guarded.
+- Default and wildcard redirect to `/daily`.
+- Router uses hash location strategy.
+- After Drive backup data loads, `/daily`, `/monthly`, and `/dashboard` require `metadata.monthlyIncome > 0`; zero-income users are redirected to `/limits?onboarding=income`.
+
+## Authentication And Authorization
+- `AuthService` is the only owner of Google auth state and access tokens.
+- Web auth:
+  - Uses Google Identity Services from `https://accounts.google.com/gsi/client`.
+  - Token client requests all scopes.
+  - Silent token refresh is attempted by `ensureToken()` with `prompt: ''`.
+  - If a restored web session has no live token, route to `/auth/callback`.
+- Native auth:
+  - Uses `@capgo/capacitor-social-login`.
+  - Initializes Google provider once in service constructor.
+  - Requests online access token through Google login.
+- Required scopes:
+  - Sheets: `https://www.googleapis.com/auth/spreadsheets`.
+  - Drive appDataFolder: `https://www.googleapis.com/auth/drive.appdata`.
+  - Full Drive: `https://www.googleapis.com/auth/drive`.
+- Scope version:
+  - `SCOPE_VERSION = '6'`.
+  - Mismatch clears cached auth state to force re-consent.
+- Cached auth keys:
+  - `gapi_auth_state`
+  - `gapi_user_email`
+  - `gapi_scope_version`
+- `authGuard` waits for `AuthService.sessionRestored` before deciding.
+- `setupGuard` waits for auth/session and backup-mode cache, then routes users to mode/family setup when required.
+- `authInterceptor` only intercepts URLs containing `googleapis.com`; on 401 it calls `ensureToken()` and retries once.
+
+## Backup Modes
+- `BackupModeService` owns mode/config state.
+- Modes:
+  - `single`: private backup in Drive `appDataFolder`.
+  - `family`: shared backup file inside a user-visible Google Drive folder.
+- Roles:
+  - `owner`
+  - `partner`
+- Drive config file:
+  - Name: `spenza-config.json`.
+  - Location: Drive `appDataFolder`.
+  - Schema: `version`, `mode`, `sharedFileId`, `familyFolderId`, `ownerRole`, `aiSettings`, `lastUpdated`.
+- Local cache keys:
+  - `spenza_backup_mode`
+  - `spenza_shared_file_id`
+  - `spenza_family_folder_id`
+  - `spenza_owner_role`
+  - `spenza_config_file_id`
+- Config load cache TTL: `60_000ms`.
+- Family recovery:
+  - If config is missing/incomplete, service searches for existing `Spenza Family` folders with `spenza-backup.json`.
+  - Role is inferred from Drive `ownedByMe`.
+
+## Authoritative Data Model
+- Main backup file name: `spenza-backup.json`.
+- Backup document schema:
+  - `version: '1.0'`
+  - `lastUpdated: ISO datetime`
+  - `metadata.monthlyIncome: number`
+  - `metadata.currency: 'INR' | 'USD' | 'AED' | string`
+  - `metadata.receiptFolderId?: string`
+  - `expenses: ExpenseEntry[]`
+  - `limits: ExpenseLimit[]`
+- Single mode backup:
+  - Created/read via Drive `appDataFolder`.
+- Family mode backup:
+  - Owner creates Google Drive folder `Spenza Family`.
+  - Folder contains `spenza-backup.json` and `Receipts/`.
+  - Owner shares the folder ID with partner.
+  - Partner enters folder ID; fallback compatibility accepts direct old backup file ID.
+- Receipt folders:
+  - Single mode default folder name: `Spenza Receipts` in My Drive root.
+  - Family mode folder: `Receipts` inside `Spenza Family`.
+
+## Expense Business Model
+- `ExpenseEntry` fields:
+  - `id`: UUID v4.
+  - `date`: local `YYYY-MM-DD`.
+  - `amount`: positive decimal.
+  - `type`: category/type display name.
+  - `limit`: snapshot of calculated monthly limit at entry creation/update.
+  - `savings`: `limit - amount`; may be negative.
+  - `timestamp`: ISO datetime.
+  - `comment?: string`.
+  - `receipt?: ExpenseReceipt`.
+  - `createdByEmail`, `createdByRole`, `updatedByEmail`, `updatedByRole` support family activity attribution.
+- `ExpenseReceipt` fields:
+  - `fileId`, `fileName`, `mimeType`, `size`, `viewUrl`, `uploadedAt`.
+- `ExpenseLimit` fields:
+  - `type`, `recommendedPercentage`, `userPercentage`, `category`.
+- Budget categories:
+  - `Needs`, `Wants`, `Savings`, `Growth`, `Buffer`.
+- Predefined expense types:
+  - Housing
+  - Food & Groceries
+  - Transportation
+  - Utilities
+  - Healthcare
+  - Entertainment
+  - Dining Out
+  - Shopping/Clothing
+  - Savings/Emergency Fund
+  - Investments
+  - Education
+  - Personal Care
+  - Subscriptions
+  - Miscellaneous
+- Default budget percentages total 100:
+  - Housing 30 Needs
+  - Food & Groceries 10 Needs
+  - Transportation 5 Needs
+  - Utilities 3 Needs
+  - Healthcare 2 Needs
+  - Entertainment 6 Wants
+  - Dining Out 7 Wants
+  - Shopping/Clothing 7 Wants
+  - Savings/Emergency Fund 12 Savings
+  - Investments 6 Growth
+  - Education 2 Growth
+  - Personal Care 5 Wants
+  - Subscriptions 5 Wants
+  - Miscellaneous 0 Buffer
+- Default group totals follow 50/30/20:
+  - Needs 50
+  - Wants 30
+  - Savings + Growth 20
+  - Buffer 0
+- `category-definitions.ts` is the single source of truth for predefined expense type names, category IDs, visual metadata, budget groups, and recommended percentages.
+- `PREDEFINED_EXPENSE_TYPES` and `DEFAULT_BUDGET_PERCENTAGES` are derived exports from `CATEGORY_DEFS`.
+
+## State Management
+- Central store: `ExpenseStore` in `core/services/expense-store.service.ts`.
+- User-facing save acknowledgments and guided errors use `UserFeedbackService` plus the root `ToastComponent`.
+- Store state:
+  - `entries`
+  - `limits`
+  - `monthlyIncome`
+  - `selectedMonth`
+  - `syncStatus`
+  - `isOffline`
+  - `driveFileId`
+  - `receiptFolderId`
+  - `lastKnownDriveModifiedTime`
+- Computed signals:
+  - `todayEntries`
+  - `selectedMonthEntries`
+  - `limitMap`
+  - `budgetRuleSummary`
+- Mutations:
+  - `addEntry`, `addEntries`, `updateEntry`, `deleteEntry`.
+  - `setLimitsAndIncome`.
+  - `importFromSheets`.
+  - `restoreFromBackupDocument`.
+  - `patchDriveFileId`, `patchReceiptFolderId`.
+- Persistence:
+  - Mutations call `markLocalChangeAndPersist()` and eventually `persistToDrive()`.
+  - `persistToDrive()` serializes full store state to the active Drive backup.
+  - Writes are serialized through `persistQueue`.
+  - `localRevision`/`persistedRevision` prevent stale duplicate writes.
+- Remote refresh:
+  - App polls Drive every 30s while visible/focused and authenticated.
+  - `refreshFromDriveIfChanged()` compares Drive `modifiedTime`.
+  - Refresh is skipped during local unsaved revisions.
+- Error subjects:
+  - `driveError$` publishes Drive/parse errors.
+  - `budgetThresholdExceeded$` publishes budget threshold events.
+
+## Google Drive API Architecture
+- `GoogleDriveService` owns raw Drive REST calls.
+- Uses `AuthService.ensureToken()` and manual `fetch()`.
+- Adds no-cache headers and cache-busting query params for reads/metadata.
+- Validates backup documents minimally:
+  - `version` string.
+  - `expenses` array.
+  - `limits` array.
+- Throws:
+  - `DriveApiError` object for HTTP failures.
+  - `DriveParseError` for invalid JSON/schema.
+- Known Drive items for account deletion:
+  - `spenza-backup.json`
+  - `spenza-config.json`
+  - `Spenza Family`
+  - `Spenza Receipts`
+- Receipt upload:
+  - Multipart upload to chosen folder.
+  - File name format: `${expenseDate}_${entryId}_${safeOriginalName}`.
+  - Sanitizes unsafe filename chars.
+
+## Google Sheets Architecture
+- `GoogleSheetsService` remains for migration/legacy flows and offline queue compatibility.
+- Uses GAPI client from `https://apis.google.com/js/api.js`.
+- Required sheet tabs:
+  - `expenses`
+  - `limits`
+  - `metadata`
+- Expenses columns:
+  - `date`, `amount`, `type`, `limit`, `savings`, `timestamp`, `id`, `comment`.
+- Limits columns:
+  - `type`, `recommendedPercentage`, `userPercentage`, `category`.
+- Metadata columns:
+  - `key`, `value`.
+- `SettingsComponent.onImportFromSheets()` reads all rows with month `''`, then writes once into Drive via `ExpenseStore.importFromSheets()`.
+- Do not add new primary features against Sheets unless explicitly building migration support.
+
+## Offline And Sync
+- Current active app data is Drive-backed and not queued through IndexedDB.
+- `SyncService` is legacy/Sheets-oriented:
+  - IndexedDB DB: `pf-pwa-db`.
+  - Store: `offline-queue`.
+  - Supports create/update/delete queue entries.
+  - Flushes to Google Sheets when online and `pf_sheet_id` exists.
+  - Retry limit: `5`.
+- Some UI still references offline/queue behavior; verify before extending.
+
+## Notifications
+- Push notification stack:
+  - `NotificationService` wraps permission/enabled state and FCM registration.
+  - `FcmService` registers native/web FCM tokens with Netlify backend.
+  - Firestore collection: `users`.
+  - User records include `fcmToken`, `timezone`, `enabled`, registration/update timestamps, and reminder slot metadata.
+- Local notification stack:
+  - `LocalNotificationService` initializes through `APP_INITIALIZER`.
+  - Checks permission but does not request on app startup.
+  - Schedules:
+    - Daily reminder.
+    - Monthly nudge on the next 28th at 09:00.
+    - Immediate budget warning when threshold events arrive.
+  - Budget warning dedupe window: 1 hour per category.
+- Notification preferences stored under `notification_preferences`.
+- Defaults come from `DEFAULT_NOTIFICATION_PREFERENCES`.
+- Netlify reminder scheduler:
+  - Sends hourly active-slot reminders only if `enabled == true`.
+  - Uses transaction claim on `lastReminderSlot` to prevent duplicate sends.
+  - Deletes Firestore user docs for invalid/unregistered FCM tokens.
+
+## AI And Receipt Extraction
+- AI settings:
+  - `AiSettingsService` supports `provider: 'user-key' | 'disabled'`.
+  - `default` type exists but normalization currently only preserves `user-key`; everything else becomes `disabled`.
+  - Gemini API key is stored locally in Capacitor Preferences and optionally synced inside Drive config `aiSettings`.
+  - Changing AI settings clears insight cache and usage counters.
+- Weekly insights:
+  - `DashboardComponent` always has deterministic local insight sections.
+  - `AiInsightService` calls `/.netlify/functions/generate-insights` only when user-key mode is active.
+  - Max AI calls per day: 2.
+  - Cache TTL: 12 hours.
+  - Stale cache TTL: 7 days.
+  - Meaningful-change gates avoid repeated calls.
+  - Netlify function tries model candidates:
+    - env `GEMINI_MODEL` first if set.
+    - `gemini-2.5-flash-lite`
+    - `gemini-2.0-flash-lite`
+    - `gemini-2.5-flash`
+    - `gemini-2.0-flash`
+- Receipt extraction:
+  - `AiReceiptExtractionService` first tries Gemini when enabled and file <= 5MB.
+  - Falls back to `ReceiptExtractionService` local OCR/PDF extraction.
+  - `ReceiptExtractionSessionService` owns the active selected receipt, extraction status/result/error/source, and cancellation token.
+  - Receipt extraction session state is root-scoped so Gemini/OCR work survives Daily route/component teardown.
+  - `DailyExpenseComponent` attaches to the root receipt session and auto-applies completed extraction results when the Daily page is active again.
+  - Netlify `extract-receipt` rejects base64 payloads over 7,000,000 chars.
+  - Local OCR scans up to 3 PDF pages and stores image-converted PDFs only when <= 4 pages.
+  - OCR uses amount scoring, multilingual category keywords, line item extraction, date parsing, and merchant/comment fallback.
+  - Drive receipt uploads are compressed after extraction, at save time:
+    - Image receipts are converted to JPEG with max initial dimension 1600px.
+    - Upload compressor starts at quality `0.8`, then lowers quality and dimensions until the upload copy is at or under 120 KB.
+    - PDF receipts converted to stored images use the same 120 KB target.
+    - Image compression failures fail the upload instead of silently saving the original full-size image.
+    - Extraction uses the selected/edited file before upload compression so OCR/AI quality is not reduced.
+
+## UI Architecture
+- Components are standalone and usually inline-template in `.component.ts`.
+- Shared components:
+  - `AppShellComponent`: layout shell.
+  - `BottomNavComponent`: navigation.
+  - `SectionCardComponent`: common content section container.
+  - `CategoryIconComponent`: category visual identity using `CATEGORY_DEFS`.
+  - `ProgressRingComponent`, `SparklineComponent`, `ChartBaseComponent`.
+  - `ModalComponent`, `ToastComponent`, `OfflineBannerComponent`, form primitives.
+- Styling conventions:
+  - Tailwind utilities.
+  - Design tokens in `src/styles.css`.
+  - `.glass-card`, `.gradient-primary`, `.gradient-text`, `.shadow-glow` utilities.
+  - Light theme is colorful; dark theme is glassmorphism.
+  - Use CSS variables for semantic and category colors.
+- Icons:
+  - Register Lucide icons per standalone component with `LUCIDE_ICONS` provider.
+- i18n:
+  - `I18nService` loads JSON dictionaries from `/assets/i18n/{lang}.json`.
+  - Built-in fallback map covers critical strings.
+  - Supported languages: English, Tamil, Hindi.
+  - Voice recognition language follows selected app language.
+- Currency:
+  - Supported currencies: INR, USD, AED.
+  - Currency preference stored under `spenza_currency`.
+  - `CurrencyService.format()` wraps `Intl.NumberFormat`.
+
+## Core Flows
+- Startup:
+  - Root app starts loading timeout of 30s.
+  - Waits for auth session restore and backup-mode local cache.
+  - If unauthenticated, leaves app ready and guards route to auth.
+  - If web token is needed, navigates to `/auth/callback`.
+  - Loads Drive config with retries.
+  - Routes to mode/family setup if incomplete.
+  - Loads active Drive backup.
+  - Starts Drive polling.
+- New user:
+  - Sign in from `/auth/callback`.
+  - Load/create Drive config.
+  - If mode is null, route to `/mode-select`.
+  - Single mode sets config mode then returns to auth callback/bootstrap.
+  - Family mode routes to `/family-setup`.
+- Family owner setup:
+  - Create `Spenza Family` folder in My Drive.
+  - Create nested `Receipts` folder.
+  - Create `spenza-backup.json` inside family folder.
+  - Copy private single-mode backup into shared file when present.
+  - Save family config as owner.
+  - Display family folder ID to share.
+- Family partner setup:
+  - Partner enters shared folder ID.
+  - App finds `spenza-backup.json` inside folder.
+  - Backward compatibility: if folder lookup fails, treats input as old direct file ID.
+  - Reads backup to validate access.
+  - Ensures receipt folder ID is present for folder-based family mode.
+  - Saves family config as partner.
+- Daily expense:
+  - User selects/enters category, amount, date, comment, optional receipt.
+  - Supports backdated expenses.
+  - Supports edit/delete.
+  - Supports receipt upload and OCR/AI smart fill.
+  - Receipt extraction continues if the user navigates away from Daily and reattaches when they return, as long as the app process/browser session remains alive.
+  - Supports splitting receipt line items into multiple entries.
+  - Adds actor metadata from family role/email.
+  - Store persists to Drive.
+- Limits:
+  - User sets monthly income.
+  - User adjusts predefined and custom category percentages.
+  - Total allocation must be ~100%.
+  - Savings/Growth below 20% triggers warning modal before save.
+  - Save writes `limits` and `monthlyIncome` to Drive via store.
+- Dashboard:
+  - Computes today/week/month forecast.
+  - Shows deterministic insights with optional Gemini replacement.
+  - Shows family activity timeline from actor metadata.
+  - Builds Chart.js datasets from store state.
+- Monthly:
+  - Shows selected-month totals, budget allocation, category details, trend/sparkline data.
+  - Month navigation prevents moving beyond current month.
+- Settings:
+  - Theme, language, currency.
+  - AI key management.
+  - Backup/family status and mode switching.
+  - Receipt folder setup.
+  - Google Sheets import to Drive.
+  - Push/local notification preferences.
+  - Local `spenza-backup` JSON export.
+  - JSON restore into active Drive backup.
+  - Clear local cache.
+  - Delete Spenza account data from Drive and local device.
+
+## Error Handling Patterns
+- Drive/GAPI errors are converted to typed-ish objects with `status`, `message`, `operation`.
+- `driveError$` is the central channel for Drive bootstrap/persistence errors.
+- Root app maps Drive errors to user-friendly loading messages:
+  - 403 -> access denied.
+  - 404 -> backup file not found.
+  - Network/fetch -> network error.
+  - Default -> couldn't load data.
+- Family-specific 403/404 errors are logged and handled by toast path.
+- Many services catch noncritical errors, log warnings, and keep app usable.
+- Netlify functions return CORS headers and method validation.
+- AI services return `null`/fallback instead of hard-failing UI.
+
+## Performance And Consistency Optimizations
+- Standalone lazy routes reduce initial route code.
+- Angular service worker enabled in production.
+- Drive writes are serialized to avoid overlapping writes.
+- Drive reads use `modifiedTime` polling to avoid reloading unchanged backups.
+- Google config load is cached for 60s.
+- AI weekly insights are cached and daily-call limited.
+- OCR downsizes/enhances images and caps PDF pages/pixels.
+- Chart colors resolve CSS variables at runtime because canvas cannot read CSS vars directly.
+
+## Known Architectural Risks
+- `DailyExpenseComponent`, `SettingsComponent`, and `LocalNotificationService` are very large and mix UI, orchestration, and business logic.
+- Google Sheets code and IndexedDB queue remain after Drive became source of truth; avoid accidentally reactivating Sheets as primary persistence.
+- Extensive `console.log` debugging remains in production paths.
+- Some UI strings remain hardcoded in English despite i18n infrastructure.
+- `SettingsComponent` has disabled/commented file-rotation UI plus live rotation methods; treat as legacy/stub unless explicitly revived.
+- Firebase config file contains public web/VAPID values and a stale TODO comment; private Firebase Admin credentials belong only in Netlify env vars.

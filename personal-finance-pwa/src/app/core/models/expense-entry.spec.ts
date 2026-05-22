@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';
 import { ExpenseEntry } from './expense-entry.model';
 import { ExpenseLimit, BudgetCategory } from './expense-limit.model';
-import { PREDEFINED_EXPENSE_TYPES } from './expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES } from './category-definitions';
 
 // ─── Inline serialization helpers (mirrors GoogleSheetsService private methods)
 // These are tested here as pure functions to validate the round-trip property.

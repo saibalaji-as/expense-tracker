@@ -75,6 +75,13 @@ export interface AiInsightResult {
   sections: AiInsightSection[];
 }
 
+export type AiInsightResultSource = 'cache' | 'gemini' | 'none';
+
+export interface AiInsightResponse {
+  result: AiInsightResult | null;
+  source: AiInsightResultSource;
+}
+
 interface AiInsightCache {
   dateKey: string;
   callCount: number;
@@ -84,6 +91,7 @@ interface AiInsightCache {
 }
 
 interface AiInsightSignature {
+  dataKey?: string;
   totalSpent: number;
   entryCount: number;
   monthForecast: number;
@@ -103,10 +111,13 @@ export class AiInsightService {
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v2';
   private readonly maxCallsPerDay = 2;
-  private readonly cacheTtlMs = 12 * 60 * 60 * 1000;
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
   async generateWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
+    return (await this.generateWeeklyInsightsWithSource(payload)).result;
+  }
+
+  async getReusableCachedWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
     await this.aiSettingsService.load();
     if (this.aiSettingsService.isDisabled()) {
       return null;
@@ -119,20 +130,40 @@ export class AiInsightService {
 
     const cache = await this.getCache();
     const signature = this.signatureFor(payload);
+    return this.reusableCacheResult(cache, signature);
+  }
+
+  async generateWeeklyInsightsWithSource(payload: AiInsightPayload): Promise<AiInsightResponse> {
+    await this.aiSettingsService.load();
+    if (this.aiSettingsService.isDisabled()) {
+      return { result: null, source: 'none' };
+    }
+
+    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
+    if (!userGeminiKey) {
+      return { result: null, source: 'none' };
+    }
+
+    const cache = await this.getCache();
+    const signature = this.signatureFor(payload);
     const todayKey = this.todayKey();
     const usage = await this.getUsage(todayKey);
+    const reusableCachedResult = this.reusableCacheResult(cache, signature);
+
+    if (reusableCachedResult) {
+      return { result: reusableCachedResult, source: 'cache' };
+    }
 
     if (cache?.result.sections.length) {
       const cacheAge = Date.now() - cache.cachedAt;
-      if (cacheAge < this.cacheTtlMs && !this.hasMeaningfulChange(cache.signature, signature)) {
-        return cache.result;
-      }
 
       if (usage.callCount >= this.maxCallsPerDay) {
-        return cacheAge < this.staleCacheTtlMs ? cache.result : null;
+        return cacheAge < this.staleCacheTtlMs
+          ? { result: cache.result, source: 'cache' }
+          : { result: null, source: 'none' };
       }
     } else if (usage.callCount >= this.maxCallsPerDay) {
-      return null;
+      return { result: null, source: 'none' };
     }
 
     try {
@@ -150,14 +181,14 @@ export class AiInsightService {
       if (!response.ok) {
         const detail = await response.text();
         console.info('[AiInsightService] AI insights unavailable:', response.status, detail);
-        return null;
+        return { result: null, source: 'none' };
       }
 
       const result = await response.json() as AiInsightResult;
       if (result.provider !== 'gemini' || !Array.isArray(result.sections) || result.sections.length === 0) {
         return cache?.result.sections.length && Date.now() - cache.cachedAt < this.staleCacheTtlMs
-          ? cache.result
-          : null;
+          ? { result: cache.result, source: 'cache' }
+          : { result: null, source: 'none' };
       }
 
       await this.setCache({
@@ -168,12 +199,12 @@ export class AiInsightService {
         result,
       });
       await this.setUsage({ dateKey: todayKey, callCount: nextCallCount });
-      return result;
+      return { result, source: 'gemini' };
     } catch (error) {
       console.info('[AiInsightService] Falling back to local insights:', error);
       return cache?.result.sections.length && Date.now() - cache.cachedAt < this.staleCacheTtlMs
-        ? cache.result
-        : null;
+        ? { result: cache.result, source: 'cache' }
+        : { result: null, source: 'none' };
     }
   }
 
@@ -220,6 +251,7 @@ export class AiInsightService {
 
   private signatureFor(payload: AiInsightPayload): AiInsightSignature {
     return {
+      dataKey: this.stableStringify(this.normalizeForSignature(payload)),
       totalSpent: Math.round(payload.totalSpent),
       entryCount: payload.entryCount,
       monthForecast: Math.round(payload.monthForecast),
@@ -237,15 +269,48 @@ export class AiInsightService {
       .join('|');
   }
 
-  private hasMeaningfulChange(previous: AiInsightSignature, next: AiInsightSignature): boolean {
-    const spendDelta = Math.abs(next.totalSpent - previous.totalSpent);
-    const forecastDelta = Math.abs(next.monthForecast - previous.monthForecast);
-    const spendThreshold = Math.max(250, Math.round(previous.totalSpent * 0.1));
-    const forecastThreshold = Math.max(500, Math.round(previous.monthForecast * 0.08));
+  private reusableCacheResult(
+    cache: AiInsightCache | null,
+    signature: AiInsightSignature
+  ): AiInsightResult | null {
+    if (!cache?.result.sections.length) return null;
+    return this.hasSameInsightInput(cache.signature, signature) ? cache.result : null;
+  }
 
-    return spendDelta >= spendThreshold
-      || forecastDelta >= forecastThreshold
-      || Math.abs(next.entryCount - previous.entryCount) >= 3;
+  private hasSameInsightInput(previous: AiInsightSignature, next: AiInsightSignature): boolean {
+    if (previous.dataKey && next.dataKey) {
+      return previous.dataKey === next.dataKey;
+    }
+
+    return previous.totalSpent === next.totalSpent
+      && previous.entryCount === next.entryCount
+      && previous.monthForecast === next.monthForecast
+      && previous.categoryKey === next.categoryKey
+      && previous.dailyKey === next.dailyKey;
+  }
+
+  private normalizeForSignature(value: unknown): unknown {
+    if (typeof value === 'number') {
+      return Number(value.toFixed(2));
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeForSignature(item));
+    }
+
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => [key, this.normalizeForSignature(item)])
+      );
+    }
+
+    return value;
+  }
+
+  private stableStringify(value: unknown): string {
+    return JSON.stringify(value);
   }
 
   private todayKey(): string {

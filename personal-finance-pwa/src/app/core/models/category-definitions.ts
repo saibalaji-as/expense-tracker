@@ -6,6 +6,8 @@
  * Mirrors the React reference implementation at /UI-design/src/lib/categories.ts.
  */
 
+import { BudgetCategory } from './expense-limit.model';
+
 export type BudgetGroup = 'needs' | 'wants' | 'savings' | 'growth' | 'buffer';
 
 export interface CategoryDef {
@@ -34,7 +36,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'shopping-basket',
     colorVar: '--cat-food',
     group: 'needs',
-    recommendedPct: 15,
+    recommendedPct: 10,
   },
   {
     id: 'transport',
@@ -42,7 +44,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'car',
     colorVar: '--cat-transport',
     group: 'needs',
-    recommendedPct: 10,
+    recommendedPct: 5,
   },
   {
     id: 'utilities',
@@ -50,7 +52,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'plug',
     colorVar: '--cat-utilities',
     group: 'needs',
-    recommendedPct: 5,
+    recommendedPct: 3,
   },
   {
     id: 'health',
@@ -58,7 +60,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'heart-pulse',
     colorVar: '--cat-health',
     group: 'needs',
-    recommendedPct: 5,
+    recommendedPct: 2,
   },
   {
     id: 'entertainment',
@@ -66,7 +68,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'clapperboard',
     colorVar: '--cat-entertainment',
     group: 'wants',
-    recommendedPct: 5,
+    recommendedPct: 6,
   },
   {
     id: 'dining',
@@ -74,7 +76,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'utensils-crossed',
     colorVar: '--cat-dining',
     group: 'wants',
-    recommendedPct: 5,
+    recommendedPct: 7,
   },
   {
     id: 'shopping',
@@ -82,15 +84,15 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'shopping-bag',
     colorVar: '--cat-shopping',
     group: 'wants',
-    recommendedPct: 5,
+    recommendedPct: 7,
   },
   {
     id: 'savings',
-    name: 'Savings/Emergency',
+    name: 'Savings/Emergency Fund',
     icon: 'piggy-bank',
     colorVar: '--cat-savings',
     group: 'savings',
-    recommendedPct: 10,
+    recommendedPct: 12,
   },
   {
     id: 'investments',
@@ -98,7 +100,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'trending-up',
     colorVar: '--cat-investments',
     group: 'growth',
-    recommendedPct: 5,
+    recommendedPct: 6,
   },
   {
     id: 'education',
@@ -114,7 +116,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'sparkles',
     colorVar: '--cat-personal',
     group: 'wants',
-    recommendedPct: 3,
+    recommendedPct: 5,
   },
   {
     id: 'subscriptions',
@@ -122,7 +124,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'repeat',
     colorVar: '--cat-subscriptions',
     group: 'wants',
-    recommendedPct: 2,
+    recommendedPct: 5,
   },
   {
     id: 'misc',
@@ -130,7 +132,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     icon: 'shapes',
     colorVar: '--cat-misc',
     group: 'buffer',
-    recommendedPct: 3,
+    recommendedPct: 0,
   },
 ];
 
@@ -147,10 +149,52 @@ export const FALLBACK_CATEGORY_DEF: CategoryDef = {
   recommendedPct: 0,
 };
 
+export const PREDEFINED_EXPENSE_TYPES: readonly string[] = CATEGORY_DEFS.map((category) => category.name);
+
+export function budgetGroupToBudgetCategory(group: BudgetGroup): BudgetCategory {
+  switch (group) {
+    case 'needs':
+      return 'Needs';
+    case 'wants':
+      return 'Wants';
+    case 'savings':
+      return 'Savings';
+    case 'growth':
+      return 'Growth';
+    case 'buffer':
+      return 'Buffer';
+  }
+}
+
+export const DEFAULT_BUDGET_PERCENTAGES: Record<
+  string,
+  { category: BudgetCategory; recommendedPercentage: number }
+> = Object.fromEntries(
+  CATEGORY_DEFS.map((category) => [
+    category.name,
+    {
+      category: budgetGroupToBudgetCategory(category.group),
+      recommendedPercentage: category.recommendedPct,
+    },
+  ])
+) as Record<string, { category: BudgetCategory; recommendedPercentage: number }>;
+
 /**
  * Looks up a category definition by its ID.
  * Returns FALLBACK_CATEGORY_DEF for any unknown category ID.
  */
 export function getCategoryDef(id: string): CategoryDef {
   return CATEGORY_DEFS.find((c) => c.id === id) ?? FALLBACK_CATEGORY_DEF;
+}
+
+export function getCategoryDefByName(name: string): CategoryDef {
+  return CATEGORY_DEFS.find((category) => category.name === name) ?? FALLBACK_CATEGORY_DEF;
+}
+
+export function getCategoryIdByName(name: string): string {
+  return getCategoryDefByName(name).id;
+}
+
+export function getCategoryNameById(id: string): string {
+  return getCategoryDef(id).name;
 }

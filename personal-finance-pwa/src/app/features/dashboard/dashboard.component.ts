@@ -11,7 +11,7 @@ import { RouterLink } from '@angular/router';
 import { ChartData, ChartOptions } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
-import { CATEGORY_DEFS } from '../../core/models/category-definitions';
+import { getCategoryDefByName } from '../../core/models/category-definitions';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
@@ -638,24 +638,6 @@ export class DashboardComponent implements OnInit {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  /** Maps PREDEFINED_EXPENSE_TYPES names to category IDs for color lookup */
-  private readonly TYPE_TO_CAT_ID: Record<string, string> = {
-    'Housing':                'housing',
-    'Food & Groceries':       'food',
-    'Transportation':         'transport',
-    'Utilities':              'utilities',
-    'Healthcare':             'health',
-    'Entertainment':          'entertainment',
-    'Dining Out':             'dining',
-    'Shopping/Clothing':      'shopping',
-    'Savings/Emergency Fund': 'savings',
-    'Investments':            'investments',
-    'Education':              'education',
-    'Personal Care':          'personal',
-    'Subscriptions':          'subscriptions',
-    'Miscellaneous':          'misc',
-  };
-
   private formatMoney(amount: number): string {
     return this.currencyService.format(Math.round(amount), this.i18n.locale());
   }
@@ -832,8 +814,18 @@ export class DashboardComponent implements OnInit {
     this.lastAiPayloadKey = payloadKey;
 
     const requestId = ++this.aiInsightRequestId;
+    const cachedResult = await this.aiInsightService.getReusableCachedWeeklyInsights(payload);
+    if (requestId !== this.aiInsightRequestId) return;
+
+    if (cachedResult?.sections.length) {
+      this.aiInsightSections.set(cachedResult.sections);
+      this.aiInsightProvider.set(cachedResult.provider);
+      this.aiInsightLoading.set(false);
+      return;
+    }
+
     this.aiInsightLoading.set(true);
-    const result = await this.aiInsightService.generateWeeklyInsights(payload);
+    const { result } = await this.aiInsightService.generateWeeklyInsightsWithSource(payload);
     if (requestId !== this.aiInsightRequestId) return;
 
     if (result?.sections.length) {
@@ -972,16 +964,14 @@ export class DashboardComponent implements OnInit {
 
     // Map type names (e.g. "Housing") → category colorVar → resolved color
     const backgroundColor = labels.map((typeName) => {
-      const catId = this.TYPE_TO_CAT_ID[typeName] ?? 'misc';
-      const def = CATEGORY_DEFS.find((c) => c.id === catId);
-      return def ? this.cssVar(def.colorVar) : this.cssVar('--cat-misc');
+      const def = getCategoryDefByName(typeName);
+      return this.cssVar(def.colorVar);
     });
 
     // Use display names from CATEGORY_DEFS where possible
     const displayLabels = labels.map((typeName) => {
-      const catId = this.TYPE_TO_CAT_ID[typeName] ?? 'misc';
-      const def = CATEGORY_DEFS.find((c) => c.id === catId);
-      return def ? def.name : typeName;
+      const def = getCategoryDefByName(typeName);
+      return def.id === 'custom' ? typeName : def.name;
     });
 
     // Create legend data

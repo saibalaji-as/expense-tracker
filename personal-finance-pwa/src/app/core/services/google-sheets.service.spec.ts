@@ -3,7 +3,7 @@
 import * as fc from 'fast-check';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExpenseEntry } from '../models/expense-entry.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES } from '../models/category-definitions';
 
 // ─── Inline serialization helpers (mirrors GoogleSheetsService private methods)
 // We test the serialization logic directly without instantiating the service

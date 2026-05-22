@@ -22,11 +22,11 @@ import { StorageService } from '../../core/services/storage.service';
 import { AppLanguage, I18nService } from '../../core/services/i18n.service';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
 import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
+import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { SectionCardComponent, ModalComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
-import { ExpenseEntry } from '../../core/models';
 import {
   LucideAngularModule,
   LucideIconProvider,
@@ -83,7 +83,7 @@ interface BeforeInstallPromptEvent extends Event {
           @for (opt of themeOptions; track opt.value) {
             <button
               type="button"
-              (click)="themeService.setTheme(opt.value)"
+              (click)="onThemeChange(opt.value)"
               [attr.aria-label]="opt.label + ' theme'"
               [attr.aria-pressed]="themeService.theme() === opt.value"
               [class]="
@@ -725,11 +725,11 @@ interface BeforeInstallPromptEvent extends Event {
       <app-section-card  [title]="'settings.data.title' | translate" [description]="'settings.data.description' | translate">
         <button
           type="button"
-          (click)="onExportCsv()"
+          (click)="onExportBackupJson()"
           class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
         >
           <lucide-icon [img]="downloadIcon" class="h-4 w-4" />
-          {{ 'settings.data.exportCsv' | translate }}
+          {{ 'settings.data.exportBackupJson' | translate }}
         </button>
 
         <input
@@ -941,6 +941,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
   readonly aiSettingsService = inject(AiSettingsService);
+  private readonly feedback = inject(UserFeedbackService);
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -1023,12 +1024,26 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.rescheduleNotificationsIfNeeded();
   }
 
+  async onThemeChange(theme: 'light' | 'dark' | 'system'): Promise<void> {
+    await this.themeService.setTheme(theme);
+    this.feedback.success('Appearance saved.', 'Your theme preference was saved on this device.');
+  }
+
   async onLanguageChange(language: AppLanguage): Promise<void> {
     await this.i18n.setLanguage(language);
+    const selected = this.i18n.languageOptions.find((option) => option.code === language);
+    this.feedback.success(
+      'Language saved.',
+      `Spenza will now use ${selected?.nativeLabel ?? language}.`
+    );
   }
 
   async onCurrencyChange(currency: AppCurrency): Promise<void> {
     await this.currencyService.setCurrency(currency);
+    this.feedback.success(
+      'Currency saved.',
+      `${this.i18n.t(this.currencyService.option(currency).nameKey)} will be used for amounts across Spenza.`
+    );
   }
 
   currencyPreview(currency: AppCurrency): string {
@@ -1067,6 +1082,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
         ? this.geminiApiKeyInput.trim() || current.geminiApiKey
         : null,
     });
+    this.feedback.success(
+      'AI settings saved.',
+      provider === 'disabled'
+        ? 'Spenza will use only on-device insights.'
+        : 'Your AI preference was saved.'
+    );
   }
 
   onEditGeminiKey(): void {
@@ -1079,6 +1100,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     if (!key) {
       this.aiSettingsService.lastError.set('Paste your Gemini API key before saving.');
       this.isEditingGeminiKey.set(true);
+      this.feedback.warning(
+        'AI settings were not saved.',
+        'Paste your Gemini API key first, then tap Save.'
+      );
       return;
     }
 
@@ -1088,6 +1113,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     });
     this.geminiApiKeyInput = '';
     this.isEditingGeminiKey.set(false);
+    this.feedback.success(
+      'Gemini API key saved.',
+      'Receipt extraction and weekly AI insights can now use your key when enabled.'
+    );
   }
 
   receiptFolderUrl(): string {
@@ -1099,7 +1128,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.isSettingUpReceiptFolder.set(true);
     try {
       const folderId = await this.googleDriveService.ensureReceiptsFolder();
-      this.expenseStore.patchReceiptFolderId(folderId);
+      await this.expenseStore.patchReceiptFolderId(folderId);
+      this.feedback.success(
+        'Receipt folder saved.',
+        'Bills linked to expenses will be stored in this Drive folder.'
+      );
+    } catch (error) {
+      this.feedback.error(
+        'Receipt folder was not saved.',
+        error instanceof Error
+          ? error.message
+          : 'Check your Google Drive access and try again.'
+      );
     } finally {
       this.isSettingUpReceiptFolder.set(false);
     }
@@ -1204,11 +1244,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.importMessage.set(
         `Imported and saved ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ${this.currencyService.format(monthlyIncome, this.i18n.locale())}.`
       );
+      this.feedback.success(
+        'Import saved.',
+        `${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income were saved to your Drive backup.`
+      );
       this.importSheetId = '';
     } catch (err: any) {
       console.error('[Settings] Import from Sheets failed:', err);
       this.importError.set(true);
       this.importMessage.set(err?.message ?? 'Import failed. Check the spreadsheet ID and try again.');
+      this.feedback.error(
+        'Import was not saved.',
+        err?.message ?? 'Check the spreadsheet ID, Google access, and internet connection, then try again.'
+      );
     } finally {
       this.isImporting.set(false);
     }
@@ -1218,37 +1266,35 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   async onNotificationToggle(event: Event): Promise<void> {
     const checked = (event.target as HTMLInputElement).checked;
-    if (checked) {
-      // Enable notifications via notification service
-      await this.notificationService.requestPermission();
-      if (this.notificationService.permissionState() === 'granted') {
-        await this.notificationService.enable();
-      }
-    } else {
-      // Disable notifications via notification service
-      await this.notificationService.disable();
-    }
+    await this.setPushRemindersEnabled(checked);
   }
 
   async onNotificationToggleClick(): Promise<void> {
-    const isEnabled = this.notificationService.isEnabled();
-    if (!isEnabled) {
-      // Enable notifications via notification service
-      await this.notificationService.requestPermission();
-      if (this.notificationService.permissionState() === 'granted') {
-        await this.notificationService.enable();
-        
-        // Log the FCM token for debugging
-        const token = this.fcmService.getToken();
-        console.log('[Settings] Push notifications enabled. FCM Token:', token);
+    await this.setPushRemindersEnabled(!this.notificationService.isEnabled());
+  }
+
+  private async setPushRemindersEnabled(enabled: boolean): Promise<void> {
+    try {
+      if (enabled) {
+        await this.notificationService.requestPermission();
+        if (this.notificationService.permissionState() === 'granted') {
+          await this.notificationService.enable();
+          this.feedback.success('Push reminders saved.', 'Spenza can now send reminder notifications.');
+        } else {
+          this.feedback.warning(
+            'Push reminders were not enabled.',
+            'Allow notification permission in your browser or device settings, then try again.'
+          );
+        }
       } else {
-        console.log('[Settings] Push notification permission denied');
+        await this.notificationService.disable();
+        this.feedback.success('Push reminders turned off.', 'Spenza will stop sending push reminders.');
       }
-    } else {
-      // Disable notifications via notification service
-      await this.notificationService.disable();
-      
-      console.log('[Settings] Push notifications disabled');
+    } catch (error) {
+      this.feedback.error(
+        'Notification setting was not saved.',
+        error instanceof Error ? error.message : 'Check notification permission and try again.'
+      );
     }
   }
 
@@ -1258,8 +1304,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Task 9.2: Request notification permission from the user
    */
   async onRequestNotificationPermission(): Promise<void> {
-    await this.localNotificationService.requestPermission();
-    // UI updates automatically via permissionStatus signal
+    const status = await this.localNotificationService.requestPermission();
+    if (status === 'granted') {
+      this.feedback.success('Notification permission saved.', 'Local reminders can now be scheduled on this device.');
+    } else {
+      this.feedback.warning(
+        'Notification permission was not granted.',
+        'Allow notifications in your device settings, then return here to enable reminders.'
+      );
+    }
   }
 
   /**
@@ -1276,6 +1329,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
         const status = await this.localNotificationService.requestPermission();
         if (status !== 'granted') {
           console.log('[Settings] Permission denied, cannot enable daily reminder');
+          this.feedback.warning(
+            'Daily reminder was not enabled.',
+            'Allow notification permission first, then turn on the reminder again.'
+          );
           return;
         }
       }
@@ -1286,12 +1343,22 @@ export class SettingsComponent implements OnInit, OnDestroy {
         updated.reminderMinute
       );
       await this.localNotificationService.scheduleMonthlyNudge();
+      await this.notificationService.syncDailyReminder(
+        true,
+        updated.reminderHour,
+        updated.reminderMinute
+      );
       
       console.log('[Settings] Daily reminder enabled and scheduled');
     } else {
       // Disable: cancel both notifications
       await this.localNotificationService.cancelDailyReminder();
       await this.localNotificationService.cancelMonthlyNudge();
+      await this.notificationService.syncDailyReminder(
+        false,
+        updated.reminderHour,
+        updated.reminderMinute
+      );
       
       console.log('[Settings] Daily reminder disabled and cancelled');
     }
@@ -1299,6 +1366,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Save updated preferences
     await this.storageService.setNotificationPreferences(updated);
     this.notificationPrefs.set(updated);
+    this.feedback.success(
+      updated.dailyReminderEnabled ? 'Daily reminder saved.' : 'Daily reminder turned off.',
+      updated.dailyReminderEnabled
+        ? `Spenza will remind you at ${this.formatTime(updated.reminderHour, updated.reminderMinute)}.`
+        : 'Spenza will stop scheduling the daily reminder on this device.'
+    );
   }
 
   /**
@@ -1317,10 +1390,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Cancel existing reminder and schedule new one with updated time
     await this.localNotificationService.cancelDailyReminder();
     await this.localNotificationService.scheduleDailyReminder(hour, minute);
+    await this.notificationService.syncDailyReminder(updated.dailyReminderEnabled, hour, minute);
 
     // Save updated preferences
     await this.storageService.setNotificationPreferences(updated);
     this.notificationPrefs.set(updated);
+    this.feedback.success(
+      'Reminder time saved.',
+      `Your daily reminder is set for ${this.formatTime(hour, minute)}.`
+    );
   }
 
   /**
@@ -1334,6 +1412,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Save updated preferences
     await this.storageService.setNotificationPreferences(updated);
     this.notificationPrefs.set(updated);
+    this.feedback.success(
+      updated.budgetWarningsEnabled ? 'Budget alerts saved.' : 'Budget alerts turned off.',
+      updated.budgetWarningsEnabled
+        ? 'Spenza will alert you when a category reaches 80% of its monthly limit.'
+        : 'Spenza will stop sending budget limit alerts.'
+    );
   }
 
   /**
@@ -1353,7 +1437,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async onTestNotification(): Promise<void> {
     console.log('[Settings] Triggering test notification...');
     await this.localNotificationService.scheduleTestNotification();
-    alert('Test notification scheduled! It will appear in 10 seconds.');
+    this.feedback.success(
+      'Test notification scheduled.',
+      'It should appear in about 10 seconds if notifications are allowed.'
+    );
   }
 
   // ─── Task 12.4: PWA install ───────────────────────────────────────────────────
@@ -1366,22 +1453,36 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await prompt.prompt();
   }
 
-  // ─── Task 12.5: Export CSV ────────────────────────────────────────────────────
+  // ─── Task 12.5: Export backup JSON ────────────────────────────────────────────
 
-  onExportCsv(): void {
-    const entries = this.expenseStore.entries();
-    const csv = this.#entriesToCsv(entries);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  onExportBackupJson(): void {
+    const doc: BackupDocument = {
+      version: '1.0',
+      lastUpdated: new Date().toISOString(),
+      metadata: {
+        monthlyIncome: this.expenseStore.monthlyIncome(),
+        currency: this.currencyService.currency(),
+        ...(this.expenseStore.receiptFolderId() ? { receiptFolderId: this.expenseStore.receiptFolderId()! } : {}),
+      },
+      expenses: this.expenseStore.entries(),
+      limits: this.expenseStore.limits(),
+    };
+    const json = `${JSON.stringify(doc, null, 2)}\n`;
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
 
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `expenses-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `spenza-backup-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.style.display = 'none';
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
+    this.feedback.success(
+      'Backup exported.',
+      'A restore-ready JSON backup was downloaded to this device.'
+    );
   }
 
   async onRestoreJsonSelected(event: Event): Promise<void> {
@@ -1401,10 +1502,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.restoreJsonMessage.set(
         `Restored and saved ${doc.expenses.length} expenses and ${doc.limits.length} budget limits from ${file.name}.`
       );
+      this.feedback.success(
+        'Backup restored.',
+        `${doc.expenses.length} expenses and ${doc.limits.length} budget limits were saved to your Drive backup.`
+      );
     } catch (err) {
       console.error('[Settings] JSON restore failed:', err);
       this.restoreJsonError.set(true);
       this.restoreJsonMessage.set(err instanceof Error ? err.message : 'JSON restore failed. Please check the file and try again.');
+      this.feedback.error(
+        'Backup was not restored.',
+        err instanceof Error
+          ? `${err.message} Choose a Spenza backup JSON file and try again.`
+          : 'Choose a Spenza backup JSON file and try again.'
+      );
     } finally {
       this.isRestoringJson.set(false);
     }
@@ -1456,6 +1567,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     await this.syncService.clearQueue();
     this.expenseStore.clearLocalData();
     this.clearSuccessMessage.set('Local data cleared successfully.');
+    this.feedback.success(
+      'Local cache cleared.',
+      'Only this device cache was cleared. Your Drive backup remains available.'
+    );
     setTimeout(() => this.clearSuccessMessage.set(null), 4000);
   }
 
@@ -1555,9 +1670,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
         document.body.removeChild(input);
       }
       this.copyFileIdSuccess.set(true);
+      this.feedback.success(
+        'Family Folder ID copied.',
+        'Share this ID with your partner after sharing the folder in Google Drive.'
+      );
       setTimeout(() => this.copyFileIdSuccess.set(false), 3000);
     } catch (err) {
       console.error('[Settings] Failed to copy file ID:', err);
+      this.feedback.error(
+        'Could not copy the Family Folder ID.',
+        'Select the ID manually and copy it, then share it with your partner.'
+      );
     }
   }
 
@@ -1578,9 +1701,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
         document.body.removeChild(input);
       }
       this.copyFileIdSuccess.set(true);
+      this.feedback.success('File ID copied.', 'You can now share or store the new backup file ID.');
       setTimeout(() => this.copyFileIdSuccess.set(false), 3000);
     } catch (err) {
       console.error('[Settings] Failed to copy rotated file ID:', err);
+      this.feedback.error(
+        'Could not copy the file ID.',
+        'Select the ID manually and copy it.'
+      );
     }
   }
 
@@ -1752,38 +1880,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
       // Step 5: Show the new file ID to the user
       this.rotatedFileId.set(newFileId);
+      this.feedback.success(
+        'New backup file created.',
+        'Copy the new file ID and make sure the right people have access in Google Drive.'
+      );
     } catch (err: any) {
       console.error('[Settings] File rotation failed:', err);
       const message = err?.message ?? 'Rotation failed. Please try again.';
       this.rotateError.set(message);
+      this.feedback.error(
+        'Backup file rotation failed.',
+        `${message} Check Google Drive access and try again.`
+      );
     } finally {
       this.isRotating.set(false);
     }
-  }
-
-  // ─── Private helpers ──────────────────────────────────────────────────────────
-
-  #entriesToCsv(entries: ExpenseEntry[]): string {
-    const header = 'id,date,amount,type,limit,savings,timestamp';
-    const rows = entries.map((e) => {
-      // Escape fields that may contain commas or quotes
-      const escape = (val: string | number) => {
-        const str = String(val);
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      };
-      return [
-        escape(e.id),
-        escape(e.date),
-        escape(e.amount),
-        escape(e.type),
-        escape(e.limit),
-        escape(e.savings),
-        escape(e.timestamp),
-      ].join(',');
-    });
-    return [header, ...rows].join('\n');
   }
 }

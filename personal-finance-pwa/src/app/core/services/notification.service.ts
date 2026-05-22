@@ -62,7 +62,11 @@ export class NotificationService {
     }
   }
 
-  async enable(): Promise<void> {
+  async enable(reminderPreferences?: {
+    dailyReminderEnabled: boolean;
+    reminderHour: number;
+    reminderMinute: number;
+  }): Promise<void> {
     // On native platforms, skip browser permission check
     if (!Capacitor.isNativePlatform()) {
       if (this._permissionState() !== 'granted') {
@@ -75,7 +79,7 @@ export class NotificationService {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Register with FCM and backend
-    const registered = await this.fcmService.registerForNotifications(userId, timezone);
+    const registered = await this.fcmService.registerForNotifications(userId, timezone, reminderPreferences);
 
     if (!registered) {
       console.warn('[NotificationService] FCM registration failed — notifications remain disabled');
@@ -85,6 +89,21 @@ export class NotificationService {
     this._isEnabled.set(true);
     await this.#persistEnabled(true);
     console.log('[NotificationService] Push notifications enabled');
+  }
+
+  async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<void> {
+    if (!enabled) {
+      if (this._isEnabled()) {
+        await this.enable({ dailyReminderEnabled: false, reminderHour, reminderMinute });
+      }
+      return;
+    }
+
+    await this.enable({
+      dailyReminderEnabled: true,
+      reminderHour,
+      reminderMinute,
+    });
   }
 
   async disable(): Promise<void> {

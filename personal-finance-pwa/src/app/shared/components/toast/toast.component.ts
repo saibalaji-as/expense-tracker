@@ -12,18 +12,24 @@ import { GoogleSheetsService } from '../../../core/services/google-sheets.servic
 import { driveError$ } from '../../../core/services/expense-store.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { DriveApiError } from '../../../core/services/google-drive.service';
+import { UserFeedbackService, UserFeedbackTone } from '../../../core/services/user-feedback.service';
 
 @Component({
   selector: 'app-toast',
   standalone: true,
   template: `
-    @if (currentMessage()) {
+    @if (feedback.message(); as message) {
       <div
-        class="fixed bottom-16 left-0 right-0 mx-4 bg-red-600 text-white rounded-lg p-3 flex justify-between items-center z-50"
-        role="alert"
-        aria-live="assertive"
+        [class]="toastClass(message.tone)"
+        [attr.role]="message.tone === 'error' || message.tone === 'warning' ? 'alert' : 'status'"
+        [attr.aria-live]="message.tone === 'error' || message.tone === 'warning' ? 'assertive' : 'polite'"
       >
-        <span class="text-sm flex-1">{{ currentMessage() }}</span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ message.title }}</p>
+          @if (message.detail) {
+            <p class="mt-0.5 text-xs opacity-90">{{ message.detail }}</p>
+          }
+        </div>
         @if (showSwitchToSingleUser()) {
           <button
             class="ml-3 text-white underline text-sm font-semibold hover:text-red-200 focus:outline-none whitespace-nowrap"
@@ -32,7 +38,7 @@ import { DriveApiError } from '../../../core/services/google-drive.service';
             Switch to Single User
           </button>
         }
-        @if (!isPersistent()) {
+        @if (!message.persistent) {
           <button
             class="ml-3 text-white hover:text-red-200 focus:outline-none"
             aria-label="Dismiss notification"
@@ -47,20 +53,22 @@ import { DriveApiError } from '../../../core/services/google-drive.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToastComponent implements OnInit, OnDestroy {
-  readonly currentMessage = signal<string>('');
-  readonly isPersistent = signal(false);
   readonly showSwitchToSingleUser = signal(false);
 
+  readonly feedback = inject(UserFeedbackService);
   private readonly sheetsService = inject(GoogleSheetsService);
   private readonly backupModeService = inject(BackupModeService);
   private readonly router = inject(Router);
   private subscription?: Subscription;
   private driveSubscription?: Subscription;
-  private dismissTimer?: ReturnType<typeof setTimeout>;
 
   ngOnInit(): void {
     this.subscription = this.sheetsService.apiError$.subscribe((error) => {
-      this.showMessage(error.message, false, false);
+      this.feedback.error(
+        'Could not save to Google Sheets.',
+        `${error.message} Check your connection and spreadsheet access, then try again.`,
+        false
+      );
     });
 
     this.driveSubscription = driveError$.subscribe((error) => {
@@ -69,16 +77,22 @@ export class ToastComponent implements OnInit, OnDestroy {
 
       if (mode === 'family' && driveErr.status === 403) {
         // Persistent toast with "Switch to Single User" action
-        this.showMessage(
-          'Access to the shared backup was revoked. Switch to Single User mode or ask the Owner to re-share.',
-          true,
+        this.feedback.error(
+          'Shared backup access was revoked.',
+          'Ask the owner to share the family Drive folder again, or switch this device to Single User mode.',
           true
         );
+        this.showSwitchToSingleUser.set(true);
         return;
       }
 
       if (mode === 'family' && driveErr.status === 404) {
-        this.showMessage('Shared backup file not found. The Owner may have deleted it.', false, false);
+        this.showSwitchToSingleUser.set(false);
+        this.feedback.error(
+          'Shared backup file was not found.',
+          'Ask the owner to confirm the family backup still exists in Google Drive.',
+          true
+        );
         return;
       }
 
@@ -88,26 +102,23 @@ export class ToastComponent implements OnInit, OnDestroy {
       }
 
       const message = 'message' in error ? error.message : (error as Error).message;
-      this.showMessage(message ?? 'Google Drive sync error', false, false);
+      this.showSwitchToSingleUser.set(false);
+      this.feedback.error(
+        'Could not save changes to Google Drive.',
+        `${message ?? 'Google Drive sync error'} Check your internet connection and Drive permissions, then try again.`,
+        true
+      );
     });
   }
 
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
     this.driveSubscription?.unsubscribe();
-    if (this.dismissTimer) {
-      clearTimeout(this.dismissTimer);
-    }
   }
 
   dismiss(): void {
-    this.currentMessage.set('');
-    this.isPersistent.set(false);
     this.showSwitchToSingleUser.set(false);
-    if (this.dismissTimer) {
-      clearTimeout(this.dismissTimer);
-      this.dismissTimer = undefined;
-    }
+    this.feedback.dismiss();
   }
 
   async onSwitchToSingleUser(): Promise<void> {
@@ -116,23 +127,14 @@ export class ToastComponent implements OnInit, OnDestroy {
     await this.router.navigate(['/mode-select']);
   }
 
-  private showMessage(message: string, persistent: boolean, showSwitch: boolean): void {
-    this.currentMessage.set(message);
-    this.isPersistent.set(persistent);
-    this.showSwitchToSingleUser.set(showSwitch);
-
-    if (this.dismissTimer) {
-      clearTimeout(this.dismissTimer);
-      this.dismissTimer = undefined;
-    }
-
-    if (!persistent) {
-      this.dismissTimer = setTimeout(() => {
-        this.currentMessage.set('');
-        this.isPersistent.set(false);
-        this.showSwitchToSingleUser.set(false);
-        this.dismissTimer = undefined;
-      }, 5000);
-    }
+  toastClass(tone: UserFeedbackTone): string {
+    const base = 'fixed bottom-16 left-0 right-0 z-50 mx-4 flex items-start gap-3 rounded-2xl p-4 text-white shadow-2xl md:left-auto md:right-6 md:w-[min(420px,calc(100vw-3rem))]';
+    const toneClass: Record<UserFeedbackTone, string> = {
+      success: 'bg-emerald-600',
+      error: 'bg-red-600',
+      warning: 'bg-amber-600',
+      info: 'bg-sky-600',
+    };
+    return `${base} ${toneClass[tone]}`;
   }
 }

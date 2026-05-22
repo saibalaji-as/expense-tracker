@@ -3,7 +3,7 @@
 import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';
 import { BudgetCategory } from '../../core/models/expense-limit.model';
-import { PREDEFINED_EXPENSE_TYPES, DEFAULT_BUDGET_PERCENTAGES } from '../../core/models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES, DEFAULT_BUDGET_PERCENTAGES } from '../../core/models/category-definitions';
 
 // ─── Pure logic helpers (mirrors ExpenseLimitComponent logic) ─────────────────
 

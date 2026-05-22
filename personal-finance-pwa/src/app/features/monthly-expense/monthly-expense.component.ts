@@ -25,27 +25,9 @@ import { CurrencyService } from '../../core/services/currency.service';
 import { ExpenseEntry } from '../../core/models';
 import { ChartBaseComponent, SectionCardComponent, CategoryIconComponent, SparklineComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
-import { CATEGORY_DEFS } from '../../core/models/category-definitions';
+import { CATEGORY_DEFS, getCategoryDef } from '../../core/models/category-definitions';
 import { SparklineDataPoint } from '../../shared/components/sparkline/sparkline.component';
 import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
-
-/** Maps category ID (e.g. 'housing') to the expense type name used in entries (e.g. 'Housing') */
-const CAT_ID_TO_TYPE: Record<string, string> = {
-  housing:       'Housing',
-  food:          'Food & Groceries',
-  transport:     'Transportation',
-  utilities:     'Utilities',
-  health:        'Healthcare',
-  entertainment: 'Entertainment',
-  dining:        'Dining Out',
-  shopping:      'Shopping/Clothing',
-  savings:       'Savings/Emergency Fund',
-  investments:   'Investments',
-  education:     'Education',
-  personal:      'Personal Care',
-  subscriptions: 'Subscriptions',
-  misc:          'Miscellaneous',
-};
 
 @Component({
   selector: 'app-monthly-expense',
@@ -635,7 +617,7 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
 
   getCategoryName(catId: string): string {
     const translated = this.i18n.t(`category.${catId}`);
-    return translated.startsWith('category.') ? CAT_ID_TO_TYPE[catId] ?? catId : translated;
+    return translated.startsWith('category.') ? getCategoryDef(catId).name : translated;
   }
 
   prevMonth(): void {
@@ -715,8 +697,8 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
   }
 
   getCategoryEntries(catId: string): ExpenseEntry[] {
-    const typeName = CAT_ID_TO_TYPE[catId];
-    if (!typeName) return [];
+    const typeName = getCategoryDef(catId).name;
+    if (typeName === 'Custom') return [];
 
     return this.expenseStore
       .selectedMonthEntries()
@@ -740,8 +722,8 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
 
   /** Sum of all entries for a given category ID */
   getSpentForCat(catId: string): number {
-    const typeName = CAT_ID_TO_TYPE[catId];
-    if (!typeName) return 0;
+    const typeName = getCategoryDef(catId).name;
+    if (typeName === 'Custom') return 0;
     return this.expenseStore
       .selectedMonthEntries()
       .filter(e => e.type === typeName)
@@ -750,8 +732,8 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
 
   /** Monthly limit for a given category ID */
   getLimitForCat(catId: string): number {
-    const typeName = CAT_ID_TO_TYPE[catId];
-    if (!typeName) return 0;
+    const typeName = getCategoryDef(catId).name;
+    if (typeName === 'Custom') return 0;
     const limit = this.expenseStore.limitMap()[typeName];
     if (!limit) return 0;
     return (limit.userPercentage * this.expenseStore.monthlyIncome()) / 100;
@@ -774,8 +756,8 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
    * Get sparkline data for a category showing daily spending over the last 30 days
    */
   getSparklineData(catId: string): SparklineDataPoint[] {
-    const typeName = CAT_ID_TO_TYPE[catId];
-    if (!typeName) return [];
+    const typeName = getCategoryDef(catId).name;
+    if (typeName === 'Custom') return [];
 
     const entries = this.expenseStore.selectedMonthEntries();
     const categoryEntries = entries.filter(e => e.type === typeName);

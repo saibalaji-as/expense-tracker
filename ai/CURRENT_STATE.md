@@ -1,0 +1,269 @@
+# Current State
+
+## Last Memory Refresh
+- Date: 2026-05-22.
+- Scope analyzed:
+  - Existing `ai/` memory files.
+  - Angular app source under `personal-finance-pwa/src/app`.
+  - Netlify functions under `personal-finance-pwa/netlify/functions`.
+  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
+- Existing memory files were present but empty before this refresh.
+
+## Active Project Shape
+- App is a Drive-backed Angular 21 PWA/Capacitor app named Spenza.
+- Active persistence source of truth is Google Drive JSON backup:
+  - Single mode: private `appDataFolder/spenza-backup.json`.
+  - Family mode: shared `Spenza Family/spenza-backup.json`.
+- Google Sheets is migration/legacy only.
+- AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
+
+## Recently Completed / Present Features
+- Voice expense smart-fill:
+  - Daily comment input now has an inline clear button that appears when comment text exists.
+  - Existing browser speech recognition now captures the selected app language/native speech mode (`en-IN`, `hi-IN`, `ta-IN`) and keeps the transcript in the comment field.
+  - Captured voice transcripts are sent to a new Gemini-backed Netlify function, `parse-voice-expense`, when the user has enabled AI with their own Gemini key.
+  - Gemini returns normalized JSON for `amount`, `date`, `type`, `comment`, `confidence`, and `readable`.
+  - Daily applies parsed amount/date/category/comment to the expense form for user review before save.
+  - If speech recognition or Gemini parsing is unavailable, the transcript remains in comments and user feedback explains the fallback.
+- Monthly income onboarding gate:
+  - `/daily`, `/monthly`, and `/dashboard` are gated after Drive backup data loads when `monthlyIncome <= 0`.
+  - New/zero-income users are redirected to `/limits?onboarding=income` instead of entering expense tracking or budget analytics with meaningless 0% calculations.
+  - `/limits` remains available and now shows a prominent “Set your monthly income to unlock budgeting” banner until income is saved.
+  - `/settings` remains available during the gate so users can restore/import existing backup data if needed.
+- Save acknowledgment and guidance:
+  - Root toast now supports success, info, warning, and guided error messages instead of only technical error text.
+  - Main Drive-backed mutations now return promises so UI can acknowledge only after the Drive persistence path completes.
+  - Daily expense create/update/delete, split bill save, Limits save, and key Settings saves now show success acknowledgments.
+  - Invalid Daily/Limit saves and failed Settings operations now guide users toward the next step instead of relying only on generic error text.
+- Category definition consolidation:
+  - `category-definitions.ts` is now the single source of truth for predefined expense type names, category IDs, visual metadata, budget groups, and recommended percentages.
+  - Removed `expense-type.constants.ts`.
+  - `PREDEFINED_EXPENSE_TYPES` and `DEFAULT_BUDGET_PERCENTAGES` are derived from `CATEGORY_DEFS`.
+  - Removed duplicated `TYPE_TO_CAT_ID` / `CAT_ID_TO_TYPE` maps from Daily, Monthly, Dashboard, and Limits.
+  - `CATEGORY_DEFS.recommendedPct` now totals 100 and drives budget-limit defaults.
+  - Default recommendations now follow the app’s 50/30/20 rule: Needs 50%, Wants 30%, Savings + Growth 20%, Buffer 0%.
+- Split bill UI polish:
+  - Split bill mode now uses a themed light/dark card with a soft gradient header, receipt-split icon treatment, total/split summary chips, and stronger visual grouping.
+  - Each split row is now a compact card with aligned category select, amount input, remove button, and note field.
+  - Category selects include category icons and custom chevron treatment while preserving the explicit selected option binding for mobile reliability.
+  - Added i18n strings for the split bill title, subtitle, row labels, and remove-row aria label in fallback, English, Tamil, and Hindi translations.
+- Closed-app daily reminder push fallback:
+  - Browser/PWA local reminder fallback uses `setTimeout`, so it only works while the app/browser process is alive.
+  - Daily reminder settings now sync the user-selected local reminder time to the FCM backend.
+  - The Netlify `send-reminders` scheduler now runs every minute and sends push reminders at the selected local hour/minute when daily reminder preferences exist.
+  - Legacy push-only registrations without daily reminder preferences keep the old hourly 08:00-22:00 behavior.
+  - Push reminder content uses deterministic money-tip copy; Gemini is intentionally not used for notification text.
+- Split bill dropdown display fix:
+  - Split bill rows were saving with the correct AI-selected expense types, but mobile dropdowns could visually show the first option (`Housing`) for every row.
+  - Each split row option now explicitly marks the matching row type as selected so native/mobile select rendering reflects the actual row state.
+  - Split mode submit label now says `Log split bill` instead of falling back to `Log Miscellaneous`.
+- Receipt smart-fill template fix:
+  - The `Apply` button is hidden once receipt suggestions have already auto-applied.
+  - If Gemini/OCR extracts amount/comment/items but cannot determine an expense type, Daily now applies a real `Miscellaneous` form value instead of only showing a visual fallback.
+  - The Log Expense button now uses full form validity for its disabled state, preventing a clickable-looking button when required type is still missing.
+  - The smart-fill card displays the applied fallback type after auto-fill instead of continuing to show type as not found.
+- Money-tip notification reminders:
+  - Local daily reminders now use rotating deterministic saving/finance tips instead of only “log expenses” copy.
+  - Hourly push reminders now use generic rotating money-tip copy from a Netlify helper.
+  - No Gemini call is made for reminder text, preserving AI credits and offline/local reliability.
+  - Real finance current-affairs/news notifications were intentionally not added because the app has no trusted fresh news/data source yet.
+  - Settings notification descriptions now mention quick money/saving tips.
+- Weekly Gemini insight cache hardening:
+  - Dashboard now checks for a reusable cached Gemini insight before showing the refreshing badge.
+  - `AiInsightService` reuses a cached Gemini result whenever the exact weekly insight input is unchanged, regardless of the old 12h freshness window.
+  - Gemini weekly insights are regenerated only when expense-derived insight data changes, when no reusable cache exists, or when fallback/usage-limit rules require local behavior.
+  - Insight cache signatures now include a stable normalized payload key instead of only broad total/count thresholds.
+  - Focused Vitest coverage was added for unchanged-cache reuse and changed-input refresh.
+- Route-safe receipt extraction:
+  - Receipt Gemini/local OCR extraction state now lives in root `ReceiptExtractionSessionService`.
+  - Navigating away from Daily no longer terminates the in-flight extraction task.
+  - Returning to Daily reattaches to selected file/progress/result/error signals.
+  - Completed extraction results auto-fill the Daily form when the page is active again.
+  - Starting/clearing/replacing a receipt cancels stale in-flight extraction through the session run token.
+  - Bill image editor closes immediately after `Use edited` is clicked and guards against duplicate clicks while the edited image is generated.
+- Receipt Drive storage optimization:
+  - Images are used at selected/edited quality for Gemini/local extraction.
+  - At save/upload time, image receipts are converted to JPEG with max initial dimension 1600px and target size <=120 KB.
+  - PDF receipts converted to image uploads use the same <=120 KB target.
+  - Compression starts at quality `0.8`, then reduces quality and dimensions until the size target is met.
+  - If image compression cannot meet the limit, upload fails rather than saving the original full-size image.
+  - Production build passed after this change.
+- Drive backup bootstrap with single/family modes.
+- Family folder flow:
+  - Owner creates `Spenza Family` folder containing backup JSON and `Receipts/`.
+  - Partner can join by folder ID.
+  - Backward compatibility for direct shared backup file ID.
+  - Single -> family migration copies private backup into shared backup.
+  - Family -> single switch merges shared entries into private backup.
+- Root app Drive polling:
+  - Polls every 30s when visible/focused.
+  - Reloads only when Drive `modifiedTime` changes.
+- Expense CRUD:
+  - Add, bulk-add, edit, delete.
+  - Backdated expenses.
+  - Receipt attachments.
+  - Family actor metadata.
+- Budget limits:
+  - Monthly income.
+  - Predefined + custom expense types.
+  - Allocation must total ~100%.
+  - Low savings/growth warning when below 20%.
+- Dashboard:
+  - Local insight cards.
+  - Optional Gemini insight replacement with caching and daily call limits.
+  - Family activity timeline.
+  - Chart.js analytics.
+- Receipt intelligence:
+  - Gemini receipt extraction via Netlify function when enabled.
+  - Local OCR/PDF fallback with line-item parsing.
+  - Receipt image adjustment UI in daily expense flow.
+- Notifications:
+  - Push notifications through FCM + Netlify + Firestore.
+  - Local notifications for daily reminders, monthly nudges, budget threshold alerts.
+  - Push reminder scheduler supports selected daily reminder time and legacy hourly fallback.
+- Settings:
+  - Theme/language/currency.
+  - AI key management.
+  - Sheets import into Drive backup.
+  - Backup JSON export for local disk storage.
+  - JSON restore into active Drive backup.
+  - Clear local cache.
+  - Delete Spenza account data.
+
+## Files Actively Touched In This Session
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: added clear-comment UI and Gemini-backed voice transcript parsing into the expense form.
+- `personal-finance-pwa/src/app/core/services/ai-voice-expense.service.ts`: added client service for user-key Gemini voice expense parsing through Netlify functions.
+- `personal-finance-pwa/netlify/functions/parse-voice-expense.ts`: added Gemini JSON parser for spoken English/Hindi/Tamil or mixed-language expense transcripts.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: added clear-comment and voice parsing feedback copy.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: replaced CSV export button/handler with restore-compatible backup JSON download.
+- `personal-finance-pwa/src/app/features/settings/settings.component.spec.ts`: replaced CSV export property coverage with backup JSON export coverage.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: updated data-management export copy.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: daily reminder toggle/time changes now sync selected reminder time to push backend.
+- `personal-finance-pwa/src/app/core/services/notification.service.ts`, `personal-finance-pwa/src/app/core/services/fcm.service.ts`: added optional push reminder preference registration.
+- `personal-finance-pwa/netlify/functions/register-token.ts`: stores daily reminder preferences with FCM token records.
+- `personal-finance-pwa/netlify/functions/send-reminders.ts`, `personal-finance-pwa/netlify/functions/scheduler-utils.ts`: scheduler supports selected daily reminder slots and runs every minute.
+- `personal-finance-pwa/netlify/functions-tests/scheduler-utils.test.ts`: added selected daily reminder slot coverage.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: fixed split bill dropdown selected option binding and split-mode submit label.
+- `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`, `personal-finance-pwa/src/app/core/services/i18n.service.ts`: added `daily.receipt.split.logSplit`.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: fixed receipt smart-fill applied-state UI, type fallback, and submit disabled validation.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.spec.ts`: added regression coverage for receipt type fallback to `Miscellaneous`.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: restyled split bill mode into a themed card layout with aligned row controls and category icons.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: added split bill UI label translations.
+- `personal-finance-pwa/src/app/core/models/category-definitions.ts`: now derives predefined expense types and default budget percentages from `CATEGORY_DEFS`; added category lookup helpers.
+- `personal-finance-pwa/src/app/core/models/category-definitions.spec.ts`: added source-of-truth and 100% allocation coverage.
+- `personal-finance-pwa/src/app/core/models/expense-type.constants.ts`: removed duplicate category constants.
+- `personal-finance-pwa/src/app/core/models/index.ts`, Daily, Monthly, Dashboard, Limits, and category-related specs: moved category/type references to `category-definitions.ts` helpers/exports.
+- `personal-finance-pwa/src/app/core/utils/reminder-message.ts`: added deterministic local daily reminder tip content.
+- `personal-finance-pwa/src/app/core/utils/reminder-message.spec.ts`: added focused tests for local reminder tip content.
+- `personal-finance-pwa/src/app/core/services/local-notification.service.ts`: daily local reminders now use rotating money-tip content.
+- `personal-finance-pwa/src/app/core/services/local-notification.service.spec.ts`: added native reminder body coverage and mocked budget threshold stream for Node tests.
+- `personal-finance-pwa/netlify/functions/reminder-messages.ts`: added deterministic hourly push reminder tip content.
+- `personal-finance-pwa/netlify/functions-tests/reminder-messages.test.ts`: added Netlify reminder message tests.
+- `personal-finance-pwa/netlify/functions/send-reminders.ts`: hourly FCM reminders now use rotating money-tip copy.
+- `personal-finance-pwa/vitest.config.ts`: includes Netlify function tests.
+- `personal-finance-pwa/netlify/tsconfig.json`: includes all Netlify function tests.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: notification settings copy updated for tips.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: now exposes cache-aware weekly insight generation, exact input signatures, and source metadata.
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: checks reusable cached AI insights before showing refresh/loading state.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`: added focused cache reuse/regeneration tests.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: now consumes root receipt extraction session signals; added auto-apply effect for completed extraction results; retains <=120 KB receipt upload compression.
+- `personal-finance-pwa/src/app/core/services/receipt-extraction-session.service.ts`: added root-scoped receipt extraction session with Gemini/local fallback orchestration and stale-run cancellation.
+- `personal-finance-pwa/src/app/core/services/receipt-extraction.service.ts`: added iterative <=120 KB compression for PDF-to-image receipt storage.
+- `personal-finance-pwa/src/app/core/guards/setup-income-gate.ts`: added pure income-gate routing predicate.
+- `personal-finance-pwa/src/app/core/guards/setup.guard.ts`: redirects gated app routes to Limits after Drive data is loaded and monthly income is missing.
+- `personal-finance-pwa/src/app/core/guards/setup.guard.spec.ts`: added focused income-gate coverage.
+- `personal-finance-pwa/src/app/app.ts`: bootstrap now sends zero-income users from setup/gated routes to `/limits?onboarding=income`.
+- `personal-finance-pwa/src/app/features/expense-limit/expense-limit.component.ts`: added onboarding banner and prevents saving while the form is invalid.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: added income-gate copy.
+- `personal-finance-pwa/src/app/core/models/category-definitions.ts`: changed default recommended percentages to satisfy 50/30/20 and avoid the low-savings warning on untouched defaults.
+- `personal-finance-pwa/src/app/core/models/category-definitions.spec.ts`: added group-total coverage for Needs 50, Wants 30, Savings + Growth 20, Buffer 0.
+- `personal-finance-pwa/src/app/core/services/user-feedback.service.ts`: added app-wide user feedback service for success/warning/error/info messages.
+- `personal-finance-pwa/src/app/shared/components/toast/toast.component.ts`: generalized root toast styling/content and improved Drive/Sheets error guidance.
+- `personal-finance-pwa/src/app/core/services/expense-store.service.ts`: key mutating methods now return promises after Drive persistence so callers can acknowledge confirmed saves.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: added success/guidance feedback around expense create/update/delete, split bill saves, invalid submissions, and save failures.
+- `personal-finance-pwa/src/app/features/expense-limit/expense-limit.component.ts`: added guided feedback for invalid/unbalanced limits and success/error feedback after saving limits.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: added acknowledgments/guidance for appearance, language, currency, AI, receipt folder, notification preferences, import/restore/export, local cache, copy, and backup rotation actions.
+- `ai/PROJECT_CONTEXT.md`: populated long-term architecture memory.
+- `ai/CURRENT_STATE.md`: populated active state memory.
+- `ai/AI_RULES.md`: populated project-specific AI implementation rules.
+- `ai/TASK_HISTORY.md`: populated engineering history.
+
+## Current Bugs / Issues / Risks
+- Memory files were untracked before this session (`git status --short` showed `?? ai/` and `?? drive-ai.md`).
+- Receipt extraction survives Daily route changes only within the same active app/browser process; a full app reload still loses the in-memory `File` object.
+- Verbose debug logging remains across production services/components:
+  - `ExpenseStore`
+  - `GoogleSheetsService`
+  - `SyncService`
+  - `LocalNotificationService`
+  - `FcmService`
+  - feature components.
+- `DailyExpenseComponent` is very large and high-risk for regressions.
+- `SettingsComponent` is very large and contains many unrelated responsibilities.
+- Some strings are still hardcoded English and bypass i18n.
+- `SettingsComponent` includes disabled/commented rotate-file UI and live rotation methods; treat as legacy unless revived deliberately.
+- `SyncService` and Sheets write paths remain but are not primary data path.
+- Browser alert/confirm are still used in some flows:
+  - Daily voice unsupported alert.
+  - Daily delete confirm.
+  - Expense limit custom delete confirm.
+  - Settings test notification alert.
+- `firebase.config.ts` contains public Firebase web config and stale TODO text; private credentials must remain in Netlify env only.
+
+## Current Technical Debt
+- Split large standalone components into smaller presentational components and domain helpers.
+- Replace `console.log` debugging with quieter logging conventions or remove before production hardening.
+- Replace browser `alert()`/`confirm()` with `ModalComponent`/toast-style UI.
+- Decide whether legacy Sheets sync/offline queue should be removed, isolated behind migration naming, or revived intentionally.
+- Review i18n coverage and move remaining UI text into translation JSON.
+- Add/maintain tests around Drive mode switching, family folder access errors, receipt extraction fallback, and budget threshold calculations.
+
+## Current Blockers
+- No runtime blocker identified during static analysis.
+- Latest verification on 2026-05-22:
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npm run build` passed.
+- Latest verification: `npm run build` from `personal-finance-pwa` passed on 2026-05-20 after weekly insight cache hardening.
+- Targeted verification: `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed on 2026-05-20.
+- Latest notification verification on 2026-05-20:
+  - `npx vitest run src/app/core/utils/reminder-message.spec.ts src/app/core/services/local-notification.service.spec.ts netlify/functions-tests/reminder-messages.test.ts` passed.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npm run build` passed.
+- Latest receipt smart-fill verification on 2026-05-20:
+  - `npx vitest run src/app/features/daily-expense/daily-expense.component.spec.ts` passed.
+  - `npm run build` passed.
+- Latest split bill dropdown verification on 2026-05-20:
+  - `npx vitest run src/app/features/daily-expense/daily-expense.component.spec.ts` passed.
+  - `npm run build` passed.
+- Latest closed-app reminder push fallback verification on 2026-05-20:
+  - `npx vitest run netlify/functions-tests/scheduler-utils.test.ts netlify/functions-tests/reminder-messages.test.ts src/app/core/services/notification.service.spec.ts src/app/core/services/fcm.service.spec.ts` passed.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npm run build` passed.
+- Latest backup JSON export verification on 2026-05-20:
+  - `npx vitest run src/app/features/settings/settings.component.spec.ts` passed.
+  - `npm run build` passed.
+- Latest split bill UI polish verification on 2026-05-20:
+  - `npx vitest run src/app/features/daily-expense/daily-expense.component.spec.ts` passed.
+  - `npm run build` passed.
+- Latest category source-of-truth verification on 2026-05-20:
+  - `npx vitest run src/app/core/models/category-definitions.spec.ts src/app/features/expense-limit/expense-limit.component.spec.ts src/app/features/daily-expense/daily-expense.component.spec.ts src/app/features/monthly-expense/monthly-expense.component.spec.ts src/app/features/dashboard/dashboard.component.spec.ts src/app/core/services/expense-store.service.spec.ts src/app/core/services/receipt-extraction.service.spec.ts src/app/core/models/expense-entry.spec.ts` passed.
+  - `npm run build` passed.
+- Latest monthly income onboarding gate verification on 2026-05-21:
+  - `npx vitest run src/app/core/guards/setup.guard.spec.ts` passed.
+  - `npm run build` passed.
+- Latest default 50/30/20 budget verification on 2026-05-21:
+  - `npx vitest run src/app/core/models/category-definitions.spec.ts src/app/features/expense-limit/expense-limit.component.spec.ts` passed.
+  - `npm run build` passed.
+- Latest save acknowledgment verification on 2026-05-21:
+  - `npx vitest run src/app/features/expense-limit/expense-limit.component.spec.ts src/app/features/daily-expense/daily-expense.component.spec.ts src/app/features/settings/settings.component.spec.ts` passed.
+  - `npm run build` passed.
+
+## Immediate Next Steps
+- Commit or otherwise preserve the new `ai/*.md` memory files.
+- For future feature work:
+  - Start by reading `ai/AI_RULES.md` and `ai/PROJECT_CONTEXT.md`.
+  - Verify whether a feature should touch Drive-backed store or legacy Sheets migration paths.
+  - Prefer adding focused tests before changing large/high-risk components.
+- Recommended hardening:
+  - Run `npm run build` from `personal-finance-pwa`.
+  - Run relevant unit tests for any changed service/component.

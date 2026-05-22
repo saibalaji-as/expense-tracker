@@ -1,7 +1,7 @@
 /**
  * scheduler-utils.ts
  *
- * Pure utility functions for the time-based hourly reminder scheduler.
+ * Pure utility functions for the time-based reminder scheduler.
  * No side effects, no I/O — safe to unit-test and property-test in isolation.
  */
 
@@ -71,6 +71,36 @@ export function getReminderSlot(utcNow: Date, timezone: string): string | null {
   if (local.hour < 8 || local.hour > 22) return null;
 
   return `${local.year}-${local.month}-${local.day}T${local.hour.toString().padStart(2, '0')}:00`;
+}
+
+/**
+ * Returns the local daily reminder slot key for a user-selected time, or `null`
+ * when the current local time does not match.
+ */
+export function getDailyReminderSlot(
+  utcNow: Date,
+  timezone: string,
+  reminderHour: unknown,
+  reminderMinute: unknown
+): string | null {
+  if (typeof reminderHour !== 'number' || typeof reminderMinute !== 'number') {
+    return null;
+  }
+
+  if (!Number.isInteger(reminderHour) || !Number.isInteger(reminderMinute)) {
+    return null;
+  }
+
+  if (reminderHour < 0 || reminderHour > 23 || reminderMinute < 0 || reminderMinute > 59) {
+    return null;
+  }
+
+  const local = getLocalReminderTime(utcNow, timezone);
+  if (local.hour !== reminderHour || local.minute !== reminderMinute) {
+    return null;
+  }
+
+  return `${local.year}-${local.month}-${local.day}T${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}`;
 }
 
 /**

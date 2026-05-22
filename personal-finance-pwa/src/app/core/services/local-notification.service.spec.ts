@@ -23,6 +23,63 @@ vi.mock('@capacitor/local-notifications', () => ({
   }
 }));
 
+vi.mock('./expense-store.service', () => ({
+  budgetThresholdExceeded$: {
+    subscribe: vi.fn()
+  }
+}));
+
+describe('LocalNotificationService - scheduleDailyReminder', () => {
+  let service: LocalNotificationService;
+  let mockStorageService: any;
+  let mockRouter: any;
+
+  beforeEach(() => {
+    mockStorageService = {
+      getNotificationPreferences: vi.fn().mockResolvedValue({
+        dailyReminderEnabled: false,
+        reminderHour: 21,
+        reminderMinute: 0,
+        budgetWarningsEnabled: true
+      }),
+      setNotificationPreferences: vi.fn().mockResolvedValue(undefined)
+    };
+
+    mockRouter = {
+      navigate: vi.fn().mockResolvedValue(true)
+    };
+
+    service = new LocalNotificationService(mockStorageService, mockRouter);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('schedules the native daily reminder with a rotating money tip', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 20, 10, 0, 0));
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined);
+
+    await service.scheduleDailyReminder(21, 0);
+
+    expect(LocalNotifications.schedule).toHaveBeenCalledWith({
+      notifications: [
+        expect.objectContaining({
+          id: 1,
+          title: 'Spenza money tip',
+          body: expect.stringContaining("Add today's expenses now."),
+          extra: {
+            route: '/daily'
+          }
+        })
+      ]
+    });
+  });
+});
+
 describe('LocalNotificationService - cancelMonthlyNudge', () => {
   let service: LocalNotificationService;
   let mockStorageService: any;

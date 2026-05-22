@@ -40,7 +40,9 @@ const MAX_PDF_PAGES_TO_SCAN = 3;
 const MAX_PDF_PAGES_TO_STORE_AS_IMAGE = 4;
 const PDF_RENDER_SCALE = 2.25;
 const PDF_STORAGE_RENDER_SCALE = 1.2;
-const PDF_STORAGE_JPEG_QUALITY = 0.72;
+const RECEIPT_STORAGE_TARGET_BYTES = 120 * 1024;
+const RECEIPT_STORAGE_JPEG_QUALITIES = [0.8, 0.7, 0.6, 0.5, 0.4, 0.32];
+const RECEIPT_STORAGE_SCALE_STEP = 0.82;
 const OCR_TARGET_LONG_EDGE = 3400;
 const OCR_MAX_LONG_EDGE = 3800;
 const OCR_MAX_PIXELS = 12_000_000;
@@ -168,7 +170,7 @@ export class ReceiptExtractionService {
       }
 
       const combinedCanvas = this.combineCanvases(renderedPages);
-      const blob = await this.canvasToJpegBlob(combinedCanvas, PDF_STORAGE_JPEG_QUALITY);
+      const blob = await this.compressCanvasToTargetSize(combinedCanvas);
       const baseName = file.name.replace(/\.[^.]+$/, '');
       return new File([blob], `${baseName}-compressed.jpg`, {
         type: 'image/jpeg',
@@ -281,6 +283,51 @@ export class ReceiptExtractionService {
     }
 
     return combined;
+  }
+
+  private async compressCanvasToTargetSize(source: HTMLCanvasElement): Promise<Blob> {
+    let width = source.width;
+    let height = source.height;
+    let bestBlob: Blob | null = null;
+
+    for (let scaleAttempt = 0; scaleAttempt < 24; scaleAttempt += 1) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        if (bestBlob) return bestBlob;
+        throw new Error('Could not prepare compressed receipt image.');
+      }
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of RECEIPT_STORAGE_JPEG_QUALITIES) {
+        const blob = await this.canvasToJpegBlob(canvas, quality);
+        if (!bestBlob || blob.size < bestBlob.size) {
+          bestBlob = blob;
+        }
+        if (blob.size <= RECEIPT_STORAGE_TARGET_BYTES) {
+          return blob;
+        }
+      }
+
+      width = Math.max(1, Math.round(width * RECEIPT_STORAGE_SCALE_STEP));
+      height = Math.max(1, Math.round(height * RECEIPT_STORAGE_SCALE_STEP));
+    }
+
+    if (!bestBlob) {
+      throw new Error('Could not compress receipt image.');
+    }
+
+    if (bestBlob.size <= RECEIPT_STORAGE_TARGET_BYTES) {
+      return bestBlob;
+    }
+
+    throw new Error('Could not compress receipt image to the 120 KB limit.');
   }
 
   private canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {

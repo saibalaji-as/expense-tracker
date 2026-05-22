@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExpenseEntry } from '../models/expense-entry.model';
 import { OfflineQueueEntry } from '../models/offline-queue-entry.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../models/expense-type.constants';
+import { PREDEFINED_EXPENSE_TYPES } from '../models/category-definitions';
 
 // ─── Pure logic helpers (mirrors SyncService queue logic) ─────────────────────
 

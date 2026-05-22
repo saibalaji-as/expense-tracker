@@ -9,6 +9,12 @@ import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { firebaseConfig } from '../config/firebase.config';
 import { environment } from '../../../environments/environment';
 
+export interface PushReminderPreferences {
+  dailyReminderEnabled: boolean;
+  reminderHour: number;
+  reminderMinute: number;
+}
+
 /**
  * FCM Service
  * 
@@ -51,14 +57,18 @@ export class FcmService {
    * @param timezone - User's timezone (e.g., "America/New_York")
    * @returns Promise<boolean> - true if registration successful
    */
-  async registerForNotifications(userId: string, timezone: string): Promise<boolean> {
+  async registerForNotifications(
+    userId: string,
+    timezone: string,
+    reminderPreferences?: PushReminderPreferences
+  ): Promise<boolean> {
     try {
       if (Capacitor.isNativePlatform()) {
         const token = await this.registerNativeAndGetToken();
-        return await this.registerTokenWithBackend(userId, token, timezone);
+        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences);
       } else {
         const token = await this.registerWebAndGetToken();
-        return await this.registerTokenWithBackend(userId, token, timezone);
+        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences);
       }
     } catch (error) {
       console.error('[FCM] Failed to register for notifications:', error);
@@ -77,7 +87,8 @@ export class FcmService {
   private async registerTokenWithBackend(
     userId: string,
     fcmToken: string,
-    timezone: string
+    timezone: string,
+    reminderPreferences?: PushReminderPreferences
   ): Promise<boolean> {
     try {
       const endpoint = this.functionsEndpoint('register-token');
@@ -86,6 +97,7 @@ export class FcmService {
           userId,
           fcmToken,
           timezone,
+          ...reminderPreferences,
           timestamp: Date.now()
         })
       );

@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { getReminderSlot, resolveTimezone, shouldSendReminder } from '../functions/scheduler-utils';
+import { getDailyReminderSlot, getReminderSlot, resolveTimezone, shouldSendReminder } from '../functions/scheduler-utils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +95,26 @@ describe('Reminder slot keys', () => {
     // 16:30 UTC is 22:00 in Asia/Kolkata.
     expect(getReminderSlot(new Date('2026-05-14T16:30:00.000Z'), 'Asia/Kolkata'))
       .toBe('2026-05-14T22:00');
+  });
+});
+
+describe('Daily reminder slot keys', () => {
+  it('returns a stable slot key at the user-selected local time', () => {
+    // 15:45 UTC is 21:15 in Asia/Kolkata.
+    expect(getDailyReminderSlot(new Date('2026-05-14T15:45:00.000Z'), 'Asia/Kolkata', 21, 15))
+      .toBe('2026-05-14T21:15');
+  });
+
+  it('does not send when only the hour matches', () => {
+    expect(getDailyReminderSlot(new Date('2026-05-14T15:45:00.000Z'), 'Asia/Kolkata', 21, 0))
+      .toBeNull();
+  });
+
+  it('ignores invalid configured reminder times', () => {
+    expect(getDailyReminderSlot(new Date('2026-05-14T15:45:00.000Z'), 'Asia/Kolkata', 24, 0))
+      .toBeNull();
+    expect(getDailyReminderSlot(new Date('2026-05-14T15:45:00.000Z'), 'Asia/Kolkata', 21, '15'))
+      .toBeNull();
   });
 });
 

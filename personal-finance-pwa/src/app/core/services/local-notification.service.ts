@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
 import { budgetThresholdExceeded$ } from './expense-store.service';
+import { getDailyReminderContent } from '../utils/reminder-message';
 
 /**
  * LocalNotificationService
@@ -186,14 +187,15 @@ export class LocalNotificationService {
         }
         
         console.log(`[LocalNotificationService] Scheduling daily reminder for ${scheduledTime.toLocaleString()}`);
+        const content = getDailyReminderContent(scheduledTime);
         
         // Native platform: use Capacitor plugin with specific date/time
         await LocalNotifications.schedule({
           notifications: [
             {
               id: 1, // Using numeric ID for native platforms
-              title: 'Expense Reminder',
-              body: "Don't forget to log today's expenses 💰",
+              title: content.title,
+              body: content.body,
               schedule: {
                 at: scheduledTime,
                 repeats: true,
@@ -724,8 +726,9 @@ export class LocalNotificationService {
     const timeoutId = window.setTimeout(() => {
       // Show the notification
       if (Notification.permission === 'granted') {
-        const notification = new Notification('Expense Reminder', {
-          body: "Don't forget to log today's expenses 💰",
+        const content = getDailyReminderContent();
+        const notification = new Notification(content.title, {
+          body: content.body,
           icon: '/icons/icon-192x192.png',
           tag: 'daily-reminder',
           requireInteraction: false
