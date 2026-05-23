@@ -18,6 +18,14 @@
 - AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
 
 ## Recently Completed / Present Features
+- Dashboard AI credit optimization and language-switch hardening:
+  - Weekly AI now allows at most 1 fresh Gemini call per locale per day and 2 fresh weekly-insight calls total per day across locales.
+  - Weekly AI usage is now counted before the Gemini request, so failed/malformed/rate-limited attempts cannot be retried repeatedly and drain credits.
+  - Same-locale changed-input requests after the daily cap reuse the latest same-locale fallback cache when available instead of making another Gemini call.
+  - Language changes in Settings no longer clear weekly AI cache/usage; locale-aware cache signatures already prevent wrong-language reuse, and preserving cache avoids unnecessary fresh calls after switching languages.
+  - Dashboard AI payload was compacted: shorter category trend window, no empty recent trend days, fewer top expenses/budget rows/baselines/months/what-if candidates.
+  - Gemini weekly deep-dive output target was reduced from 35-70 words to 20-40 words per detail, and `maxOutputTokens` was lowered from 2600 to 1400.
+  - Netlify `generate-insights` no longer retries alternate Gemini models after a 429 quota/rate-limit response; it only falls through for 404 model availability.
 - Dashboard AI reliability fixes:
   - Android/Capacitor Dashboard AI auto-scroll now writes scroll position through `window`, `document.documentElement`, and `document.body`, with delayed correction passes, so `Ask AI` / `View AI` reliably lands on the Gemini block in native WebView as well as web.
   - Dashboard AI generation now sets the loading state before API-key/cache checks, preventing rapid repeated taps from starting duplicate AI work while the first request is still preparing.
@@ -44,8 +52,8 @@
   - Weekly Gemini fallback cache is locale-aware; if the user changes app language, old saved responses in another language are not reused as fallback.
   - Changing only the requested insight locale now causes a fresh Gemini call when daily usage allows, even if expense data is unchanged.
   - Weekly Gemini cache now keeps a small per-locale history instead of one overwritten entry, so switching Tamil/Hindi/English does not discard the earlier English response.
-  - Weekly Gemini usage gating is tracked per locale, so one language reaching its daily limit does not prevent another selected language from calling the insight API.
-  - Changing app language from Settings clears saved weekly AI responses and usage state, so the selected language starts with `Ask AI` and the next tap makes a fresh `generate-insights` call.
+  - Weekly Gemini usage gating is tracked per locale plus a small total daily cap, so language switches can get localized results without allowing every language to multiply credit usage indefinitely.
+  - Changing app language from Settings preserves locale-aware weekly AI cache/usage. If the selected language has a matching cached response, Dashboard can show `View AI`; otherwise it shows `Ask AI` and only calls Gemini if the daily caps allow.
   - If the user has not added a Gemini API key, the AI button shows a setup panel explaining that the key enables Gemini deep dives, receipt smart-fill, and voice expense smart-fill, with a link to Settings.
   - Gemini deep dives are prompted for five higher-value sections: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.
   - Gemini deep-dive titles/details are requested in the selected app locale, while structured section labels remain schema-safe.
@@ -172,6 +180,11 @@
 
 ## Files Actively Touched In This Session
 - `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: split local weekly summary from Gemini deep dives, added Hybrid badge/UI, and expanded the weekly AI payload with category baselines, 90-day vectors, budget intent, what-if cuts, and seasonality.
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: compacted weekly AI payload size by trimming top expenses, budget usage, recent category trend days, baselines, budget intent, seasonality, and what-if candidates.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: reduced weekly AI caps to 1 call per locale and 2 total per day; counts attempted Gemini calls before the network request; preserves fallback cache behavior after caps.
+- `personal-finance-pwa/netlify/functions/generate-insights.ts`: shortened weekly deep-dive prompt/output budget and stopped retrying alternate models after 429 quota responses.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: no longer clears weekly AI cache/usage on language change, relying on locale-aware cache keys instead.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`: updated coverage for same-locale fallback after cap and total daily cap across languages.
 - `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: made Dashboard AI scroll native-WebView-safe, added an early loading guard against repeated taps, and renders rate-limit status distinctly.
 - `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: added `rate-limit` response source, upstream quota parsing, and retry-after/reset-label metadata for weekly AI.
 - `personal-finance-pwa/netlify/functions/generate-insights.ts`: returns HTTP 429 and `RATE_LIMIT` metadata for Gemini quota/rate exhaustion.
@@ -287,6 +300,9 @@
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI native-scroll/rate-limit changes.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed after Netlify rate-limit response changes.
   - `npm run build` passed after Dashboard AI/native scroll, route scroll-top, and Daily draft changes.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after weekly AI credit optimization and language-switch hardening.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed after weekly AI prompt/model-retry changes.
+  - `npm run build` passed after weekly AI credit optimization and language-switch hardening.
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI scenario-flow changes.
   - `npm run build` passed.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed.

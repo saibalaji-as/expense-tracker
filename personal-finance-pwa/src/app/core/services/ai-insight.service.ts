@@ -146,6 +146,8 @@ interface AiInsightSignature {
 interface AiInsightUsage {
   dateKey: string;
   callCount: number;
+  localeCallCount?: number;
+  totalCallCount?: number;
   localeCounts?: Record<string, number>;
 }
 
@@ -155,7 +157,8 @@ export class AiInsightService {
   private readonly aiSettingsService = inject(AiSettingsService);
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v2';
-  private readonly maxCallsPerDay = 2;
+  private readonly maxCallsPerLocalePerDay = 1;
+  private readonly maxTotalCallsPerDay = 2;
   private readonly maxCacheEntries = 12;
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -218,14 +221,18 @@ export class AiInsightService {
     }
 
     const fallbackCache = this.fallbackCacheResult(cacheEntries, signature);
-    if (usage.callCount >= this.maxCallsPerDay) {
+    if (
+      (usage.localeCallCount ?? usage.callCount) >= this.maxCallsPerLocalePerDay
+      || (usage.totalCallCount ?? usage.callCount) >= this.maxTotalCallsPerDay
+    ) {
       return fallbackCache
         ? { result: fallbackCache.result, source: 'cache' }
         : { result: null, source: 'rate-limit', retryAfter: this.nextDailyResetLabel() };
     }
 
     try {
-      const nextCallCount = usage.callCount + 1;
+      const nextLocaleCallCount = (usage.localeCallCount ?? usage.callCount) + 1;
+      await this.setUsage(todayKey, signature.locale, nextLocaleCallCount);
 
       const response = await fetch(`${this.functionsBaseUrl()}/generate-insights`, {
         method: 'POST',
@@ -258,12 +265,11 @@ export class AiInsightService {
 
       await this.setCacheEntry({
         dateKey: todayKey,
-        callCount: nextCallCount,
+        callCount: nextLocaleCallCount,
         cachedAt: Date.now(),
         signature,
         result,
       });
-      await this.setUsage(todayKey, signature.locale, nextCallCount);
       return { result, source: 'gemini' };
     } catch (error) {
       console.info('[AiInsightService] Falling back to local insights:', error);
@@ -340,21 +346,25 @@ export class AiInsightService {
 
   private async getUsage(todayKey: string, locale: string): Promise<AiInsightUsage> {
     const json = await this.storageService.get(this.usageKey);
-    if (!json) return { dateKey: todayKey, callCount: 0, localeCounts: {} };
+    if (!json) return { dateKey: todayKey, callCount: 0, localeCallCount: 0, totalCallCount: 0, localeCounts: {} };
 
     try {
       const usage = JSON.parse(json) as AiInsightUsage;
-      if (usage.dateKey !== todayKey) return { dateKey: todayKey, callCount: 0, localeCounts: {} };
+      if (usage.dateKey !== todayKey) return { dateKey: todayKey, callCount: 0, localeCallCount: 0, totalCallCount: 0, localeCounts: {} };
 
-      const localeCount = usage.localeCounts?.[locale] ?? 0;
+      const localeCounts = usage.localeCounts ?? (usage.callCount > 0 ? { [locale]: usage.callCount } : {});
+      const localeCount = localeCounts[locale] ?? 0;
+      const totalCount = Object.values(localeCounts).reduce((total, count) => total + count, 0);
       return {
         dateKey: todayKey,
-        callCount: localeCount,
-        localeCounts: usage.localeCounts ?? {},
+        callCount: totalCount,
+        localeCallCount: localeCount,
+        totalCallCount: totalCount,
+        localeCounts,
       };
     } catch {
       await this.storageService.remove(this.usageKey);
-      return { dateKey: todayKey, callCount: 0, localeCounts: {} };
+      return { dateKey: todayKey, callCount: 0, localeCallCount: 0, totalCallCount: 0, localeCounts: {} };
     }
   }
 
@@ -363,6 +373,9 @@ export class AiInsightService {
     await this.storageService.set(this.usageKey, JSON.stringify({
       dateKey: todayKey,
       callCount: Object.values({ ...current.localeCounts, [locale]: callCount })
+        .reduce((total, count) => total + count, 0),
+      localeCallCount: callCount,
+      totalCallCount: Object.values({ ...current.localeCounts, [locale]: callCount })
         .reduce((total, count) => total + count, 0),
       localeCounts: {
         ...current.localeCounts,

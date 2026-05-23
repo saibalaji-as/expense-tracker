@@ -658,14 +658,14 @@ export class DashboardComponent implements OnInit {
       budgetUsage: this.budgetUsage(monthEntries),
       topExpenses: [...current]
         .sort((a, b) => b.amount - a.amount)
-        .slice(0, 5)
+        .slice(0, 3)
         .map((entry) => ({
           date: entry.date,
           amount: entry.amount,
           type: entry.type,
         })),
       dailyTrend: this.dailyTrend(current, 6),
-      recentDailyTrend: this.categoryDailyTrend(entries, 89),
+      recentDailyTrend: this.categoryDailyTrend(entries, 45),
       categoryBaselines: this.categoryBaselines(entries),
       categoryChanges: this.categoryChanges(categoryTotals, previousCategoryTotals),
       repeatedExpenses: this.repeatedExpenses(current),
@@ -825,7 +825,7 @@ export class DashboardComponent implements OnInit {
         };
       })
       .sort((a, b) => b.percent - a.percent || b.spent - a.spent)
-      .slice(0, 8);
+      .slice(0, 6);
   }
 
   private dailyTrend(entries: ExpenseEntry[], days: number): AiInsightPayload['dailyTrend'] {
@@ -887,7 +887,7 @@ export class DashboardComponent implements OnInit {
     return [...groups.values()]
       .filter((group) => group.count >= 2)
       .sort((a, b) => b.count - a.count || b.total - a.total)
-      .slice(0, 6);
+      .slice(0, 4);
   }
 
   private spendingPattern(entries: ExpenseEntry[]): AiInsightPayload['spendingPattern'] {
@@ -932,7 +932,7 @@ export class DashboardComponent implements OnInit {
 
     return [...byActor.values()]
       .sort((a, b) => b.total - a.total)
-      .slice(0, 6);
+      .slice(0, 3);
   }
 
   private categoryDailyTrend(entries: ExpenseEntry[], daysAgo: number): NonNullable<AiInsightPayload['recentDailyTrend']> {
@@ -955,13 +955,14 @@ export class DashboardComponent implements OnInit {
       const date = new Date(start);
       date.setDate(start.getDate() + index);
       const dateStr = toLocalDateString(date);
+      const day = byDate.get(dateStr);
       return {
         date: dateStr,
-        totals: byDate.get(dateStr)?.totals ?? {},
-        total: byDate.get(dateStr)?.total ?? 0,
-        entryCount: byDate.get(dateStr)?.entryCount ?? 0,
+        totals: day?.totals ?? {},
+        total: day?.total ?? 0,
+        entryCount: day?.entryCount ?? 0,
       };
-    });
+    }).filter((item) => item.total > 0 || item.entryCount > 0);
   }
 
   private categoryBaselines(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['categoryBaselines']> {
@@ -991,7 +992,7 @@ export class DashboardComponent implements OnInit {
         zScore: stdDev > 0 ? Number(((current - average) / stdDev).toFixed(2)) : null,
         sampleWeeks: samples.length,
       };
-    }).sort((a, b) => Math.abs(b.zScore ?? 0) - Math.abs(a.zScore ?? 0)).slice(0, 10);
+    }).sort((a, b) => Math.abs(b.zScore ?? 0) - Math.abs(a.zScore ?? 0)).slice(0, 6);
   }
 
   private budgetIntent(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['budgetIntent']> {
@@ -1012,7 +1013,7 @@ export class DashboardComponent implements OnInit {
         };
       })
       .sort((a, b) => Math.abs(b.actualPercent - b.targetPercent) - Math.abs(a.actualPercent - a.targetPercent))
-      .slice(0, 12);
+      .slice(0, 8);
   }
 
   private monthlySeasonality(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['monthlySeasonality']> {
@@ -1024,7 +1025,7 @@ export class DashboardComponent implements OnInit {
 
     return [...byMonth.entries()]
       .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, 12)
+      .slice(0, 6)
       .map(([month, monthEntries]) => ({
         month,
         total: Number(this.sumEntries(monthEntries).toFixed(2)),
@@ -1057,7 +1058,7 @@ export class DashboardComponent implements OnInit {
         const bPriority = b.group === 'Wants' || b.group === 'Buffer' ? 1 : 0;
         return bPriority - aPriority || b.monthlySavings - a.monthlySavings;
       })
-      .slice(0, 8);
+      .slice(0, 5);
   }
 
   async onGenerateAiInsights(event?: Event): Promise<void> {

@@ -154,7 +154,8 @@
 - Include `X-Gemini-Api-Key` only when user-key mode is active.
 - Preserve deterministic local fallbacks for insights and receipt extraction.
 - Preserve AI usage/cache limits unless intentionally changed:
-  - Weekly insights max 2 calls/day.
+  - Weekly insights max 1 fresh Gemini call per locale per day and max 2 fresh weekly-insight calls total per day across locales.
+  - Count weekly Gemini attempts before the network call so failed/malformed/rate-limited responses cannot be retried repeatedly and drain credits.
   - Weekly Gemini insight cache should be reused whenever the exact normalized insight input is unchanged, even across Dashboard route re-entry.
   - 7d stale cache fallback.
 - Do not show the Dashboard weekly insight refreshing/loading badge when a reusable cached Gemini insight can be displayed.
@@ -177,8 +178,10 @@
   - Gemini weekly insight titles/details should match the selected app language/locale while keeping structured section labels valid for parsing.
   - Do not reuse a saved weekly Gemini fallback response from a different locale; after app language changes, call Gemini again when usage limits allow, otherwise show unavailable/status guidance instead of previous-language content.
   - Keep Dashboard weekly Gemini cache as a small locale-aware history, not a single overwritten entry, so switching languages can reuse the correct saved response.
-  - Track Dashboard weekly Gemini usage per locale so one selected language does not block API calls for another selected language.
-  - When the user changes app language in Settings, clear Dashboard weekly AI cache and usage state; the new language should start with `Ask AI` and generate fresh output on tap.
+  - Track Dashboard weekly Gemini usage per locale plus a small total daily cap across locales, so language switching does not multiply credit use without bound.
+  - When the user changes app language in Settings, preserve Dashboard weekly AI cache and usage state. Locale-aware signatures prevent wrong-language reuse, while preserving cache avoids unnecessary fresh calls after language switching.
+  - Keep Dashboard weekly AI payload compact. Preserve deep-dive value, but avoid sending long empty daily vectors or excessive history rows when summarized baselines already carry the signal.
+  - Keep Gemini weekly deep-dive output concise enough to protect user credits; current target is 20-40 words per detail and `generate-insights` uses a reduced output token budget.
   - Gemini should answer deeper "why / what if / what should I try" questions such as anomaly explanations, cross-category behavior hacks, seasonal timing, simulations, and budget intent vs reality.
   - Do not use Gemini to merely rewrite local weekly summaries.
 - For receipt AI, preserve file-size limits and local OCR fallback.

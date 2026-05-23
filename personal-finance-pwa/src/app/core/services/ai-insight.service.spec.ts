@@ -139,11 +139,11 @@ describe('AiInsightService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('calls Gemini again when the expense-derived insight input changes', async () => {
+  it('uses same-locale fallback cache instead of a second Gemini call when input changes after daily cap', async () => {
     await service.generateWeeklyInsightsWithSource(payload());
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await service.generateWeeklyInsightsWithSource(payload({
+    const result = await service.generateWeeklyInsightsWithSource(payload({
       totalSpent: 1001,
       delta: 201,
       categoryTotals: { Food: 1001 },
@@ -172,7 +172,8 @@ describe('AiInsightService', () => {
       partnerActivity: [{ actor: 'You', total: 1001, count: 2 }],
     }));
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.source).toBe('cache');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('calls Gemini again when only the requested insight language changes', async () => {
@@ -230,20 +231,20 @@ describe('AiInsightService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('does not let another language daily limit block a fresh call', async () => {
+  it('uses the total daily cap across languages to protect credits', async () => {
     await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
 
     storage.values.set(USAGE_KEY, JSON.stringify({
       dateKey: new Date().toISOString().slice(0, 10),
       callCount: 2,
-      localeCounts: { 'ta-IN': 2 },
+      localeCounts: { 'ta-IN': 1, 'hi-IN': 1 },
     }));
 
     const english = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
 
-    expect(english.source).toBe('gemini');
-    expect(english.result?.sections[0]?.title).toBe('Fresh insight en-IN');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(english.source).toBe('rate-limit');
+    expect(english.result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('clears saved weekly insight state so the next request calls Gemini again', async () => {

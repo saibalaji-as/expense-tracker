@@ -154,7 +154,7 @@ function buildPrompt(payload: unknown): string {
     'Produce exactly five sections in this order: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.',
     'Do not repeat basic totals, top categories, or generic budget warnings unless needed as evidence.',
     'Focus on work local rules cannot do well: anomaly explanation, cross-category contradictions, what-if simulations, seasonal timing, and budget intent vs reality.',
-    'Use recentDailyTrend and categoryBaselines to identify statistically meaningful category spikes or drops.',
+    'Use compact recentDailyTrend and categoryBaselines to identify meaningful category spikes or drops.',
     'Use budgetIntent to compare user-set budget priorities against actual behavior.',
     'Use monthlySeasonality to spot upcoming seasonal pressure. Only mention same-month/year-over-year patterns if the data supports it.',
     'Use whatIfCuts for the What if section; compare revised forecasts or savings from realistic category reductions.',
@@ -162,7 +162,7 @@ function buildPrompt(payload: unknown): string {
     'Make one concrete, actionable suggestion in each detail when possible.',
     'Be specific and useful: each detail should explain the signal, the likely implication, and one next action.',
     'Be practical and non-judgmental. Do not invent data. If data is sparse, say that clearly.',
-    'Keep each title under 12 words and each detail between 35 and 70 words when enough data exists.',
+    'Keep each title under 10 words and each detail between 20 and 40 words when enough data exists.',
     'Currency values are already summarized. Comments are intentionally excluded for privacy.',
     `Data: ${JSON.stringify(payload)}`,
   ].join('\n');
@@ -231,7 +231,7 @@ async function callGeminiWithFallbacks(
           ],
           generationConfig: {
             temperature: 0.35,
-            maxOutputTokens: 2600,
+            maxOutputTokens: 1400,
             responseMimeType: 'application/json',
             responseSchema: INSIGHT_RESPONSE_SCHEMA,
           },
@@ -262,7 +262,7 @@ async function callGeminiWithFallbacks(
     lastFailure = failure;
     console.error('[generate-insights] Gemini request failed', failure);
 
-    if (![404, 429].includes(response.status)) break;
+    if (response.status !== 404) break;
   }
 
   const failure = lastFailure ?? {

@@ -1,5 +1,44 @@
 # Task History
 
+## 2026-05-23 - Weekly AI Credit Optimization And Language-Switch Hardening
+- User felt Gemini credits were draining faster after enhancing weekly insights and reported that AI insights sometimes did not work after language changes.
+- Findings:
+  - Enhanced anomaly/what-if/seasonality prompts were legitimately heavier than the old on-device-like insight prompt.
+  - Dashboard was sending a large 90-day category daily vector including empty days, plus broad baseline/seasonality/intent arrays.
+  - `generate-insights` allowed up to 2600 output tokens and asked for 35-70 words per detail.
+  - `AiInsightService` counted usage only after a successful Gemini response, so failed/malformed/rate-limited attempts could be retried and still drain credits.
+  - `generate-insights` retried alternate Gemini models after a 429 response, which is wasteful when the user key is already quota/rate limited.
+  - Settings cleared all weekly AI cache/usage on language change, forcing fresh calls and making language switches more likely to hit quota.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Weekly AI now allows 1 fresh Gemini call per locale per day and 2 total fresh weekly-insight calls per day across locales.
+  - Counts a weekly Gemini attempt before the fetch call.
+  - Changed-input requests after same-locale cap can reuse same-locale fallback cache instead of calling Gemini again.
+  - Preserves rate-limit status behavior.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Compacted Dashboard weekly AI payload:
+    - Top expenses 5 -> 3.
+    - Recent category trend 90 days -> 46-day window and only non-empty days.
+    - Budget usage 8 -> 6.
+    - Repeated expenses 6 -> 4.
+    - Partner activity 6 -> 3.
+    - Category baselines 10 -> 6.
+    - Budget intent 12 -> 8.
+    - Monthly seasonality 12 -> 6.
+    - What-if cuts 8 -> 5.
+- Changed `personal-finance-pwa/netlify/functions/generate-insights.ts`:
+  - Reduced requested detail length from 35-70 words to 20-40 words.
+  - Lowered `maxOutputTokens` from 2600 to 1400.
+  - Stopped retrying alternate Gemini models after 429 quota/rate-limit responses; fallback model attempts remain only for 404 model availability.
+- Changed `personal-finance-pwa/src/app/features/settings/settings.component.ts`:
+  - Removed weekly AI cache/usage clearing from language changes.
+  - Locale-aware signatures remain responsible for preventing wrong-language cached responses.
+- Updated `AI_RULES.md` with the new weekly AI caps, attempt-counting, compact payload, concise output, and language-switch cache rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - Ran `npm run build`.
+  - All passed.
+
 ## 2026-05-23 - Dashboard AI Android Scroll, Rate Limit, Route Scroll, And Daily Drafts
 - User reported five existing issues:
   - Android Dashboard AI auto-scroll did not work while web did.
