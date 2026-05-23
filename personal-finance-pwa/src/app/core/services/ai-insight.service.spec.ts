@@ -195,9 +195,27 @@ describe('AiInsightService', () => {
 
     const result = await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
 
-    expect(result.source).toBe('none');
+    expect(result.source).toBe('rate-limit');
     expect(result.result).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a rate-limit source when Gemini reports quota exhaustion', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      text: async () => JSON.stringify({
+        code: 'RATE_LIMIT',
+        error: 'Rate limit reached',
+        message: 'Rate limit reached for Gemini API credits.',
+      }),
+    });
+
+    const result = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+
+    expect(result.source).toBe('rate-limit');
+    expect(result.result).toBeNull();
+    expect(result.retryAfter).toBeTruthy();
   });
 
   it('keeps separate cached responses when switching languages', async () => {

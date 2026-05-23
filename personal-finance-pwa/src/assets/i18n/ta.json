@@ -152,6 +152,8 @@
   "dashboard.insights.freshStatus": "சமீபத்திய செலவு தரவுக்கான புதிய AI ஆழமான பார்வை உருவாக்கப்பட்டது.",
   "dashboard.insights.unavailableTitle": "AI ஆழமான பார்வையை உருவாக்க முடியவில்லை.",
   "dashboard.insights.unavailableStatus": "AI ஆழமான பார்வை கிடைக்கவில்லை. AI அமைப்புகளைச் சரிபார்க்கவும் அல்லது பிறகு முயற்சிக்கவும்.",
+  "dashboard.insights.rateLimitTitle": "Gemini credit limit முடிந்துவிட்டது.",
+  "dashboard.insights.rateLimitStatus": "உங்கள் Gemini API credits அல்லது தினசரி AI limit முடிந்துவிட்டது. {time} பிறகு மீண்டும் முயற்சிக்கவும்.",
   "dashboard.insights.apiKeyRequiredTitle": "AI பார்வைகளைத் திறக்க உங்கள் Gemini API key ஐ சேர்க்கவும்.",
   "dashboard.insights.apiKeyRequiredDetail": "உங்கள் key Gemini ஆழமான பார்வைகள், ரசீது smart-fill, மற்றும் voice expense smart-fill ஐ இயக்கும். Spenza முக்கிய tracking-ஐ சாதனத்திலேயே வைத்துக்கொண்டு, நீங்கள் கேட்கும் AI அம்சங்களுக்கு மட்டும் Gemini-ஐ பயன்படுத்தும்.",
   "dashboard.insights.openAiSettings": "AI அமைப்புகளைத் திற",

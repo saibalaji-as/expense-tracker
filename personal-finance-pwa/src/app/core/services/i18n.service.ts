@@ -66,6 +66,8 @@ const FALLBACK_TRANSLATIONS: Record<string, string> = {
   'dashboard.insights.freshStatus': 'Fresh AI deep dives generated for the latest expense data.',
   'dashboard.insights.unavailableTitle': 'AI could not generate deep dives.',
   'dashboard.insights.unavailableStatus': 'AI deep dives are unavailable. Check AI settings or try again later.',
+  'dashboard.insights.rateLimitTitle': 'Gemini credit limit reached.',
+  'dashboard.insights.rateLimitStatus': 'Your Gemini API credits or daily AI limit has been reached. Try again after {time}.',
   'dashboard.insights.apiKeyRequiredTitle': 'Add your Gemini API key to unlock AI insights.',
   'dashboard.insights.apiKeyRequiredDetail': 'Your key enables Gemini deep dives, receipt smart-fill, and voice expense smart-fill. Spenza keeps core tracking on-device, and uses Gemini only when you ask for AI features.',
   'dashboard.insights.openAiSettings': 'Open AI settings',

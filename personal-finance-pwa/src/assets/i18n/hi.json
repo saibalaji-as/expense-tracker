@@ -152,6 +152,8 @@
   "dashboard.insights.freshStatus": "नए खर्च डेटा के लिए ताज़ा AI deep dives बनाए गए.",
   "dashboard.insights.unavailableTitle": "AI deep dives बना नहीं सका.",
   "dashboard.insights.unavailableStatus": "AI deep dives उपलब्ध नहीं हैं. AI settings जांचें या बाद में कोशिश करें.",
+  "dashboard.insights.rateLimitTitle": "Gemini credit limit पूरी हो गई.",
+  "dashboard.insights.rateLimitStatus": "आपकी Gemini API credits या daily AI limit पूरी हो गई है. {time} के बाद फिर कोशिश करें.",
   "dashboard.insights.apiKeyRequiredTitle": "AI insights unlock करने के लिए अपनी Gemini API key जोड़ें.",
   "dashboard.insights.apiKeyRequiredDetail": "आपकी key Gemini deep dives, receipt smart-fill, और voice expense smart-fill चालू करती है. Spenza core tracking on-device रखता है और Gemini सिर्फ तब इस्तेमाल करता है जब आप AI features मांगते हैं.",
   "dashboard.insights.openAiSettings": "AI settings खोलें",

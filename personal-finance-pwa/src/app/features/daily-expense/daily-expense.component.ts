@@ -50,6 +50,7 @@ import { AiVoiceExpenseService } from '../../core/services/ai-voice-expense.serv
 import { AuthService } from '../../core/services/auth.service';
 import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
+import { DailyExpenseDraft, DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { ExpenseEntry, ExpenseReceipt } from '../../core/models/expense-entry.model';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
@@ -1245,6 +1246,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly backupModeService = inject(BackupModeService);
   private readonly feedback = inject(UserFeedbackService);
+  private readonly draftService = inject(DailyExpenseDraftService);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({
@@ -1556,7 +1558,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   private typeChangeSub?: Subscription;
   private dateChangeSub?: Subscription;
+  private draftSub?: Subscription;
   private offlineToastTimer?: ReturnType<typeof setTimeout>;
+  private suppressDraftSave = false;
 
   constructor() {
     effect(() => {
@@ -1570,6 +1574,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Type-selection logic ─────────────────────────────────────────────────
   async ngOnInit(): Promise<void> {
+    this.restoreDraft();
+
     const expenseTypeControl = this.form.get('expenseType');
     const limitControl = this.form.get('limit');
     const updateRemainingLimit = (): void => {
@@ -1608,17 +1614,86 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       });
     }
 
+    updateRemainingLimit();
+    this.draftSub = this.form.valueChanges.subscribe(() => this.saveDraft());
+
     // Data is loaded from Google Drive on app bootstrap — no per-component fetch needed.
   }
 
   ngOnDestroy(): void {
     this.typeChangeSub?.unsubscribe();
     this.dateChangeSub?.unsubscribe();
+    this.draftSub?.unsubscribe();
     if (this.offlineToastTimer) {
       clearTimeout(this.offlineToastTimer);
     }
     this.revokeReceiptPreviewUrl();
     this.revokeReceiptEditorUrl();
+  }
+
+  private restoreDraft(): void {
+    const draft = this.draftService.getDraft();
+    if (!draft) return;
+
+    this.suppressDraftSave = true;
+    try {
+      this.form.patchValue({
+        expenseType: draft.expenseType,
+        amount: draft.amount,
+        date: draft.date,
+        comment: draft.comment,
+      }, { emitEvent: false });
+      this.setActiveDate(draft.date, false);
+      this.splitRows.set(draft.splitRows);
+      this.splitBillMode.set(draft.splitBillMode);
+    } finally {
+      this.suppressDraftSave = false;
+    }
+  }
+
+  private saveDraft(): void {
+    if (this.suppressDraftSave || this.isEditMode()) return;
+
+    const raw = this.form.getRawValue();
+    const draft: DailyExpenseDraft = {
+      expenseType: raw.expenseType ?? '',
+      amount: raw.amount ?? null,
+      date: raw.date ?? this.selectedDate(),
+      comment: raw.comment ?? '',
+      splitBillMode: this.splitBillMode(),
+      splitRows: this.splitRows(),
+    };
+
+    if (this.isEmptyDraft(draft)) {
+      this.draftService.clearDraft();
+    } else {
+      this.draftService.saveDraft(draft);
+    }
+  }
+
+  private isEmptyDraft(draft: DailyExpenseDraft): boolean {
+    return !draft.expenseType
+      && !draft.amount
+      && !draft.comment.trim()
+      && !draft.splitBillMode
+      && draft.splitRows.length === 0
+      && draft.date === toLocalDateString();
+  }
+
+  private clearDraftAndReset(value: {
+    expenseType: string;
+    amount: number | null;
+    limit: number;
+    date: string;
+    comment: string;
+  }): void {
+    this.suppressDraftSave = true;
+    try {
+      this.draftService.clearDraft();
+      this.form.reset(value);
+    } finally {
+      this.suppressDraftSave = false;
+    }
   }
 
   // ─── Helper: map type name → category ID ─────────────────────────────────
@@ -2191,6 +2266,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       { id: crypto.randomUUID(), type: 'Miscellaneous', amount: remainder, comment: '' },
     ]);
     this.splitBillMode.set(true);
+    this.saveDraft();
   }
 
   startSplitBillFromExtractedItems(): void {
@@ -2224,11 +2300,13 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     this.splitRows.set(rows);
     this.splitBillMode.set(true);
+    this.saveDraft();
   }
 
   cancelSplitBill(): void {
     this.splitBillMode.set(false);
     this.splitRows.set([]);
+    this.saveDraft();
   }
 
   addSplitRow(): void {
@@ -2236,10 +2314,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       ...rows,
       { id: crypto.randomUUID(), type: 'Miscellaneous', amount: null, comment: '' },
     ]);
+    this.saveDraft();
   }
 
   removeSplitRow(rowId: string): void {
     this.splitRows.update((rows) => rows.length <= 2 ? rows : rows.filter((row) => row.id !== rowId));
+    this.saveDraft();
   }
 
   updateSplitRow(rowId: string, field: 'type' | 'amount' | 'comment', value: string | number | null): void {
@@ -2251,6 +2331,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       }
       return { ...row, [field]: String(value ?? '') };
     }));
+    this.saveDraft();
   }
 
   updateSplitRowFromEvent(rowId: string, field: 'type' | 'amount' | 'comment', event: Event): void {
@@ -2462,7 +2543,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       }, 4000);
     }
 
-    this.form.reset({ 
+    this.clearDraftAndReset({ 
       expenseType: '', 
       amount: null, 
       limit: 0, 
@@ -2473,6 +2554,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     // Keep the shared date on the day the user was logging, including past dates.
     this.setActiveDate(date);
+    this.draftService.clearDraft();
     this.scrollToTodaysEntries();
   }
 
@@ -2531,7 +2613,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       });
     }
 
-    this.form.reset({
+    this.clearDraftAndReset({
       expenseType: '',
       amount: null,
       limit: 0,
@@ -2540,6 +2622,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     });
     this.clearSelectedReceipt();
     this.setActiveDate(date);
+    this.draftService.clearDraft();
     this.scrollToTodaysEntries();
   }
 
@@ -2590,7 +2673,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       }, 4000);
     }
 
-    this.form.reset({ 
+    this.clearDraftAndReset({ 
       expenseType: '', 
       amount: null, 
       limit: 0, 
@@ -2602,6 +2685,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     // Keep the shared date on the updated entry's date.
     this.setActiveDate(date);
+    this.draftService.clearDraft();
     this.scrollToTodaysEntries();
   }
 
@@ -2631,7 +2715,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.editingEntry.set(null);
     this.clearSelectedReceipt();
     const date = this.selectedDate();
-    this.form.reset({ 
+    this.clearDraftAndReset({ 
       expenseType: '', 
       amount: null, 
       limit: 0, 

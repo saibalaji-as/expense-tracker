@@ -73,6 +73,7 @@
 - `src/app/app.routes.ts`: lazy standalone routes.
 - `src/app/core/models/`: business models, constants, budget/category definitions.
 - `src/app/core/services/`: persistence, auth, Drive, Sheets, sync, notification, AI, i18n, currency, theme services.
+- `src/app/core/services/daily-expense-draft.service.ts`: root-scoped in-memory Daily expense draft state for same-session page navigation.
 - `src/app/core/guards/`: auth/setup route guards.
 - `src/app/core/interceptors/`: Google API auth retry interceptor.
 - `src/app/core/utils/local-date.ts`: local-date helpers; use for `YYYY-MM-DD` app dates.

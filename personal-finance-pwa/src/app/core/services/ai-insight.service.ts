@@ -111,12 +111,13 @@ export interface AiInsightResult {
   sections: AiInsightSection[];
 }
 
-export type AiInsightResultSource = 'cache' | 'gemini' | 'none';
+export type AiInsightResultSource = 'cache' | 'gemini' | 'none' | 'rate-limit';
 export type AiInsightAvailability = 'ready' | 'missing-key';
 
 export interface AiInsightResponse {
   result: AiInsightResult | null;
   source: AiInsightResultSource;
+  retryAfter?: string;
 }
 
 interface AiInsightCache {
@@ -220,7 +221,7 @@ export class AiInsightService {
     if (usage.callCount >= this.maxCallsPerDay) {
       return fallbackCache
         ? { result: fallbackCache.result, source: 'cache' }
-        : { result: null, source: 'none' };
+        : { result: null, source: 'rate-limit', retryAfter: this.nextDailyResetLabel() };
     }
 
     try {
@@ -236,8 +237,15 @@ export class AiInsightService {
       });
 
       if (!response.ok) {
-        const detail = await response.text();
+        const detail = await this.parseFailureResponse(response);
         console.info('[AiInsightService] AI insights unavailable:', response.status, detail);
+        if (response.status === 429 || detail.code === 'RATE_LIMIT' || this.isRateLimitMessage(detail.message)) {
+          return {
+            result: null,
+            source: 'rate-limit',
+            retryAfter: detail.retryAfter ?? this.nextDailyResetLabel(),
+          };
+        }
         return { result: null, source: 'none' };
       }
 
@@ -269,6 +277,34 @@ export class AiInsightService {
     return Capacitor.isNativePlatform()
       ? environment.netlifyFunctionsUrl
       : '/.netlify/functions';
+  }
+
+  private async parseFailureResponse(response: Response): Promise<{ code?: string; message: string; retryAfter?: string }> {
+    const text = await response.text();
+    try {
+      const parsed = JSON.parse(text) as { code?: unknown; error?: unknown; message?: unknown; detail?: unknown; retryAfter?: unknown };
+      return {
+        code: typeof parsed.code === 'string' ? parsed.code : undefined,
+        message: String(parsed.message ?? parsed.error ?? parsed.detail ?? text),
+        retryAfter: typeof parsed.retryAfter === 'string' ? parsed.retryAfter : undefined,
+      };
+    } catch {
+      return { message: text };
+    }
+  }
+
+  private isRateLimitMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return normalized.includes('rate limit')
+      || normalized.includes('quota')
+      || normalized.includes('resource_exhausted')
+      || normalized.includes('too many requests');
+  }
+
+  private nextDailyResetLabel(): string {
+    const reset = new Date();
+    reset.setHours(24, 0, 0, 0);
+    return reset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
   private async getCacheEntries(): Promise<AiInsightCache[]> {

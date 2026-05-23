@@ -136,6 +136,7 @@
   - If validation fails, explain what the user needs to fix in plain language.
   - If persistence fails, explain the likely next step, such as checking internet connection, Google Drive access, or file selection.
   - Prefer `UserFeedbackService` for app-wide save acknowledgments and guided errors.
+- All route changes should reset page scroll to top at the root app level.
 
 ## i18n And Currency Rules
 - Use `TranslatePipe` or `I18nService.t()` for user-facing text.
@@ -167,6 +168,9 @@
   - When Dashboard Gemini output is shown or already available, the UI should scroll the Gemini deep-dive section into view after the user taps the AI/View AI button.
   - Dashboard AI scroll should use a stable target and tolerate cached/immediate responses; do not rely on a single early `ViewChild.scrollIntoView()` call.
   - `View AI` should align the Gemini insight block to the top of the document viewport target without subtracting sticky-header offset, and should correct the final scroll position after smooth scrolling.
+  - Dashboard AI scroll must work inside Android/Capacitor WebView; write/correct scroll position through `window`, `document.documentElement`, and `document.body` instead of relying on desktop-only scroll behavior.
+  - Dashboard AI requests must enter loading state before async key/cache checks so rapid repeated taps cannot start duplicate AI requests.
+  - When Gemini/API quota or rate limit is reached, show a specific credit-limit/reset message instead of the generic unavailable AI panel.
   - Dashboard AI touch controls should not use mobile `hover:` / `group-hover:` effects that can remain visually stuck after tapping.
   - If the user has not added a Gemini API key, Dashboard AI should show a clear setup prompt explaining the API-key-enabled features and link to AI settings.
   - Before any Gemini request, reuse a cached weekly insight when the normalized expense-derived input has not changed.
@@ -181,6 +185,7 @@
 - Keep long-running receipt extraction state in `ReceiptExtractionSessionService`, not in `DailyExpenseComponent`.
 - Do not cancel active receipt extraction on route/component teardown; cancel only when the user selects/clears/replaces the receipt or starts a newer extraction.
 - Daily page UI should reattach to `ReceiptExtractionSessionService` signals and apply completed extraction results when available.
+- Unsaved Daily expense form data should survive same-session page navigation until the user saves or explicitly clears/cancels the form. Keep this as in-memory app-session state unless persistent draft storage is intentionally added.
 - When receipt extraction cannot determine a type but has usable expense data, apply a real valid fallback category, currently `Miscellaneous`, so the form is submit-ready.
 - Do not show the receipt smart-fill `Apply` button after suggestions have already auto-applied.
 - Split bill row dropdowns must render the actual row type selected; if using native `<select>`, explicitly bind the matching option selected state for mobile reliability.

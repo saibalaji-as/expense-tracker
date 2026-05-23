@@ -1064,6 +1064,7 @@ export class DashboardComponent implements OnInit {
     this.releaseAiButton(event);
     const payload = this.aiInsightPayload();
     const payloadKey = payload ? JSON.stringify(payload) : '';
+    if (this.aiInsightLoading()) return;
     if (payload && this.geminiInsightSections()?.length && payloadKey === this.displayedAiPayloadKey) {
       this.scrollToGeminiInsights();
       return;
@@ -1102,6 +1103,8 @@ export class DashboardComponent implements OnInit {
 
     const payloadKey = JSON.stringify(payload);
     const requestId = ++this.aiInsightRequestId;
+    this.aiInsightLoading.set(true);
+    this.clearAiStatus();
     const availability = await this.aiInsightService.getAvailability();
     if (requestId !== this.aiInsightRequestId) return;
 
@@ -1132,10 +1135,8 @@ export class DashboardComponent implements OnInit {
       return;
     }
 
-    this.aiInsightLoading.set(true);
-    this.clearAiStatus();
     this.scrollToGeminiInsights();
-    const { result, source } = await this.aiInsightService.generateWeeklyInsightsWithSource(payload);
+    const { result, source, retryAfter } = await this.aiInsightService.generateWeeklyInsightsWithSource(payload);
     if (requestId !== this.aiInsightRequestId) return;
 
     if (result?.sections.length) {
@@ -1149,6 +1150,15 @@ export class DashboardComponent implements OnInit {
           ? this.i18n.t('dashboard.insights.savedFallbackStatus')
           : this.i18n.t('dashboard.insights.freshStatus')
       );
+    } else if (source === 'rate-limit') {
+      this.geminiInsightSections.set(null);
+      this.aiInsightProvider.set('local');
+      this.displayedAiPayloadKey = '';
+      this.aiInsightNeedsKey.set(false);
+      this.aiInsightStatusTitle.set(this.i18n.t('dashboard.insights.rateLimitTitle'));
+      this.aiInsightStatusDetail.set(this.i18n.t('dashboard.insights.rateLimitStatus', {
+        time: retryAfter ?? 'the reset time',
+      }));
     } else {
       this.geminiInsightSections.set(null);
       this.aiInsightProvider.set('local');
@@ -1181,12 +1191,10 @@ export class DashboardComponent implements OnInit {
 
       if (!element) return;
 
-      const top = Math.max(0, element.getBoundingClientRect().top + window.scrollY);
-      window.scrollTo({
-        top,
-        behavior: 'smooth',
-      });
+      const top = Math.max(0, element.getBoundingClientRect().top + this.currentScrollTop());
+      this.scrollDocumentTo(top, attempt === 0 ? 'smooth' : 'auto');
       window.setTimeout(() => this.correctGeminiInsightScrollTop(element), 450);
+      window.setTimeout(() => this.correctGeminiInsightScrollTop(element), 900);
     };
 
     window.setTimeout(() => {
@@ -1197,13 +1205,26 @@ export class DashboardComponent implements OnInit {
   }
 
   private correctGeminiInsightScrollTop(element: HTMLElement): void {
-    const top = Math.max(0, element.getBoundingClientRect().top + window.scrollY);
-    if (Math.abs(window.scrollY - top) <= 2) return;
+    const top = Math.max(0, element.getBoundingClientRect().top + this.currentScrollTop());
+    if (Math.abs(this.currentScrollTop() - top) <= 2) return;
 
+    this.scrollDocumentTo(top, 'auto');
+  }
+
+  private currentScrollTop(): number {
+    return window.scrollY
+      || document.documentElement.scrollTop
+      || document.body.scrollTop
+      || 0;
+  }
+
+  private scrollDocumentTo(top: number, behavior: ScrollBehavior): void {
     window.scrollTo({
       top,
-      behavior: 'auto',
+      behavior,
     });
+    document.documentElement.scrollTop = top;
+    document.body.scrollTop = top;
   }
 
   releaseAiButton(event?: Event): void {

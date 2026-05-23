@@ -1,5 +1,40 @@
 # Task History
 
+## 2026-05-23 - Dashboard AI Android Scroll, Rate Limit, Route Scroll, And Daily Drafts
+- User reported five existing issues:
+  - Android Dashboard AI auto-scroll did not work while web did.
+  - Rapid repeated taps on `Ask AI` were possible before visible loading began.
+  - Gemini credit/rate limit responses were shown as a plain generic unavailable message.
+  - Every page switch should start at scroll top `0`.
+  - Unsaved Daily expense form data was lost when navigating away.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Added an early `aiInsightLoading` guard before async API-key/cache checks.
+  - Dashboard now sets loading state immediately when starting AI refresh, preventing duplicate request starts.
+  - Reworked Gemini block scrolling to compute document top from the current scroll offset and write to `window`, `document.documentElement`, and `document.body`.
+  - Added delayed correction passes to improve Android/Capacitor WebView reliability after smooth scrolling/rendering.
+  - Renders a specific rate-limit status panel when AI service returns `rate-limit`.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Added `rate-limit` to `AiInsightResultSource`.
+  - Parses failed function responses for `RATE_LIMIT`, quota, rate-limit, or too-many-requests signals.
+  - Returns a retry/reset label for client-side daily limit or upstream quota exhaustion.
+- Changed `personal-finance-pwa/netlify/functions/generate-insights.ts`:
+  - Gemini 429/rate-limit failures now return HTTP 429 with `code: RATE_LIMIT` metadata instead of falling back to a generic 200/local response.
+- Changed `personal-finance-pwa/src/app/app.ts`:
+  - Added root `NavigationEnd` handling to reset page scroll top to `0` on every route switch.
+- Added `personal-finance-pwa/src/app/core/services/daily-expense-draft.service.ts`.
+- Changed `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`:
+  - Restores in-memory Daily expense drafts on page re-entry.
+  - Saves category, amount, date, comment, split bill mode, and split rows while the user edits.
+  - Clears the draft after create, update, or split-bill save.
+  - Recalculates remaining limit when a restored draft has a selected category/date.
+- Updated English, Tamil, Hindi, and fallback i18n copy for AI credit-limit messaging.
+- Updated `AI_RULES.md` with Android-safe AI scroll, duplicate-tap prevention, rate-limit messaging, route scroll-top, and Daily draft rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - Ran `npm run build`.
+  - All passed.
+
 ## 2026-05-23 - Dashboard View AI Exact Block-Top Scroll
 - User asked to make sure clicking `View AI` changes scroll position so the Gemini insight block is at the top.
 - Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:

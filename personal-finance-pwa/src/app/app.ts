@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
-import { Router, RouterOutlet } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
 import { ToastComponent } from './shared/components/toast/toast.component';
 import { AppShellComponent } from './shared/components/app-shell/app-shell.component';
@@ -33,6 +33,7 @@ export class App implements OnInit, OnDestroy {
   private loadingTimeoutId: number | null = null;
   private drivePollIntervalId: number | null = null;
   private driveErrorSubscription: Subscription | null = null;
+  private routeScrollSubscription: Subscription | null = null;
   private isRefreshingFromDrive = false;
 
   private startLoadingTimeout(): void {
@@ -289,6 +290,9 @@ export class App implements OnInit, OnDestroy {
 
     document.addEventListener('visibilitychange', this.visibilityHandler);
     window.addEventListener('focus', this.focusHandler);
+    this.routeScrollSubscription = this.router.events
+      .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
+      .subscribe(() => this.scrollToPageTop());
 
     try {
       await this.bootstrapData();
@@ -305,7 +309,16 @@ export class App implements OnInit, OnDestroy {
     this.clearLoadingTimeout();
     this.stopDrivePollLoop();
     this.driveErrorSubscription?.unsubscribe();
+    this.routeScrollSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     window.removeEventListener('focus', this.focusHandler);
+  }
+
+  private scrollToPageTop(): void {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
   }
 }

@@ -18,6 +18,16 @@
 - AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
 
 ## Recently Completed / Present Features
+- Dashboard AI reliability fixes:
+  - Android/Capacitor Dashboard AI auto-scroll now writes scroll position through `window`, `document.documentElement`, and `document.body`, with delayed correction passes, so `Ask AI` / `View AI` reliably lands on the Gemini block in native WebView as well as web.
+  - Dashboard AI generation now sets the loading state before API-key/cache checks, preventing rapid repeated taps from starting duplicate AI work while the first request is still preparing.
+  - Gemini/API quota failures now propagate as a distinct `rate-limit` source and show a credit-limit message instead of the generic unavailable panel.
+  - The Netlify `generate-insights` function returns HTTP 429 plus `RATE_LIMIT` metadata when Gemini reports quota/rate exhaustion.
+- Navigation and Daily draft behavior:
+  - Every Angular route navigation resets document scroll top to `0`.
+  - Daily expense form drafts are kept in a root-scoped in-memory `DailyExpenseDraftService` while navigating between pages in the same app session.
+  - Unsaved Daily draft fields include category, amount, date, comment, split-bill mode, and split rows.
+  - Successful expense save/update/split-save clears the draft; the draft is not meant to survive a full app reload.
 - Hybrid local/Gemini dashboard insights:
   - Dashboard local insight cards now remain the deterministic "what happened" weekly summary.
   - Gemini no longer replaces local sections when enabled; it appears as a separate "Gemini deep dives" lane only after the user taps the AI button.
@@ -162,6 +172,14 @@
 
 ## Files Actively Touched In This Session
 - `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: split local weekly summary from Gemini deep dives, added Hybrid badge/UI, and expanded the weekly AI payload with category baselines, 90-day vectors, budget intent, what-if cuts, and seasonality.
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: made Dashboard AI scroll native-WebView-safe, added an early loading guard against repeated taps, and renders rate-limit status distinctly.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: added `rate-limit` response source, upstream quota parsing, and retry-after/reset-label metadata for weekly AI.
+- `personal-finance-pwa/netlify/functions/generate-insights.ts`: returns HTTP 429 and `RATE_LIMIT` metadata for Gemini quota/rate exhaustion.
+- `personal-finance-pwa/src/app/app.ts`: added route-navigation scroll-to-top behavior for all pages.
+- `personal-finance-pwa/src/app/core/services/daily-expense-draft.service.ts`: added in-memory Daily expense draft storage.
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: restores/saves unsaved Daily expense form and split-bill drafts across same-session page navigation, and clears the draft after save/update.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`: added rate-limit coverage and updated per-locale limit expectation.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: added Dashboard AI credit-limit copy.
 - `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: changed Gemini deep dives from page-load auto-generation to an explicit top-right AI button; unchanged cached responses are shown without an API call.
 - `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: added automatic scrolling to the Gemini response, a missing-key setup panel, and richer status handling for cached/fresh/unavailable AI output.
 - `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: extended `AiInsightPayload` for hybrid deep-dive inputs while preserving cache/usage behavior.
@@ -232,6 +250,7 @@
 ## Current Bugs / Issues / Risks
 - Memory files were untracked before this session (`git status --short` showed `?? ai/` and `?? drive-ai.md`).
 - Receipt extraction survives Daily route changes only within the same active app/browser process; a full app reload still loses the in-memory `File` object.
+- Daily expense unsaved form drafts survive page navigation only within the same active app/browser process; a full app reload still clears the in-memory draft.
 - Verbose debug logging remains across production services/components:
   - `ExpenseStore`
   - `GoogleSheetsService`
@@ -265,6 +284,9 @@
 - Latest verification on 2026-05-23:
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after exact Gemini block top scroll changes.
   - `npm run build` passed.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI native-scroll/rate-limit changes.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed after Netlify rate-limit response changes.
+  - `npm run build` passed after Dashboard AI/native scroll, route scroll-top, and Daily draft changes.
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI scenario-flow changes.
   - `npm run build` passed.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed.

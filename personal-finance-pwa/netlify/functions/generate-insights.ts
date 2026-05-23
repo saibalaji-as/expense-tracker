@@ -110,8 +110,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
         statusCode: generated.statusCode,
         headers,
         body: JSON.stringify({
+          code: generated.statusCode === 429 ? 'RATE_LIMIT' : undefined,
           error: generated.clientMessage,
           detail: generated.detail,
+          message: generated.detail,
           model: generated.model,
           upstreamStatus: generated.upstreamStatus,
           upstreamCode: generated.upstreamCode,
@@ -284,9 +286,9 @@ async function callGeminiWithFallbacks(
 
   return {
     ok: false,
-    statusCode: failure.status === 429 ? 200 : failure.status === 401 || failure.status === 403 ? 503 : 502,
+    statusCode: failure.status === 429 ? 429 : failure.status === 401 || failure.status === 403 ? 503 : 502,
     clientMessage: failure.status === 429
-      ? 'AI insights fell back to local summaries'
+      ? 'Rate limit reached'
       : failure.status === 401 || failure.status === 403
         ? 'Gemini API key is not authorized'
         : 'AI insights service temporarily unavailable',
