@@ -1,7 +1,7 @@
 # Current State
 
 ## Last Memory Refresh
-- Date: 2026-05-22.
+- Date: 2026-05-23.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
@@ -18,6 +18,28 @@
 - AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
 
 ## Recently Completed / Present Features
+- Hybrid local/Gemini dashboard insights:
+  - Dashboard local insight cards now remain the deterministic "what happened" weekly summary.
+  - Gemini no longer replaces local sections when enabled; it appears as a separate "Gemini deep dives" lane only after the user taps the AI button.
+  - Dashboard no longer triggers Gemini automatically on page landing.
+  - The AI button checks for a reusable cached Gemini response before any API call; unchanged expense-derived input reuses the previous response to protect AI credits.
+  - Tapping `View AI` now scrolls the user directly to the Gemini deep-dive response.
+  - Dashboard AI scroll now waits for the rendered Gemini/status block before scrolling, improving mobile reliability after fresh responses.
+  - The mobile AI button clears its touch focus after tap so it does not stay visually pressed/held.
+  - Weekly Gemini fallback cache is locale-aware; if the user changes app language, old saved responses in another language are not reused as fallback.
+  - Changing only the requested insight locale now causes a fresh Gemini call when daily usage allows, even if expense data is unchanged.
+  - If the user has not added a Gemini API key, the AI button shows a setup panel explaining that the key enables Gemini deep dives, receipt smart-fill, and voice expense smart-fill, with a link to Settings.
+  - Gemini deep dives are prompted for five higher-value sections: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.
+  - Gemini deep-dive titles/details are requested in the selected app locale, while structured section labels remain schema-safe.
+  - Gemini detail length is now allowed to be richer than the earlier very brief response target.
+  - The AI insight payload now includes 90-day category daily vectors, 13-week category baselines/z-scores, budget intent vs actuals, monthly seasonality, what-if cut candidates, and monthly income.
+  - Weekly insight Gemini cache and max 2 calls/day behavior remain unchanged.
+  - Weekly insight prompts still exclude expense comments for privacy.
+- Settings mobile UI polish:
+  - Root toast now sits above the floating mobile bottom navigation using safe-area-aware bottom spacing and a higher z-index.
+  - Settings language selection now uses themed language option cards instead of a plain native select.
+  - The selected language card uses the app’s primary gradient/glow treatment and a check indicator.
+  - Voice input language now appears in a styled themed preview panel that matches light/dark surfaces.
 - Voice expense smart-fill:
   - Daily comment input now has an inline clear button that appears when comment text exists.
   - Existing browser speech recognition now captures the selected app language/native speech mode (`en-IN`, `hi-IN`, `ta-IN`) and keeps the transcript in the comment field.
@@ -131,6 +153,17 @@
   - Delete Spenza account data.
 
 ## Files Actively Touched In This Session
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: split local weekly summary from Gemini deep dives, added Hybrid badge/UI, and expanded the weekly AI payload with category baselines, 90-day vectors, budget intent, what-if cuts, and seasonality.
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: changed Gemini deep dives from page-load auto-generation to an explicit top-right AI button; unchanged cached responses are shown without an API call.
+- `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`: added automatic scrolling to the Gemini response, a missing-key setup panel, and richer status handling for cached/fresh/unavailable AI output.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: extended `AiInsightPayload` for hybrid deep-dive inputs while preserving cache/usage behavior.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`: added AI insight availability checking so Dashboard can detect missing Gemini key before attempting generation.
+- `personal-finance-pwa/netlify/functions/generate-insights.ts`: changed Gemini output schema/prompt from generic weekly summary sections to Gemini-only deep-dive sections.
+- `personal-finance-pwa/netlify/functions/generate-insights.ts`: now asks Gemini to localize section titles/details to the selected app locale and allows more detailed responses.
+- `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`: updated test payload for the extended AI insight contract.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`, `personal-finance-pwa/src/assets/i18n/en.json`, `personal-finance-pwa/src/assets/i18n/ta.json`, `personal-finance-pwa/src/assets/i18n/hi.json`: added hybrid/Gemini deep-dive copy.
+- `personal-finance-pwa/src/app/shared/components/toast/toast.component.ts`: raised toast above the mobile bottom nav with safe-area-aware positioning.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: replaced plain language select with themed language cards and a styled voice input preview panel.
 - `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: added clear-comment UI and Gemini-backed voice transcript parsing into the expense form.
 - `personal-finance-pwa/src/app/core/services/ai-voice-expense.service.ts`: added client service for user-key Gemini voice expense parsing through Netlify functions.
 - `personal-finance-pwa/netlify/functions/parse-voice-expense.ts`: added Gemini JSON parser for spoken English/Hindi/Tamil or mixed-language expense transcripts.
@@ -221,8 +254,20 @@
 ## Current Blockers
 - No runtime blocker identified during static analysis.
 - Latest verification on 2026-05-22:
+- Latest verification on 2026-05-23:
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI mobile touch/scroll and locale-aware cache fallback changes.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
   - `npm run build` passed.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts` passed after Dashboard AI scroll/setup/localized-detail changes.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npm run build` passed.
+- Previous verification on 2026-05-22:
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts` passed after user-triggered Dashboard AI button changes.
+  - `npm run build` passed after user-triggered Dashboard AI button changes.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts` passed after hybrid local/Gemini dashboard insight changes.
+  - `npm run build` passed after toast/language UI polish.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npm run build` passed after hybrid local/Gemini dashboard insight changes.
 - Latest verification: `npm run build` from `personal-finance-pwa` passed on 2026-05-20 after weekly insight cache hardening.
 - Targeted verification: `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed on 2026-05-20.
 - Latest notification verification on 2026-05-20:

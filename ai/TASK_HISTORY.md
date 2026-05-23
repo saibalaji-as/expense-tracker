@@ -1,5 +1,113 @@
 # Task History
 
+## 2026-05-23 - Dashboard AI Mobile Touch, Scroll, And Locale Cache Fix
+- User reported mobile Dashboard AI behavior issues:
+  - The AI button looked bumped/held after touch instead of releasing normally.
+  - `View AI` did not reliably scroll to the AI response after fresh generation, though language changes caused scrolling.
+  - Changing app/system language could still show a previous saved AI response, making it unclear whether Gemini was called fresh or cached content was reused.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - AI button click now receives the event and blurs the tapped button immediately to clear stuck mobile touch/focus styling.
+  - Removed the always-on small-screen hover lift from the AI button; the lift remains only at desktop breakpoint.
+  - AI scroll now waits for two animation frames before calling `scrollIntoView`, giving Angular/mobile layout time to render the Gemini/status block.
+  - Final fresh/cache/unavailable AI scroll happens after `aiInsightLoading` is cleared so the user lands on the actual result/status block.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Added `locale` to the weekly insight cache signature fallback metadata.
+  - Reusable cache still requires the full normalized payload signature to match.
+  - Stale fallback cache is now allowed only when the cached response locale matches the requested locale.
+  - If app language changes and daily call limit is reached, the service returns no AI result instead of showing previous-language content.
+- Updated `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`:
+  - Added coverage that changing only locale calls Gemini again when usage allows.
+  - Added coverage that previous-language fallback cache is not shown when daily usage is exhausted.
+- Updated `AI_RULES.md` with the locale-safe fallback cache rule.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - Ran `npm run build`.
+  - All passed.
+
+## 2026-05-23 - Dashboard AI Scroll, Localization, And API-Key Guidance
+- User reported that after tapping `View AI`, they still had to scroll manually to see the Gemini response.
+- User also asked for Gemini responses to be more detailed, to match the selected app language, and to guide users who have not added a Gemini API key.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Added a `ViewChild` target for the Gemini deep-dive section.
+  - Tapping `Ask AI`/`View AI` now scrolls the Gemini section into view after cached, fresh, unavailable, or missing-key output is shown.
+  - If a Gemini response is already visible for the current payload, `View AI` scrolls to it instead of doing more work.
+  - Added a missing-key panel with a Settings link explaining that a Gemini key unlocks AI deep dives, receipt smart-fill, and voice expense smart-fill.
+  - Split AI status into title/detail/needs-key signals so unavailable and missing-key states can be rendered as useful panels instead of terse text.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Added `getAvailability()` so Dashboard can detect missing/disabled Gemini key before attempting cache/API generation.
+- Changed `personal-finance-pwa/netlify/functions/generate-insights.ts`:
+  - Prompt now tells Gemini to write section titles/details in the selected app locale.
+  - Structured labels remain fixed English enum values for response parsing.
+  - Detail guidance increased from very brief responses to richer 35-70 word explanations when enough data exists.
+  - Increased Gemini max output tokens and normalized detail length allowance.
+- Updated fallback, English, Tamil, and Hindi translations for API-key guidance and unavailable AI panels.
+- Updated `AI_RULES.md` to record Dashboard AI scroll, missing-key guidance, and localized Gemini response rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - Ran `npm run build`.
+  - All passed.
+
+## 2026-05-22 - Dashboard AI Deep Dives Become User-Triggered
+- User reported Gemini was being triggered on Dashboard landing and asked to protect AI credits.
+- Product decision:
+  - Dashboard should render on-device/local insights by default.
+  - Gemini deep dives should appear only after the user taps an impressive AI button in the insight card header.
+  - Before any API call, the app must check whether the previous Gemini response still matches the current expense-derived insight input.
+  - If no expense/log-derived input change happened, show the previous saved Gemini response instead of calling the API.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Removed the auto-generation effect that called Gemini whenever the Dashboard insight payload changed.
+  - Added a styled top-right AI button with loading/review states.
+  - Button click first checks `getReusableCachedWeeklyInsights()`.
+  - Unchanged cached responses are displayed immediately with no Gemini call.
+  - If there is no matching cached response, the existing `generateWeeklyInsightsWithSource()` path is used, preserving daily usage limits and fallback behavior.
+  - If expenses change after AI output is shown, the stale Gemini section is cleared so the Dashboard returns to local-only until the user taps AI again.
+- Updated English, Tamil, Hindi, and fallback i18n copy for the AI button and cache/fresh/unavailable status messages.
+- Updated `AI_RULES.md` to make Dashboard Gemini deep dives explicitly user-triggered and cache-first.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts`.
+  - Ran `npm run build`.
+  - Both passed.
+
+## 2026-05-22 - Hybrid Local/Gemini Dashboard Insights
+- User pointed out that on-device and Gemini weekly insights felt too similar, making the Gemini API key feel unnecessary.
+- Product decision:
+  - Keep deterministic local insights as the "what happened" weekly summary.
+  - Use Gemini as a separate hybrid deep-dive lane for work local rules do not handle well: anomaly explanation, cross-category behavior hacks, what-if simulations, seasonal timing, and budget intent vs reality.
+  - Continue excluding expense comments from weekly AI prompts for privacy.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Local insight cards now always remain visible as the primary weekly summary.
+  - Gemini results render in a visually separate "Gemini deep dives" section instead of replacing local sections.
+  - Dashboard shows a Hybrid badge when Gemini deep dives are available.
+  - Expanded the AI payload with 90-day category daily vectors, 13-week category baselines/z-scores, budget intent vs actuals, monthly seasonality, what-if cut candidates, and monthly income.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Extended `AiInsightPayload` to support hybrid deep-dive inputs.
+  - Existing cache and daily call-limit behavior remains unchanged.
+- Changed `personal-finance-pwa/netlify/functions/generate-insights.ts`:
+  - Gemini schema now returns five deep-dive sections: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.
+  - Prompt now explicitly avoids repeating local totals and focuses on deeper synthesis.
+- Updated English, Tamil, Hindi, and fallback i18n copy for hybrid/Gemini deep-dive UI.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts src/app/features/dashboard/dashboard.component.spec.ts`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - Ran `npm run build`.
+  - All passed.
+
+## 2026-05-22 - Toast Clearance And Language Settings Polish
+- User shared a mobile Settings screenshot where the success toast was hidden behind the floating bottom navigation and the language selector looked too plain.
+- Changed `personal-finance-pwa/src/app/shared/components/toast/toast.component.ts`:
+  - Raised the root toast above the mobile nav with `bottom-[calc(6.25rem+env(safe-area-inset-bottom))]`.
+  - Increased toast stacking to `z-[70]`.
+  - Kept desktop toast placement at bottom-right.
+- Changed `personal-finance-pwa/src/app/features/settings/settings.component.ts`:
+  - Replaced the plain app-language native select with themed language option cards.
+  - Cards support selected state with primary border, accent background, glow, gradient badge, and check indicator.
+  - Restyled the voice input language area into a gradient-accented preview panel matching the app’s light/dark themes.
+- Verification:
+  - Ran `npm run build` in `personal-finance-pwa`.
+  - Build passed.
+
 ## 2026-05-22 - Voice Expense Smart-Fill And Clear Comment
 - User asked for a clear button on the Daily comment input and asked whether AI could support voice expense logging in English, Hindi, and Tamil/native tone:
   - User speaks an expense.

@@ -159,6 +159,16 @@
 - Do not show the Dashboard weekly insight refreshing/loading badge when a reusable cached Gemini insight can be displayed.
 - Weekly Gemini insights should be regenerated only when expense-derived insight input changes, no reusable cache exists, or fallback/usage-limit behavior applies.
 - Do not send expense comments to weekly AI prompts unless privacy requirements change.
+- Dashboard weekly AI should stay hybrid:
+  - Local deterministic insights answer "what happened" and remain visible.
+  - Dashboard Gemini deep dives should be user-triggered from the AI button, not generated automatically on Dashboard landing.
+  - When Dashboard Gemini output is shown or already available, the UI should scroll the Gemini deep-dive section into view after the user taps the AI/View AI button.
+  - If the user has not added a Gemini API key, Dashboard AI should show a clear setup prompt explaining the API-key-enabled features and link to AI settings.
+  - Before any Gemini request, reuse a cached weekly insight when the normalized expense-derived input has not changed.
+  - Gemini weekly insight titles/details should match the selected app language/locale while keeping structured section labels valid for parsing.
+  - Do not reuse a saved weekly Gemini fallback response from a different locale; after app language changes, call Gemini again when usage limits allow, otherwise show unavailable/status guidance instead of previous-language content.
+  - Gemini should answer deeper "why / what if / what should I try" questions such as anomaly explanations, cross-category behavior hacks, seasonal timing, simulations, and budget intent vs reality.
+  - Do not use Gemini to merely rewrite local weekly summaries.
 - For receipt AI, preserve file-size limits and local OCR fallback.
 - Keep long-running receipt extraction state in `ReceiptExtractionSessionService`, not in `DailyExpenseComponent`.
 - Do not cancel active receipt extraction on route/component teardown; cancel only when the user selects/clears/replaces the receipt or starts a newer extraction.

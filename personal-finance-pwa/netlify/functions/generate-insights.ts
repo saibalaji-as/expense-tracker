@@ -37,7 +37,7 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-const SECTION_LABELS = new Set(['Weekly summary', 'Wins', 'Warnings', 'Suggestions', 'Forecast']);
+const SECTION_LABELS = new Set(['Anomaly', 'Behavior hack', 'What if', 'Seasonal timing', 'Intent check']);
 const TONES = new Set<InsightTone>(['good', 'warn', 'info']);
 const ICONS = new Set<InsightIcon>(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
 const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -54,7 +54,7 @@ const INSIGHT_RESPONSE_SCHEMA = {
         properties: {
           label: {
             type: 'STRING',
-            enum: ['Weekly summary', 'Wins', 'Warnings', 'Suggestions', 'Forecast'],
+            enum: ['Anomaly', 'Behavior hack', 'What if', 'Seasonal timing', 'Intent check'],
           },
           title: { type: 'STRING' },
           detail: { type: 'STRING' },
@@ -141,18 +141,38 @@ export const handler: Handler = async (event: HandlerEvent) => {
 };
 
 function buildPrompt(payload: unknown): string {
+  const locale = localeFromPayload(payload);
+
   return [
     'You are Spenza, a private household finance assistant.',
     'Return JSON only using the provided response schema.',
-    'Produce exactly five sections in this order: Weekly summary, Wins, Warnings, Suggestions, Forecast.',
-    'Do not simply repeat totals. Find patterns, anomalies, habit changes, category shifts, repeat purchases, and practical next actions.',
-    'Use dailyTrend, categoryChanges, repeatedExpenses, spendingPattern, partnerActivity, budgetUsage, and topExpenses when available.',
-    'Mention one concrete signal in each detail when possible, such as a spike day, category increase, budget risk, repeat purchase, or partner activity.',
-    'Be concise, practical, and non-judgmental. Do not invent data. If data is sparse, say that clearly.',
-    'Keep each title under 12 words and each detail under 30 words.',
+    `Write each section title and detail in this user language/locale: ${locale}.`,
+    'Keep the section label values exactly as the schema enum strings: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.',
+    'This is the Gemini-only deep-dive lane in a hybrid UI. The app already shows local deterministic weekly summaries.',
+    'Produce exactly five sections in this order: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.',
+    'Do not repeat basic totals, top categories, or generic budget warnings unless needed as evidence.',
+    'Focus on work local rules cannot do well: anomaly explanation, cross-category contradictions, what-if simulations, seasonal timing, and budget intent vs reality.',
+    'Use recentDailyTrend and categoryBaselines to identify statistically meaningful category spikes or drops.',
+    'Use budgetIntent to compare user-set budget priorities against actual behavior.',
+    'Use monthlySeasonality to spot upcoming seasonal pressure. Only mention same-month/year-over-year patterns if the data supports it.',
+    'Use whatIfCuts for the What if section; compare revised forecasts or savings from realistic category reductions.',
+    'Use repeatedExpenses, spendingPattern, partnerActivity, budgetUsage, categoryChanges, dailyTrend, and topExpenses as supporting evidence.',
+    'Make one concrete, actionable suggestion in each detail when possible.',
+    'Be specific and useful: each detail should explain the signal, the likely implication, and one next action.',
+    'Be practical and non-judgmental. Do not invent data. If data is sparse, say that clearly.',
+    'Keep each title under 12 words and each detail between 35 and 70 words when enough data exists.',
     'Currency values are already summarized. Comments are intentionally excluded for privacy.',
     `Data: ${JSON.stringify(payload)}`,
   ].join('\n');
+}
+
+function localeFromPayload(payload: unknown): string {
+  if (payload && typeof payload === 'object' && 'locale' in payload) {
+    const locale = (payload as { locale?: unknown }).locale;
+    if (typeof locale === 'string' && locale.trim()) return locale.trim();
+  }
+
+  return 'en-IN';
 }
 
 function modelCandidates(configuredModel: string | undefined): string[] {
@@ -209,7 +229,7 @@ async function callGeminiWithFallbacks(
           ],
           generationConfig: {
             temperature: 0.35,
-            maxOutputTokens: 1600,
+            maxOutputTokens: 2600,
             responseMimeType: 'application/json',
             responseSchema: INSIGHT_RESPONSE_SCHEMA,
           },
@@ -394,14 +414,14 @@ function normalizeSectionArray(sections: unknown[]): InsightSection[] {
     const section = item as Partial<InsightSection>;
     const label = typeof section.label === 'string' && SECTION_LABELS.has(section.label)
       ? section.label
-      : 'Suggestions';
+      : 'Behavior hack';
     const tone = section.tone && TONES.has(section.tone) ? section.tone : 'info';
     const icon = section.icon && ICONS.has(section.icon) ? section.icon : 'lightbulb';
 
     return {
       label,
       title: typeof section.title === 'string' ? section.title.slice(0, 90) : label,
-      detail: typeof section.detail === 'string' ? section.detail.slice(0, 220) : '',
+      detail: typeof section.detail === 'string' ? section.detail.slice(0, 520) : '',
       tone,
       icon,
     };

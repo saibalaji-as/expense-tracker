@@ -18,8 +18,10 @@ export interface AiInsightSection {
 
 export interface AiInsightPayload {
   period: 'week';
+  mode?: 'hybrid-deep-dive';
   locale: string;
   currency: string;
+  monthlyIncome: number;
   totalSpent: number;
   previousPeriodTotal: number;
   delta: number;
@@ -41,6 +43,19 @@ export interface AiInsightPayload {
     date: string;
     amount: number;
     entryCount: number;
+  }>;
+  recentDailyTrend?: Array<{
+    date: string;
+    totals: Record<string, number>;
+    total: number;
+    entryCount: number;
+  }>;
+  categoryBaselines?: Array<{
+    category: string;
+    current: number;
+    average: number;
+    zScore: number | null;
+    sampleWeeks: number;
   }>;
   categoryChanges: Array<{
     category: string;
@@ -68,6 +83,27 @@ export interface AiInsightPayload {
     total: number;
     count: number;
   }>;
+  budgetIntent?: Array<{
+    category: string;
+    group: string;
+    targetPercent: number;
+    actualPercent: number;
+    monthlySpent: number;
+    monthlyLimit: number;
+  }>;
+  monthlySeasonality?: Array<{
+    month: string;
+    total: number;
+    categories: Record<string, number>;
+  }>;
+  whatIfCuts?: Array<{
+    category: string;
+    group: string;
+    monthlySpent: number;
+    cutPercent: number;
+    monthlySavings: number;
+    revisedMonthForecast: number;
+  }>;
 }
 
 export interface AiInsightResult {
@@ -76,6 +112,7 @@ export interface AiInsightResult {
 }
 
 export type AiInsightResultSource = 'cache' | 'gemini' | 'none';
+export type AiInsightAvailability = 'ready' | 'missing-key';
 
 export interface AiInsightResponse {
   result: AiInsightResult | null;
@@ -92,6 +129,7 @@ interface AiInsightCache {
 
 interface AiInsightSignature {
   dataKey?: string;
+  locale: string;
   totalSpent: number;
   entryCount: number;
   monthForecast: number;
@@ -133,6 +171,16 @@ export class AiInsightService {
     return this.reusableCacheResult(cache, signature);
   }
 
+  async getAvailability(): Promise<AiInsightAvailability> {
+    await this.aiSettingsService.load();
+    if (this.aiSettingsService.isDisabled()) {
+      return 'missing-key';
+    }
+
+    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
+    return userGeminiKey ? 'ready' : 'missing-key';
+  }
+
   async generateWeeklyInsightsWithSource(payload: AiInsightPayload): Promise<AiInsightResponse> {
     await this.aiSettingsService.load();
     if (this.aiSettingsService.isDisabled()) {
@@ -158,7 +206,7 @@ export class AiInsightService {
       const cacheAge = Date.now() - cache.cachedAt;
 
       if (usage.callCount >= this.maxCallsPerDay) {
-        return cacheAge < this.staleCacheTtlMs
+        return cacheAge < this.staleCacheTtlMs && this.canUseFallbackCache(cache, signature)
           ? { result: cache.result, source: 'cache' }
           : { result: null, source: 'none' };
       }
@@ -186,7 +234,9 @@ export class AiInsightService {
 
       const result = await response.json() as AiInsightResult;
       if (result.provider !== 'gemini' || !Array.isArray(result.sections) || result.sections.length === 0) {
-        return cache?.result.sections.length && Date.now() - cache.cachedAt < this.staleCacheTtlMs
+        return cache?.result.sections.length
+          && Date.now() - cache.cachedAt < this.staleCacheTtlMs
+          && this.canUseFallbackCache(cache, signature)
           ? { result: cache.result, source: 'cache' }
           : { result: null, source: 'none' };
       }
@@ -202,7 +252,9 @@ export class AiInsightService {
       return { result, source: 'gemini' };
     } catch (error) {
       console.info('[AiInsightService] Falling back to local insights:', error);
-      return cache?.result.sections.length && Date.now() - cache.cachedAt < this.staleCacheTtlMs
+      return cache?.result.sections.length
+        && Date.now() - cache.cachedAt < this.staleCacheTtlMs
+        && this.canUseFallbackCache(cache, signature)
         ? { result: cache.result, source: 'cache' }
         : { result: null, source: 'none' };
     }
@@ -252,6 +304,7 @@ export class AiInsightService {
   private signatureFor(payload: AiInsightPayload): AiInsightSignature {
     return {
       dataKey: this.stableStringify(this.normalizeForSignature(payload)),
+      locale: payload.locale,
       totalSpent: Math.round(payload.totalSpent),
       entryCount: payload.entryCount,
       monthForecast: Math.round(payload.monthForecast),
@@ -282,11 +335,20 @@ export class AiInsightService {
       return previous.dataKey === next.dataKey;
     }
 
-    return previous.totalSpent === next.totalSpent
+    return previous.locale === next.locale
+      && previous.totalSpent === next.totalSpent
       && previous.entryCount === next.entryCount
       && previous.monthForecast === next.monthForecast
       && previous.categoryKey === next.categoryKey
       && previous.dailyKey === next.dailyKey;
+  }
+
+  private canUseFallbackCache(
+    cache: AiInsightCache | null,
+    signature: AiInsightSignature
+  ): cache is AiInsightCache {
+    if (!cache?.result.sections.length) return false;
+    return cache.signature.locale === signature.locale;
   }
 
   private normalizeForSignature(value: unknown): unknown {

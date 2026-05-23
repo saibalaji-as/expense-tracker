@@ -46,6 +46,8 @@ import {
   KeyRound,
   Sparkles,
   Pencil,
+  Languages,
+  Mic,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -62,7 +64,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -122,33 +124,63 @@ interface BeforeInstallPromptEvent extends Event {
         [title]="'settings.language.title' | translate"
         [description]="'settings.language.description' | translate"
       >
-        <div class="grid gap-4 md:grid-cols-2">
+        <div class="space-y-4">
           <div>
-            <label for="app-language" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {{ 'settings.language.appLanguage' | translate }}
-            </label>
-            <select
-              id="app-language"
-              [ngModel]="i18n.language()"
-              (ngModelChange)="onLanguageChange($event)"
-              class="mt-2 w-full rounded-2xl border border-border bg-card/60 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
-            >
+            </p>
+            <div class="mt-3 grid gap-3 md:grid-cols-3">
               @for (language of i18n.languageOptions; track language.code) {
-                <option [value]="language.code">
-                  {{ language.nativeLabel }} ({{ language.label }})
-                </option>
+                <button
+                  type="button"
+                  (click)="onLanguageChange(language.code)"
+                  [attr.aria-pressed]="i18n.language() === language.code"
+                  [class]="languageOptionClass(language.code)"
+                >
+                  <span
+                    [class]="
+                      'grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-sm font-black transition-all ' +
+                      (i18n.language() === language.code
+                        ? 'gradient-primary text-primary-foreground shadow-glow'
+                        : 'bg-muted text-muted-foreground group-hover:text-primary')
+                    "
+                  >
+                    {{ language.code.toUpperCase() }}
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-foreground">{{ language.nativeLabel }}</span>
+                    <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ language.label }}</span>
+                  </span>
+                  @if (i18n.language() === language.code) {
+                    <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
+                      <lucide-icon [img]="checkIcon" class="h-3.5 w-3.5" />
+                    </span>
+                  }
+                </button>
               }
-            </select>
+            </div>
           </div>
 
-          <div class="rounded-2xl border border-border bg-card/40 p-4">
-            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {{ 'settings.language.voiceInput' | translate }}
-            </p>
-            <p class="mt-2 text-sm font-semibold">{{ currentSpeechLanguageLabel() }}</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              {{ 'settings.language.voiceInputHint' | translate }}
-            </p>
+          <div class="overflow-hidden rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary-glow/10 to-success/10 p-0.5 shadow-sm">
+            <div class="rounded-[calc(1rem-2px)] border border-white/40 bg-background/75 p-4 backdrop-blur dark:border-white/10 dark:bg-card/60">
+              <div class="flex items-start gap-3">
+                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <lucide-icon name="mic" class="h-5 w-5" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {{ 'settings.language.voiceInput' | translate }}
+                  </p>
+                  <p class="mt-1 text-sm font-semibold text-foreground">{{ currentSpeechLanguageLabel() }}</p>
+                  <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {{ 'settings.language.voiceInputHint' | translate }}
+                  </p>
+                </div>
+                <span class="hidden rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary sm:inline-flex">
+                  {{ i18n.speechRecognitionLang() }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </app-section-card>
@@ -1054,6 +1086,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
   currentSpeechLanguageLabel(): string {
     const current = this.i18n.languageOptions.find((language) => language.code === this.i18n.language());
     return current ? `${current.nativeLabel} · ${current.speechLang}` : 'English · en-IN';
+  }
+
+  languageOptionClass(language: AppLanguage): string {
+    return [
+      'group relative flex min-h-[5rem] items-center gap-3 rounded-2xl border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+      this.i18n.language() === language
+        ? 'border-primary bg-accent shadow-glow'
+        : 'border-border bg-card/40 hover:border-primary/40 hover:bg-card/70',
+    ].join(' ');
   }
 
   aiProviderMode(): AiProviderMode {

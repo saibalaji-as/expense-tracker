@@ -1,7 +1,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnInit,
+  ViewChild,
   computed,
   effect,
   inject,
@@ -105,13 +107,26 @@ interface ActivityItem {
                   </div>
                 </div>
               </div>
-              <div class="shrink-0 rounded-full border border-primary/20 bg-background/70 px-3 py-1 text-[10px] font-semibold text-primary shadow-sm sm:text-[11px]">
-                @if (aiInsightLoading()) {
-                  {{ 'dashboard.insights.loadingBadge' | translate }}
-                } @else {
-                  {{ aiInsightProvider() === 'gemini' ? ('dashboard.insights.geminiBadge' | translate) : ('dashboard.insights.localBadge' | translate) }}
-                }
-              </div>
+              <button
+                type="button"
+                class="group relative inline-flex shrink-0 items-center gap-2 overflow-hidden rounded-2xl border border-primary/25 bg-background/80 px-3.5 py-2 text-xs font-semibold text-primary shadow-sm transition-all hover:border-primary/50 hover:shadow-glow active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 md:hover:-translate-y-0.5"
+                [disabled]="aiInsightLoading() || !aiInsightPayload()"
+                (click)="onGenerateAiInsights($event)"
+              >
+                <span class="absolute inset-0 bg-gradient-to-r from-primary/15 via-accent/15 to-primary/10 opacity-80 transition-opacity group-hover:opacity-100"></span>
+                <span class="relative grid h-7 w-7 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
+                  <lucide-icon name="sparkles" class="h-3.5 w-3.5" />
+                </span>
+                <span class="relative whitespace-nowrap">
+                  @if (aiInsightLoading()) {
+                    {{ 'dashboard.insights.aiButtonLoading' | translate }}
+                  } @else if (geminiInsightSections()?.length) {
+                    {{ 'dashboard.insights.aiButtonReview' | translate }}
+                  } @else {
+                    {{ 'dashboard.insights.aiButton' | translate }}
+                  }
+                </span>
+              </button>
             </div>
           </div>
           @if (displayInsightSections().length > 0) {
@@ -165,6 +180,95 @@ interface ActivityItem {
                   </div>
                 }
               </div>
+
+              @if (geminiInsightSections()?.length || aiInsightLoading() || aiInsightStatusTitle()) {
+                <div #geminiInsightsBlock class="scroll-mt-24 border-t border-border/60 pt-4">
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 class="text-sm font-semibold tracking-tight">{{ 'dashboard.insights.geminiDeepDiveTitle' | translate }}</h3>
+                      <p class="mt-0.5 text-xs text-muted-foreground">{{ 'dashboard.insights.geminiDeepDiveDescription' | translate }}</p>
+                    </div>
+                    <span class="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary">
+                      {{ 'dashboard.insights.geminiBadge' | translate }}
+                    </span>
+                  </div>
+
+                  @if (aiInsightLoading() && !geminiInsightSections()?.length) {
+                    <div class="rounded-2xl border border-dashed border-primary/30 bg-primary/5 p-4 text-sm text-muted-foreground">
+                      {{ 'dashboard.insights.geminiLoading' | translate }}
+                    </div>
+                  } @else if (!geminiInsightSections()?.length && aiInsightStatusTitle()) {
+                    <div
+                      class="rounded-2xl border p-4"
+                      [class.border-amber-400\/30]="aiInsightNeedsKey()"
+                      [class.bg-amber-400\/10]="aiInsightNeedsKey()"
+                      [class.border-primary\/25]="!aiInsightNeedsKey()"
+                      [class.bg-primary\/10]="!aiInsightNeedsKey()"
+                    >
+                      <div class="flex items-start gap-3">
+                        <span
+                          class="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+                          [class.bg-amber-400\/15]="aiInsightNeedsKey()"
+                          [class.text-amber-600]="aiInsightNeedsKey()"
+                          [class.bg-primary\/15]="!aiInsightNeedsKey()"
+                          [class.text-primary]="!aiInsightNeedsKey()"
+                        >
+                          <lucide-icon [name]="aiInsightNeedsKey() ? 'alert-triangle' : 'lightbulb'" class="h-4 w-4" />
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-sm font-semibold text-foreground">{{ aiInsightStatusTitle() }}</p>
+                          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ aiInsightStatusDetail() }}</p>
+                          @if (aiInsightNeedsKey()) {
+                            <a
+                              routerLink="/settings"
+                              class="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/25 bg-background/80 px-3 py-2 text-xs font-semibold text-primary shadow-sm transition-all hover:border-primary/50 hover:shadow-glow"
+                            >
+                              {{ 'dashboard.insights.openAiSettings' | translate }}
+                              <lucide-icon name="arrow-right" class="h-3.5 w-3.5" />
+                            </a>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="grid gap-3">
+                      @for (insight of geminiInsightSections(); track insight.label) {
+                        <div
+                          class="rounded-2xl border px-3.5 py-3"
+                          [class.border-emerald-400\/30]="insight.tone === 'good'"
+                          [class.bg-emerald-400\/10]="insight.tone === 'good'"
+                          [class.border-amber-400\/30]="insight.tone === 'warn'"
+                          [class.bg-amber-400\/10]="insight.tone === 'warn'"
+                          [class.border-primary\/25]="insight.tone === 'info'"
+                          [class.bg-primary\/10]="insight.tone === 'info'"
+                        >
+                          <div class="flex items-start gap-2">
+                            <span
+                              class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl"
+                              [class.bg-emerald-400\/15]="insight.tone === 'good'"
+                              [class.text-emerald-600]="insight.tone === 'good'"
+                              [class.bg-amber-400\/15]="insight.tone === 'warn'"
+                              [class.text-amber-600]="insight.tone === 'warn'"
+                              [class.bg-primary\/15]="insight.tone === 'info'"
+                              [class.text-primary]="insight.tone === 'info'"
+                            >
+                              <lucide-icon [name]="insight.icon" class="h-4 w-4" />
+                            </span>
+                            <div class="min-w-0">
+                              <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ insight.label }}</p>
+                              <p class="text-sm font-semibold text-foreground">{{ insight.title }}</p>
+                              <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ insight.detail }}</p>
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  }
+                  @if (geminiInsightSections()?.length && aiInsightStatusDetail()) {
+                    <p class="mt-3 text-xs text-muted-foreground">{{ aiInsightStatusDetail() }}</p>
+                  }
+                </div>
+              }
             </div>
           } @else {
             <div class="m-5 rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground md:m-6">
@@ -344,6 +448,7 @@ export class DashboardComponent implements OnInit {
   private readonly i18n = inject(I18nService);
   private readonly currencyService = inject(CurrencyService);
   private readonly aiInsightService = inject(AiInsightService);
+  @ViewChild('geminiInsightsBlock') private geminiInsightsBlock?: ElementRef<HTMLElement>;
 
   // Chart data signals
   readonly ytdDailyData = signal<ChartData>({ datasets: [] });
@@ -362,11 +467,14 @@ export class DashboardComponent implements OnInit {
   readonly hasMonthlyTypeData = signal(false);
   readonly hasSixMonthData = signal(false);
   readonly hasBudgetRuleData = signal(false);
-  readonly aiInsightSections = signal<AiInsightSection[] | null>(null);
+  readonly geminiInsightSections = signal<AiInsightSection[] | null>(null);
   readonly aiInsightProvider = signal<'local' | 'gemini'>('local');
   readonly aiInsightLoading = signal(false);
+  readonly aiInsightStatusTitle = signal('');
+  readonly aiInsightStatusDetail = signal('');
+  readonly aiInsightNeedsKey = signal(false);
   private aiInsightRequestId = 0;
-  private lastAiPayloadKey = '';
+  private displayedAiPayloadKey = '';
 
   // Quick-stat computed signals
   readonly todaySpend = computed(() =>
@@ -422,7 +530,7 @@ export class DashboardComponent implements OnInit {
   });
 
   readonly displayInsightSections = computed<AiInsightSection[]>(() =>
-    this.aiInsightSections() ?? this.localInsightSections()
+    this.localInsightSections()
   );
 
   readonly localInsightSections = computed<AiInsightSection[]>(() => {
@@ -531,8 +639,10 @@ export class DashboardComponent implements OnInit {
 
     return {
       period: 'week',
+      mode: 'hybrid-deep-dive',
       locale: this.i18n.locale(),
       currency: this.currencyService.currency(),
+      monthlyIncome: this.expenseStore.monthlyIncome(),
       totalSpent: summary.total,
       previousPeriodTotal: this.sumEntries(previous),
       delta: summary.delta,
@@ -549,10 +659,15 @@ export class DashboardComponent implements OnInit {
           type: entry.type,
         })),
       dailyTrend: this.dailyTrend(current, 6),
+      recentDailyTrend: this.categoryDailyTrend(entries, 89),
+      categoryBaselines: this.categoryBaselines(entries),
       categoryChanges: this.categoryChanges(categoryTotals, previousCategoryTotals),
       repeatedExpenses: this.repeatedExpenses(current),
       spendingPattern: this.spendingPattern(current),
       partnerActivity: this.partnerActivity(current),
+      budgetIntent: this.budgetIntent(monthEntries),
+      monthlySeasonality: this.monthlySeasonality(entries),
+      whatIfCuts: this.whatIfCuts(monthEntries),
     };
   });
 
@@ -618,10 +733,14 @@ export class DashboardComponent implements OnInit {
         summary.needsTotal > 0 || summary.wantsTotal > 0 || summary.savingsTotal > 0
       );
     });
-
     effect(() => {
       const payload = this.aiInsightPayload();
-      void this.refreshAiInsights(payload);
+      const payloadKey = payload ? JSON.stringify(payload) : '';
+      if (payloadKey !== this.displayedAiPayloadKey) {
+        this.geminiInsightSections.set(null);
+        this.aiInsightProvider.set('local');
+        this.clearAiStatus();
+      }
     });
   }
 
@@ -800,42 +919,238 @@ export class DashboardComponent implements OnInit {
       .slice(0, 6);
   }
 
+  private categoryDailyTrend(entries: ExpenseEntry[], daysAgo: number): NonNullable<AiInsightPayload['recentDailyTrend']> {
+    const today = parseLocalDate(toLocalDateString());
+    const start = new Date(today);
+    start.setDate(today.getDate() - daysAgo);
+    const startStr = toLocalDateString(start);
+    const endStr = toLocalDateString(today);
+    const byDate = new Map<string, { totals: Record<string, number>; total: number; entryCount: number }>();
+
+    for (const entry of entries.filter((item) => item.date >= startStr && item.date <= endStr)) {
+      const item = byDate.get(entry.date) ?? { totals: {}, total: 0, entryCount: 0 };
+      item.totals[entry.type] = Number(((item.totals[entry.type] ?? 0) + entry.amount).toFixed(2));
+      item.total = Number((item.total + entry.amount).toFixed(2));
+      item.entryCount += 1;
+      byDate.set(entry.date, item);
+    }
+
+    return Array.from({ length: daysAgo + 1 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const dateStr = toLocalDateString(date);
+      return {
+        date: dateStr,
+        totals: byDate.get(dateStr)?.totals ?? {},
+        total: byDate.get(dateStr)?.total ?? 0,
+        entryCount: byDate.get(dateStr)?.entryCount ?? 0,
+      };
+    });
+  }
+
+  private categoryBaselines(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['categoryBaselines']> {
+    const weeklyTotals = Array.from({ length: 13 }, (_, weekIndex) => {
+      const weekEntries = this.entriesBetween(entries, (weekIndex * 7) + 6, weekIndex * 7);
+      return this.categoryTotals(weekEntries);
+    });
+    const [currentTotals, ...baselineWeeks] = weeklyTotals;
+    const categories = new Set([
+      ...Object.keys(currentTotals ?? {}),
+      ...baselineWeeks.flatMap((week) => Object.keys(week)),
+    ]);
+
+    return [...categories].map((category) => {
+      const samples = baselineWeeks.map((week) => week[category] ?? 0);
+      const average = samples.length ? samples.reduce((sum, amount) => sum + amount, 0) / samples.length : 0;
+      const variance = samples.length
+        ? samples.reduce((sum, amount) => sum + ((amount - average) ** 2), 0) / samples.length
+        : 0;
+      const stdDev = Math.sqrt(variance);
+      const current = currentTotals?.[category] ?? 0;
+
+      return {
+        category,
+        current: Number(current.toFixed(2)),
+        average: Number(average.toFixed(2)),
+        zScore: stdDev > 0 ? Number(((current - average) / stdDev).toFixed(2)) : null,
+        sampleWeeks: samples.length,
+      };
+    }).sort((a, b) => Math.abs(b.zScore ?? 0) - Math.abs(a.zScore ?? 0)).slice(0, 10);
+  }
+
+  private budgetIntent(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['budgetIntent']> {
+    const income = this.expenseStore.monthlyIncome();
+    const totals = this.categoryTotals(entries);
+
+    return this.expenseStore.limits()
+      .map((limit) => {
+        const monthlyLimit = income > 0 ? (limit.userPercentage * income) / 100 : 0;
+        const monthlySpent = totals[limit.type] ?? 0;
+        return {
+          category: limit.type,
+          group: limit.category,
+          targetPercent: limit.userPercentage,
+          actualPercent: income > 0 ? Number(((monthlySpent / income) * 100).toFixed(2)) : 0,
+          monthlySpent,
+          monthlyLimit: Number(monthlyLimit.toFixed(2)),
+        };
+      })
+      .sort((a, b) => Math.abs(b.actualPercent - b.targetPercent) - Math.abs(a.actualPercent - a.targetPercent))
+      .slice(0, 12);
+  }
+
+  private monthlySeasonality(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['monthlySeasonality']> {
+    const byMonth = new Map<string, ExpenseEntry[]>();
+    for (const entry of entries) {
+      const month = entry.date.slice(0, 7);
+      byMonth.set(month, [...(byMonth.get(month) ?? []), entry]);
+    }
+
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 12)
+      .map(([month, monthEntries]) => ({
+        month,
+        total: Number(this.sumEntries(monthEntries).toFixed(2)),
+        categories: this.categoryTotals(monthEntries),
+      }));
+  }
+
+  private whatIfCuts(entries: ExpenseEntry[]): NonNullable<AiInsightPayload['whatIfCuts']> {
+    const totals = this.categoryTotals(entries);
+    const limits = this.expenseStore.limitMap();
+    const forecast = this.monthlyForecast();
+
+    return Object.entries(totals)
+      .map(([category, monthlySpent]) => {
+        const group = limits[category]?.category ?? 'Buffer';
+        const cutPercent = group === 'Needs' ? 25 : 50;
+        const monthlySavings = Number((monthlySpent * (cutPercent / 100)).toFixed(2));
+        return {
+          category,
+          group,
+          monthlySpent,
+          cutPercent,
+          monthlySavings,
+          revisedMonthForecast: Math.max(0, Math.round(forecast - monthlySavings)),
+        };
+      })
+      .filter((item) => item.monthlySavings > 0)
+      .sort((a, b) => {
+        const aPriority = a.group === 'Wants' || a.group === 'Buffer' ? 1 : 0;
+        const bPriority = b.group === 'Wants' || b.group === 'Buffer' ? 1 : 0;
+        return bPriority - aPriority || b.monthlySavings - a.monthlySavings;
+      })
+      .slice(0, 8);
+  }
+
+  async onGenerateAiInsights(event?: Event): Promise<void> {
+    this.releaseAiButton(event);
+    const payload = this.aiInsightPayload();
+    const payloadKey = payload ? JSON.stringify(payload) : '';
+    if (payload && this.geminiInsightSections()?.length && payloadKey === this.displayedAiPayloadKey) {
+      this.scrollToGeminiInsights();
+      return;
+    }
+
+    await this.refreshAiInsights(payload);
+  }
+
   private async refreshAiInsights(payload: AiInsightPayload | null): Promise<void> {
     if (!payload) {
-      this.aiInsightSections.set(null);
+      this.geminiInsightSections.set(null);
       this.aiInsightProvider.set('local');
       this.aiInsightLoading.set(false);
-      this.lastAiPayloadKey = '';
+      this.clearAiStatus();
+      this.displayedAiPayloadKey = '';
       return;
     }
 
     const payloadKey = JSON.stringify(payload);
-    if (payloadKey === this.lastAiPayloadKey) return;
-    this.lastAiPayloadKey = payloadKey;
-
     const requestId = ++this.aiInsightRequestId;
+    const availability = await this.aiInsightService.getAvailability();
+    if (requestId !== this.aiInsightRequestId) return;
+
+    if (availability === 'missing-key') {
+      this.geminiInsightSections.set(null);
+      this.aiInsightProvider.set('local');
+      this.aiInsightLoading.set(false);
+      this.displayedAiPayloadKey = '';
+      this.aiInsightNeedsKey.set(true);
+      this.aiInsightStatusTitle.set(this.i18n.t('dashboard.insights.apiKeyRequiredTitle'));
+      this.aiInsightStatusDetail.set(this.i18n.t('dashboard.insights.apiKeyRequiredDetail'));
+      this.scrollToGeminiInsights();
+      return;
+    }
+
     const cachedResult = await this.aiInsightService.getReusableCachedWeeklyInsights(payload);
     if (requestId !== this.aiInsightRequestId) return;
 
     if (cachedResult?.sections.length) {
-      this.aiInsightSections.set(cachedResult.sections);
+      this.geminiInsightSections.set(cachedResult.sections);
       this.aiInsightProvider.set(cachedResult.provider);
       this.aiInsightLoading.set(false);
+      this.displayedAiPayloadKey = payloadKey;
+      this.aiInsightNeedsKey.set(false);
+      this.aiInsightStatusTitle.set('');
+      this.aiInsightStatusDetail.set(this.i18n.t('dashboard.insights.cachedStatus'));
+      this.scrollToGeminiInsights();
       return;
     }
 
     this.aiInsightLoading.set(true);
-    const { result } = await this.aiInsightService.generateWeeklyInsightsWithSource(payload);
+    this.clearAiStatus();
+    this.scrollToGeminiInsights();
+    const { result, source } = await this.aiInsightService.generateWeeklyInsightsWithSource(payload);
     if (requestId !== this.aiInsightRequestId) return;
 
     if (result?.sections.length) {
-      this.aiInsightSections.set(result.sections);
+      this.geminiInsightSections.set(result.sections);
       this.aiInsightProvider.set(result.provider);
+      this.displayedAiPayloadKey = payloadKey;
+      this.aiInsightNeedsKey.set(false);
+      this.aiInsightStatusTitle.set('');
+      this.aiInsightStatusDetail.set(
+        source === 'cache'
+          ? this.i18n.t('dashboard.insights.savedFallbackStatus')
+          : this.i18n.t('dashboard.insights.freshStatus')
+      );
     } else {
-      this.aiInsightSections.set(null);
+      this.geminiInsightSections.set(null);
       this.aiInsightProvider.set('local');
+      this.displayedAiPayloadKey = '';
+      this.aiInsightNeedsKey.set(false);
+      this.aiInsightStatusTitle.set(this.i18n.t('dashboard.insights.unavailableTitle'));
+      this.aiInsightStatusDetail.set(this.i18n.t('dashboard.insights.unavailableStatus'));
     }
     this.aiInsightLoading.set(false);
+    this.scrollToGeminiInsights();
+  }
+
+  private clearAiStatus(): void {
+    this.aiInsightNeedsKey.set(false);
+    this.aiInsightStatusTitle.set('');
+    this.aiInsightStatusDetail.set('');
+  }
+
+  private scrollToGeminiInsights(): void {
+    const scroll = () => {
+      this.geminiInsightsBlock?.nativeElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scroll);
+    });
+  }
+
+  private releaseAiButton(event?: Event): void {
+    const target = event?.currentTarget;
+    if (target instanceof HTMLElement) {
+      target.blur();
+    }
   }
 
   private categoryLimitWarnings(): Array<{ type: string; percent: number }> {

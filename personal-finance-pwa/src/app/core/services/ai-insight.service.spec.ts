@@ -14,6 +14,7 @@ import { AiSettingsService } from './ai-settings.service';
 import { StorageService } from './storage.service';
 
 const CACHE_KEY = 'ai_weekly_insight_cache_v1';
+const USAGE_KEY = 'ai_weekly_insight_usage_v2';
 
 class MockStorageService {
   readonly values = new Map<string, string>();
@@ -43,8 +44,10 @@ class MockAiSettingsService {
 function payload(overrides: Partial<AiInsightPayload> = {}): AiInsightPayload {
   return {
     period: 'week',
+    mode: 'hybrid-deep-dive',
     locale: 'en',
     currency: 'INR',
+    monthlyIncome: 50000,
     totalSpent: 1000,
     previousPeriodTotal: 800,
     delta: 200,
@@ -167,5 +170,29 @@ describe('AiInsightService', () => {
     }));
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('calls Gemini again when only the requested insight language changes', async () => {
+    await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not show a saved response from a previous language when the daily limit is reached', async () => {
+    await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+
+    storage.values.set(USAGE_KEY, JSON.stringify({
+      dateKey: new Date().toISOString().slice(0, 10),
+      callCount: 2,
+    }));
+
+    const result = await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
+
+    expect(result.source).toBe('none');
+    expect(result.result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
