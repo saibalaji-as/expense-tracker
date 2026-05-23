@@ -109,11 +109,15 @@ interface ActivityItem {
               </div>
               <button
                 type="button"
-                class="group relative inline-flex shrink-0 items-center gap-2 overflow-hidden rounded-2xl border border-primary/25 bg-background/80 px-3.5 py-2 text-xs font-semibold text-primary shadow-sm transition-all hover:border-primary/50 hover:shadow-glow active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 md:hover:-translate-y-0.5"
+                class="group relative inline-flex shrink-0 touch-manipulation select-none items-center gap-2 overflow-hidden rounded-2xl border border-primary/25 bg-background/80 px-3.5 py-2 text-xs font-semibold text-primary shadow-sm transition-all duration-150 active:scale-[0.98] active:border-primary/40 active:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 min-[887px]:hover:-translate-y-0.5 min-[887px]:hover:border-primary/50 min-[887px]:hover:shadow-glow"
                 [disabled]="aiInsightLoading() || !aiInsightPayload()"
                 (click)="onGenerateAiInsights($event)"
+                (pointerdown)="releaseAiButton($event)"
+                (pointerup)="releaseAiButton($event)"
+                (pointercancel)="releaseAiButton($event)"
+                (pointerleave)="releaseAiButton($event)"
               >
-                <span class="absolute inset-0 bg-gradient-to-r from-primary/15 via-accent/15 to-primary/10 opacity-80 transition-opacity group-hover:opacity-100"></span>
+                <span class="absolute inset-0 bg-gradient-to-r from-primary/15 via-accent/15 to-primary/10 opacity-80 transition-opacity min-[887px]:group-hover:opacity-100"></span>
                 <span class="relative grid h-7 w-7 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
                   <lucide-icon name="sparkles" class="h-3.5 w-3.5" />
                 </span>
@@ -182,7 +186,7 @@ interface ActivityItem {
               </div>
 
               @if (geminiInsightSections()?.length || aiInsightLoading() || aiInsightStatusTitle()) {
-                <div #geminiInsightsBlock class="scroll-mt-24 border-t border-border/60 pt-4">
+                <div id="gemini-insights-block" #geminiInsightsBlock class="scroll-mt-24 border-t border-border/60 pt-4">
                   <div class="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h3 class="text-sm font-semibold tracking-tight">{{ 'dashboard.insights.geminiDeepDiveTitle' | translate }}</h3>
@@ -474,7 +478,9 @@ export class DashboardComponent implements OnInit {
   readonly aiInsightStatusDetail = signal('');
   readonly aiInsightNeedsKey = signal(false);
   private aiInsightRequestId = 0;
+  private aiInsightHydrateRequestId = 0;
   private displayedAiPayloadKey = '';
+  private hydratedAiPayloadKey = '';
 
   // Quick-stat computed signals
   readonly todaySpend = computed(() =>
@@ -740,6 +746,16 @@ export class DashboardComponent implements OnInit {
         this.geminiInsightSections.set(null);
         this.aiInsightProvider.set('local');
         this.clearAiStatus();
+      }
+
+      if (!payload) {
+        this.hydratedAiPayloadKey = '';
+        return;
+      }
+
+      if (payloadKey !== this.hydratedAiPayloadKey) {
+        this.hydratedAiPayloadKey = payloadKey;
+        void this.hydrateCachedAiInsights(payload, payloadKey);
       }
     });
   }
@@ -1056,6 +1072,23 @@ export class DashboardComponent implements OnInit {
     await this.refreshAiInsights(payload);
   }
 
+  private async hydrateCachedAiInsights(payload: AiInsightPayload, payloadKey: string): Promise<void> {
+    const requestId = ++this.aiInsightHydrateRequestId;
+    const cachedResult = await this.aiInsightService.getReusableCachedWeeklyInsights(payload);
+    if (requestId !== this.aiInsightHydrateRequestId) return;
+
+    const currentPayload = this.aiInsightPayload();
+    if (!currentPayload || JSON.stringify(currentPayload) !== payloadKey) return;
+    if (!cachedResult?.sections.length) return;
+
+    this.geminiInsightSections.set(cachedResult.sections);
+    this.aiInsightProvider.set(cachedResult.provider);
+    this.displayedAiPayloadKey = payloadKey;
+    this.aiInsightNeedsKey.set(false);
+    this.aiInsightStatusTitle.set('');
+    this.aiInsightStatusDetail.set(this.i18n.t('dashboard.insights.cachedStatus'));
+  }
+
   private async refreshAiInsights(payload: AiInsightPayload | null): Promise<void> {
     if (!payload) {
       this.geminiInsightSections.set(null);
@@ -1063,6 +1096,7 @@ export class DashboardComponent implements OnInit {
       this.aiInsightLoading.set(false);
       this.clearAiStatus();
       this.displayedAiPayloadKey = '';
+      this.hydratedAiPayloadKey = '';
       return;
     }
 
@@ -1135,27 +1169,48 @@ export class DashboardComponent implements OnInit {
 
   private scrollToGeminiInsights(): void {
     const scroll = (attempt = 0) => {
-      const element = this.geminiInsightsBlock?.nativeElement;
-      if (!element && attempt < 6) {
-        requestAnimationFrame(() => scroll(attempt + 1));
+      const element = this.geminiInsightsBlock?.nativeElement
+        ?? document.getElementById('gemini-insights-block');
+
+      if (!element && attempt < 12) {
+        window.setTimeout(() => {
+          requestAnimationFrame(() => scroll(attempt + 1));
+        }, attempt < 4 ? 16 : 50);
         return;
       }
 
-      element?.scrollIntoView({
+      if (!element) return;
+
+      const top = Math.max(0, element.getBoundingClientRect().top + window.scrollY);
+      window.scrollTo({
+        top,
         behavior: 'smooth',
-        block: 'start',
       });
+      window.setTimeout(() => this.correctGeminiInsightScrollTop(element), 450);
     };
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(scroll);
+    window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(scroll);
+      });
+    }, 0);
+  }
+
+  private correctGeminiInsightScrollTop(element: HTMLElement): void {
+    const top = Math.max(0, element.getBoundingClientRect().top + window.scrollY);
+    if (Math.abs(window.scrollY - top) <= 2) return;
+
+    window.scrollTo({
+      top,
+      behavior: 'auto',
     });
   }
 
-  private releaseAiButton(event?: Event): void {
+  releaseAiButton(event?: Event): void {
     const target = event?.currentTarget;
     if (target instanceof HTMLElement) {
       target.blur();
+      window.setTimeout(() => target.blur(), 0);
     }
   }
 

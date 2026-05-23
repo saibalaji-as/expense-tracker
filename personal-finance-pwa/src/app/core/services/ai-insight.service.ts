@@ -188,6 +188,13 @@ export class AiInsightService {
     return userGeminiKey ? 'ready' : 'missing-key';
   }
 
+  async clearWeeklyInsightState(): Promise<void> {
+    await Promise.all([
+      this.storageService.remove(this.cacheKey),
+      this.storageService.remove(this.usageKey),
+    ]);
+  }
+
   async generateWeeklyInsightsWithSource(payload: AiInsightPayload): Promise<AiInsightResponse> {
     await this.aiSettingsService.load();
     if (this.aiSettingsService.isDisabled()) {

@@ -23,13 +23,19 @@
   - Gemini no longer replaces local sections when enabled; it appears as a separate "Gemini deep dives" lane only after the user taps the AI button.
   - Dashboard no longer triggers Gemini automatically on page landing.
   - The AI button checks for a reusable cached Gemini response before any API call; unchanged expense-derived input reuses the previous response to protect AI credits.
+  - On Dashboard entry, a matching saved Gemini response is hydrated automatically; when present, the button shows `View AI` instead of `Ask AI`.
+  - If expenses change and the normalized AI payload changes, Dashboard clears the displayed Gemini response and returns to `Ask AI`.
   - Tapping `View AI` now scrolls the user directly to the Gemini deep-dive response.
   - Dashboard AI scroll now waits for the rendered Gemini/status block before scrolling, improving mobile reliability after fresh responses.
+  - Dashboard AI scroll now uses a stable DOM id plus offset-based `window.scrollTo()` retries, so cached English and fresh localized responses follow the same scroll path.
+  - `View AI`/AI response scroll now targets the exact Gemini insight block document top with no sticky-header offset, then corrects the final scroll position after smooth scrolling.
   - The mobile AI button clears its touch focus after tap so it does not stay visually pressed/held.
+  - Dashboard AI button hover/glow effects are desktop-only; mobile uses a short active press state to avoid sticky touch hover.
   - Weekly Gemini fallback cache is locale-aware; if the user changes app language, old saved responses in another language are not reused as fallback.
   - Changing only the requested insight locale now causes a fresh Gemini call when daily usage allows, even if expense data is unchanged.
   - Weekly Gemini cache now keeps a small per-locale history instead of one overwritten entry, so switching Tamil/Hindi/English does not discard the earlier English response.
   - Weekly Gemini usage gating is tracked per locale, so one language reaching its daily limit does not prevent another selected language from calling the insight API.
+  - Changing app language from Settings clears saved weekly AI responses and usage state, so the selected language starts with `Ask AI` and the next tap makes a fresh `generate-insights` call.
   - If the user has not added a Gemini API key, the AI button shows a setup panel explaining that the key enables Gemini deep dives, receipt smart-fill, and voice expense smart-fill, with a link to Settings.
   - Gemini deep dives are prompted for five higher-value sections: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.
   - Gemini deep-dive titles/details are requested in the selected app locale, while structured section labels remain schema-safe.
@@ -257,6 +263,13 @@
 - No runtime blocker identified during static analysis.
 - Latest verification on 2026-05-22:
 - Latest verification on 2026-05-23:
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after exact Gemini block top scroll changes.
+  - `npm run build` passed.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI scenario-flow changes.
+  - `npm run build` passed.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI scroll/button touch-state changes.
+  - `npm run build` passed.
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after per-locale Dashboard AI cache/usage and scroll retry changes.
   - `npm run build` passed.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed.

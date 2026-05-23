@@ -1,5 +1,65 @@
 # Task History
 
+## 2026-05-23 - Dashboard View AI Exact Block-Top Scroll
+- User asked to make sure clicking `View AI` changes scroll position so the Gemini insight block is at the top.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Removed the sticky-header offset from Dashboard AI scroll positioning.
+  - `scrollToGeminiInsights()` now targets the Gemini block’s exact document top.
+  - Added a post-smooth-scroll correction that snaps to the exact block top if the browser lands more than 2px away.
+- Updated `AI_RULES.md` with the exact block-top scroll rule.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npm run build`.
+  - Both passed.
+
+## 2026-05-23 - Dashboard AI Scenario Flow Alignment
+- User described the desired Dashboard AI flow:
+  - Fresh Dashboard with no previous AI response should show `Ask AI` and call `generate-insights` on tap.
+  - After the response, it should save and auto-scroll to Gemini insights.
+  - Re-entering Dashboard with unchanged expense data should show `View AI`, not `Ask AI`.
+  - Pressing `View AI` should only scroll to the saved Gemini response.
+  - Expense log updates should invalidate the previous AI response and make the next `Ask AI` call Gemini.
+  - App language changes should delete previous AI response state; the new language starts with `Ask AI`, calls Gemini fresh on tap, saves, and scrolls.
+- Current mismatch found:
+  - Dashboard did not hydrate a matching saved response on entry, so the button could show `Ask AI` even when a valid saved response existed.
+  - Language changes did not explicitly clear weekly AI cache/usage, so old response state could survive contrary to the requested flow.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Added cache hydration for the current normalized AI payload.
+  - If a matching saved Gemini response exists, Dashboard loads it into the Gemini section and the button shows `View AI`.
+  - If the normalized payload changes because expenses changed, Dashboard clears displayed Gemini output and status.
+  - Hydration is request-token guarded so stale async cache checks cannot reapply old content.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Added `clearWeeklyInsightState()` to remove saved weekly insight cache and usage metadata.
+- Changed `personal-finance-pwa/src/app/features/settings/settings.component.ts`:
+  - On actual app language changes, clears weekly AI cache and usage before saving the new language.
+  - Re-selecting the already active language does not clear AI state.
+- Updated `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`:
+  - Added coverage that clearing weekly insight state removes cache/usage and causes the next same-payload request to call Gemini again.
+- Updated `AI_RULES.md` with Dashboard AI hydration, expense invalidation, and language-reset rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npm run build`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - All passed.
+
+## 2026-05-23 - Dashboard AI English Scroll And Touch Hover Fix
+- User reported that automatic scroll still failed in English, while other languages scrolled after the response, and that the AI button stayed visually pressed on touch screens until tapping outside.
+- Root cause:
+  - The Dashboard AI button still had mobile `hover:` and `group-hover:` classes. On touch browsers, hover state can latch even after `blur()`, making the button look stuck.
+  - AI scroll still depended on a `ViewChild` plus `scrollIntoView()` timing. Cached/immediate English responses can render on a different timing path from fresh localized responses, so the single scroll path was still fragile.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - Added `pointerdown`, `pointerup`, `pointercancel`, and `pointerleave` handlers to release the AI button state.
+  - Kept the release handler public for Angular strict templates.
+  - Made button hover/glow/lift desktop-only with `min-[887px]:hover:*`.
+  - Replaced mobile sticky hover behavior with a short `active:scale-[0.98]` press state.
+  - Added a stable `id="gemini-insights-block"` to the Gemini section.
+  - Replaced `scrollIntoView()`-only behavior with offset-based `window.scrollTo()` using the sticky header height.
+  - Scroll now retries through delayed animation frames and can find the target by either `ViewChild` or DOM id.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npm run build`.
+  - Both passed.
+
 ## 2026-05-23 - Dashboard AI Language Toggle API Gate Fix
 - User reported that English Dashboard AI showed “AI could not generate deep dives,” while changing to another language worked, then switching back to English failed again.
 - Root cause:

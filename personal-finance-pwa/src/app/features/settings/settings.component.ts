@@ -21,6 +21,7 @@ import { GoogleDriveService, BackupDocument } from '../../core/services/google-d
 import { StorageService } from '../../core/services/storage.service';
 import { AppLanguage, I18nService } from '../../core/services/i18n.service';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
+import { AiInsightService } from '../../core/services/ai-insight.service';
 import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
@@ -972,6 +973,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
+  private readonly aiInsightService = inject(AiInsightService);
   readonly aiSettingsService = inject(AiSettingsService);
   private readonly feedback = inject(UserFeedbackService);
 
@@ -1062,6 +1064,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async onLanguageChange(language: AppLanguage): Promise<void> {
+    const previousLanguage = this.i18n.language();
+    if (language !== previousLanguage) {
+      await this.aiInsightService.clearWeeklyInsightState();
+    }
+
     await this.i18n.setLanguage(language);
     const selected = this.i18n.languageOptions.find((option) => option.code === language);
     this.feedback.success(

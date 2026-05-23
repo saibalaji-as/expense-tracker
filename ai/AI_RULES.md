@@ -162,13 +162,19 @@
 - Dashboard weekly AI should stay hybrid:
   - Local deterministic insights answer "what happened" and remain visible.
   - Dashboard Gemini deep dives should be user-triggered from the AI button, not generated automatically on Dashboard landing.
+  - On Dashboard entry, hydrate a matching saved Gemini response for the current normalized payload so the button can show `View AI`.
+  - When the normalized expense-derived Dashboard AI payload changes, clear the displayed Gemini response and show `Ask AI` until the user requests a fresh response.
   - When Dashboard Gemini output is shown or already available, the UI should scroll the Gemini deep-dive section into view after the user taps the AI/View AI button.
+  - Dashboard AI scroll should use a stable target and tolerate cached/immediate responses; do not rely on a single early `ViewChild.scrollIntoView()` call.
+  - `View AI` should align the Gemini insight block to the top of the document viewport target without subtracting sticky-header offset, and should correct the final scroll position after smooth scrolling.
+  - Dashboard AI touch controls should not use mobile `hover:` / `group-hover:` effects that can remain visually stuck after tapping.
   - If the user has not added a Gemini API key, Dashboard AI should show a clear setup prompt explaining the API-key-enabled features and link to AI settings.
   - Before any Gemini request, reuse a cached weekly insight when the normalized expense-derived input has not changed.
   - Gemini weekly insight titles/details should match the selected app language/locale while keeping structured section labels valid for parsing.
   - Do not reuse a saved weekly Gemini fallback response from a different locale; after app language changes, call Gemini again when usage limits allow, otherwise show unavailable/status guidance instead of previous-language content.
   - Keep Dashboard weekly Gemini cache as a small locale-aware history, not a single overwritten entry, so switching languages can reuse the correct saved response.
   - Track Dashboard weekly Gemini usage per locale so one selected language does not block API calls for another selected language.
+  - When the user changes app language in Settings, clear Dashboard weekly AI cache and usage state; the new language should start with `Ask AI` and generate fresh output on tap.
   - Gemini should answer deeper "why / what if / what should I try" questions such as anomaly explanations, cross-category behavior hacks, seasonal timing, simulations, and budget intent vs reality.
   - Do not use Gemini to merely rewrite local weekly summaries.
 - For receipt AI, preserve file-size limits and local OCR fallback.

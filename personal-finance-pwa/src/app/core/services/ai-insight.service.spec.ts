@@ -227,4 +227,18 @@ describe('AiInsightService', () => {
     expect(english.result?.sections[0]?.title).toBe('Fresh insight en-IN');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('clears saved weekly insight state so the next request calls Gemini again', async () => {
+    await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await service.clearWeeklyInsightState();
+    expect(storage.values.get(CACHE_KEY)).toBeUndefined();
+    expect(storage.values.get(USAGE_KEY)).toBeUndefined();
+
+    const next = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+
+    expect(next.source).toBe('gemini');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
