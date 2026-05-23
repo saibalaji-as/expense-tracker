@@ -127,6 +127,11 @@ interface AiInsightCache {
   result: AiInsightResult;
 }
 
+interface AiInsightCacheStore {
+  version: 2;
+  entries: AiInsightCache[];
+}
+
 interface AiInsightSignature {
   dataKey?: string;
   locale: string;
@@ -140,6 +145,7 @@ interface AiInsightSignature {
 interface AiInsightUsage {
   dateKey: string;
   callCount: number;
+  localeCounts?: Record<string, number>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -149,6 +155,7 @@ export class AiInsightService {
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v2';
   private readonly maxCallsPerDay = 2;
+  private readonly maxCacheEntries = 12;
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
   async generateWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
@@ -166,9 +173,9 @@ export class AiInsightService {
       return null;
     }
 
-    const cache = await this.getCache();
+    const cacheEntries = await this.getCacheEntries();
     const signature = this.signatureFor(payload);
-    return this.reusableCacheResult(cache, signature);
+    return this.reusableCacheResult(cacheEntries, signature);
   }
 
   async getAvailability(): Promise<AiInsightAvailability> {
@@ -192,26 +199,21 @@ export class AiInsightService {
       return { result: null, source: 'none' };
     }
 
-    const cache = await this.getCache();
+    const cacheEntries = await this.getCacheEntries();
     const signature = this.signatureFor(payload);
     const todayKey = this.todayKey();
-    const usage = await this.getUsage(todayKey);
-    const reusableCachedResult = this.reusableCacheResult(cache, signature);
+    const usage = await this.getUsage(todayKey, signature.locale);
+    const reusableCachedResult = this.reusableCacheResult(cacheEntries, signature);
 
     if (reusableCachedResult) {
       return { result: reusableCachedResult, source: 'cache' };
     }
 
-    if (cache?.result.sections.length) {
-      const cacheAge = Date.now() - cache.cachedAt;
-
-      if (usage.callCount >= this.maxCallsPerDay) {
-        return cacheAge < this.staleCacheTtlMs && this.canUseFallbackCache(cache, signature)
-          ? { result: cache.result, source: 'cache' }
-          : { result: null, source: 'none' };
-      }
-    } else if (usage.callCount >= this.maxCallsPerDay) {
-      return { result: null, source: 'none' };
+    const fallbackCache = this.fallbackCacheResult(cacheEntries, signature);
+    if (usage.callCount >= this.maxCallsPerDay) {
+      return fallbackCache
+        ? { result: fallbackCache.result, source: 'cache' }
+        : { result: null, source: 'none' };
     }
 
     try {
@@ -234,28 +236,24 @@ export class AiInsightService {
 
       const result = await response.json() as AiInsightResult;
       if (result.provider !== 'gemini' || !Array.isArray(result.sections) || result.sections.length === 0) {
-        return cache?.result.sections.length
-          && Date.now() - cache.cachedAt < this.staleCacheTtlMs
-          && this.canUseFallbackCache(cache, signature)
-          ? { result: cache.result, source: 'cache' }
+        return fallbackCache
+          ? { result: fallbackCache.result, source: 'cache' }
           : { result: null, source: 'none' };
       }
 
-      await this.setCache({
+      await this.setCacheEntry({
         dateKey: todayKey,
         callCount: nextCallCount,
         cachedAt: Date.now(),
         signature,
         result,
       });
-      await this.setUsage({ dateKey: todayKey, callCount: nextCallCount });
+      await this.setUsage(todayKey, signature.locale, nextCallCount);
       return { result, source: 'gemini' };
     } catch (error) {
       console.info('[AiInsightService] Falling back to local insights:', error);
-      return cache?.result.sections.length
-        && Date.now() - cache.cachedAt < this.staleCacheTtlMs
-        && this.canUseFallbackCache(cache, signature)
-        ? { result: cache.result, source: 'cache' }
+      return fallbackCache
+        ? { result: fallbackCache.result, source: 'cache' }
         : { result: null, source: 'none' };
     }
   }
@@ -266,39 +264,68 @@ export class AiInsightService {
       : '/.netlify/functions';
   }
 
-  private async getCache(): Promise<AiInsightCache | null> {
+  private async getCacheEntries(): Promise<AiInsightCache[]> {
     const json = await this.storageService.get(this.cacheKey);
-    if (!json) return null;
+    if (!json) return [];
 
     try {
-      const cache = JSON.parse(json) as AiInsightCache;
-      if (!cache.result?.sections?.length || !cache.signature || !cache.cachedAt) return null;
-      return cache;
+      const parsed = JSON.parse(json) as unknown;
+      if (this.isCacheStore(parsed)) {
+        return parsed.entries.filter((entry) => this.isValidCacheEntry(entry));
+      }
+
+      return this.isValidCacheEntry(parsed) ? [parsed] : [];
     } catch {
       await this.storageService.remove(this.cacheKey);
-      return null;
+      return [];
     }
   }
 
-  private async setCache(cache: AiInsightCache): Promise<void> {
-    await this.storageService.set(this.cacheKey, JSON.stringify(cache));
+  private async setCacheEntry(cache: AiInsightCache): Promise<void> {
+    const now = Date.now();
+    const existing = await this.getCacheEntries();
+    const entries = [
+      cache,
+      ...existing.filter((entry) => !this.hasSameInsightInput(entry.signature, cache.signature)),
+    ]
+      .filter((entry) => now - entry.cachedAt < this.staleCacheTtlMs)
+      .sort((a, b) => b.cachedAt - a.cachedAt)
+      .slice(0, this.maxCacheEntries);
+
+    await this.storageService.set(this.cacheKey, JSON.stringify({ version: 2, entries } satisfies AiInsightCacheStore));
   }
 
-  private async getUsage(todayKey: string): Promise<AiInsightUsage> {
+  private async getUsage(todayKey: string, locale: string): Promise<AiInsightUsage> {
     const json = await this.storageService.get(this.usageKey);
-    if (!json) return { dateKey: todayKey, callCount: 0 };
+    if (!json) return { dateKey: todayKey, callCount: 0, localeCounts: {} };
 
     try {
       const usage = JSON.parse(json) as AiInsightUsage;
-      return usage.dateKey === todayKey ? usage : { dateKey: todayKey, callCount: 0 };
+      if (usage.dateKey !== todayKey) return { dateKey: todayKey, callCount: 0, localeCounts: {} };
+
+      const localeCount = usage.localeCounts?.[locale] ?? 0;
+      return {
+        dateKey: todayKey,
+        callCount: localeCount,
+        localeCounts: usage.localeCounts ?? {},
+      };
     } catch {
       await this.storageService.remove(this.usageKey);
-      return { dateKey: todayKey, callCount: 0 };
+      return { dateKey: todayKey, callCount: 0, localeCounts: {} };
     }
   }
 
-  private async setUsage(usage: AiInsightUsage): Promise<void> {
-    await this.storageService.set(this.usageKey, JSON.stringify(usage));
+  private async setUsage(todayKey: string, locale: string, callCount: number): Promise<void> {
+    const current = await this.getUsage(todayKey, locale);
+    await this.storageService.set(this.usageKey, JSON.stringify({
+      dateKey: todayKey,
+      callCount: Object.values({ ...current.localeCounts, [locale]: callCount })
+        .reduce((total, count) => total + count, 0),
+      localeCounts: {
+        ...current.localeCounts,
+        [locale]: callCount,
+      },
+    } satisfies AiInsightUsage));
   }
 
   private signatureFor(payload: AiInsightPayload): AiInsightSignature {
@@ -323,11 +350,10 @@ export class AiInsightService {
   }
 
   private reusableCacheResult(
-    cache: AiInsightCache | null,
+    entries: AiInsightCache[],
     signature: AiInsightSignature
   ): AiInsightResult | null {
-    if (!cache?.result.sections.length) return null;
-    return this.hasSameInsightInput(cache.signature, signature) ? cache.result : null;
+    return entries.find((entry) => this.hasSameInsightInput(entry.signature, signature))?.result ?? null;
   }
 
   private hasSameInsightInput(previous: AiInsightSignature, next: AiInsightSignature): boolean {
@@ -343,12 +369,33 @@ export class AiInsightService {
       && previous.dailyKey === next.dailyKey;
   }
 
-  private canUseFallbackCache(
-    cache: AiInsightCache | null,
+  private fallbackCacheResult(
+    entries: AiInsightCache[],
     signature: AiInsightSignature
-  ): cache is AiInsightCache {
-    if (!cache?.result.sections.length) return false;
-    return cache.signature.locale === signature.locale;
+  ): AiInsightCache | null {
+    const now = Date.now();
+    return entries
+      .filter((entry) =>
+        entry.signature.locale === signature.locale
+        && now - entry.cachedAt < this.staleCacheTtlMs
+      )
+      .sort((a, b) => b.cachedAt - a.cachedAt)[0] ?? null;
+  }
+
+  private isCacheStore(value: unknown): value is AiInsightCacheStore {
+    if (!value || typeof value !== 'object') return false;
+    const store = value as AiInsightCacheStore;
+    return store.version === 2 && Array.isArray(store.entries);
+  }
+
+  private isValidCacheEntry(value: unknown): value is AiInsightCache {
+    if (!value || typeof value !== 'object') return false;
+    const cache = value as AiInsightCache;
+    return !!cache.signature
+      && typeof cache.signature.locale === 'string'
+      && typeof cache.cachedAt === 'number'
+      && Array.isArray(cache.result?.sections)
+      && cache.result.sections.length > 0;
   }
 
   private normalizeForSignature(value: unknown): unknown {

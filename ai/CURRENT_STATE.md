@@ -28,6 +28,8 @@
   - The mobile AI button clears its touch focus after tap so it does not stay visually pressed/held.
   - Weekly Gemini fallback cache is locale-aware; if the user changes app language, old saved responses in another language are not reused as fallback.
   - Changing only the requested insight locale now causes a fresh Gemini call when daily usage allows, even if expense data is unchanged.
+  - Weekly Gemini cache now keeps a small per-locale history instead of one overwritten entry, so switching Tamil/Hindi/English does not discard the earlier English response.
+  - Weekly Gemini usage gating is tracked per locale, so one language reaching its daily limit does not prevent another selected language from calling the insight API.
   - If the user has not added a Gemini API key, the AI button shows a setup panel explaining that the key enables Gemini deep dives, receipt smart-fill, and voice expense smart-fill, with a link to Settings.
   - Gemini deep dives are prompted for five higher-value sections: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.
   - Gemini deep-dive titles/details are requested in the selected app locale, while structured section labels remain schema-safe.
@@ -255,6 +257,9 @@
 - No runtime blocker identified during static analysis.
 - Latest verification on 2026-05-22:
 - Latest verification on 2026-05-23:
+  - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after per-locale Dashboard AI cache/usage and scroll retry changes.
+  - `npm run build` passed.
+  - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after Dashboard AI mobile touch/scroll and locale-aware cache fallback changes.
   - `npx tsc --noEmit -p netlify/tsconfig.json` passed.
   - `npm run build` passed.

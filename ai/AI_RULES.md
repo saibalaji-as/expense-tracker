@@ -167,6 +167,8 @@
   - Before any Gemini request, reuse a cached weekly insight when the normalized expense-derived input has not changed.
   - Gemini weekly insight titles/details should match the selected app language/locale while keeping structured section labels valid for parsing.
   - Do not reuse a saved weekly Gemini fallback response from a different locale; after app language changes, call Gemini again when usage limits allow, otherwise show unavailable/status guidance instead of previous-language content.
+  - Keep Dashboard weekly Gemini cache as a small locale-aware history, not a single overwritten entry, so switching languages can reuse the correct saved response.
+  - Track Dashboard weekly Gemini usage per locale so one selected language does not block API calls for another selected language.
   - Gemini should answer deeper "why / what if / what should I try" questions such as anomaly explanations, cross-category behavior hacks, seasonal timing, simulations, and budget intent vs reality.
   - Do not use Gemini to merely rewrite local weekly summaries.
 - For receipt AI, preserve file-size limits and local OCR fallback.

@@ -1134,8 +1134,14 @@ export class DashboardComponent implements OnInit {
   }
 
   private scrollToGeminiInsights(): void {
-    const scroll = () => {
-      this.geminiInsightsBlock?.nativeElement.scrollIntoView({
+    const scroll = (attempt = 0) => {
+      const element = this.geminiInsightsBlock?.nativeElement;
+      if (!element && attempt < 6) {
+        requestAnimationFrame(() => scroll(attempt + 1));
+        return;
+      }
+
+      element?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
       });

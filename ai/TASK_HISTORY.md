@@ -1,5 +1,31 @@
 # Task History
 
+## 2026-05-23 - Dashboard AI Language Toggle API Gate Fix
+- User reported that English Dashboard AI showed “AI could not generate deep dives,” while changing to another language worked, then switching back to English failed again.
+- Root cause:
+  - `AiInsightService` stored only one weekly AI cache entry under `ai_weekly_insight_cache_v1`.
+  - A successful Tamil/Hindi response could overwrite an earlier English response.
+  - The daily usage gate was global, so if the current language had no matching cache and the global count was exhausted, the service returned `none` before calling `fetch('/generate-insights')`.
+  - This produced the unavailable panel even though the user expected a fresh English API call or the previous English response.
+- Changed `personal-finance-pwa/src/app/core/services/ai-insight.service.ts`:
+  - Replaced single-entry cache handling with a versioned cache store containing up to 12 recent entries.
+  - Preserved backward compatibility with the old single-entry cache shape.
+  - Exact cache reuse now searches the cache history for the matching normalized payload, including locale.
+  - Stale fallback cache now searches only same-locale entries.
+  - Usage counts are now tracked per locale through `localeCounts`, while keeping the existing total `callCount` metadata.
+  - A daily limit reached in Tamil/Hindi no longer blocks an English API call.
+- Changed `personal-finance-pwa/src/app/features/dashboard/dashboard.component.ts`:
+  - AI scroll now retries for several animation frames if the Gemini/status block is not available immediately on mobile.
+- Updated `personal-finance-pwa/src/app/core/services/ai-insight.service.spec.ts`:
+  - Added coverage that switching English -> Tamil -> English reuses the correct English cached result instead of calling the API or failing.
+  - Added coverage that another language’s daily limit does not prevent a fresh English API call.
+- Updated `AI_RULES.md` with the per-locale cache history and per-locale usage-gate rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/services/ai-insight.service.spec.ts`.
+  - Ran `npm run build`.
+  - Ran `npx tsc --noEmit -p netlify/tsconfig.json`.
+  - All passed.
+
 ## 2026-05-23 - Dashboard AI Mobile Touch, Scroll, And Locale Cache Fix
 - User reported mobile Dashboard AI behavior issues:
   - The AI button looked bumped/held after touch instead of releasing normally.

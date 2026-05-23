@@ -104,10 +104,13 @@ describe('AiInsightService', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => geminiResult('Fresh insight'),
-    }));
+    fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as AiInsightPayload;
+      return {
+        ok: true,
+        json: async () => geminiResult(`Fresh insight ${body.locale}`),
+      };
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const injector = Injector.create({
@@ -132,7 +135,7 @@ describe('AiInsightService', () => {
 
     const second = await service.generateWeeklyInsightsWithSource(payload());
     expect(second.source).toBe('cache');
-    expect(second.result?.sections[0]?.title).toBe('Fresh insight');
+    expect(second.result?.sections[0]?.title).toBe('Fresh insight en');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -187,6 +190,7 @@ describe('AiInsightService', () => {
     storage.values.set(USAGE_KEY, JSON.stringify({
       dateKey: new Date().toISOString().slice(0, 10),
       callCount: 2,
+      localeCounts: { 'ta-IN': 2 },
     }));
 
     const result = await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
@@ -194,5 +198,33 @@ describe('AiInsightService', () => {
     expect(result.source).toBe('none');
     expect(result.result).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps separate cached responses when switching languages', async () => {
+    const english = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+    const tamil = await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
+    const englishAgain = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+
+    expect(english.source).toBe('gemini');
+    expect(tamil.source).toBe('gemini');
+    expect(englishAgain.source).toBe('cache');
+    expect(englishAgain.result?.sections[0]?.title).toBe('Fresh insight en-IN');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let another language daily limit block a fresh call', async () => {
+    await service.generateWeeklyInsightsWithSource(payload({ locale: 'ta-IN' }));
+
+    storage.values.set(USAGE_KEY, JSON.stringify({
+      dateKey: new Date().toISOString().slice(0, 10),
+      callCount: 2,
+      localeCounts: { 'ta-IN': 2 },
+    }));
+
+    const english = await service.generateWeeklyInsightsWithSource(payload({ locale: 'en-IN' }));
+
+    expect(english.source).toBe('gemini');
+    expect(english.result?.sections[0]?.title).toBe('Fresh insight en-IN');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
