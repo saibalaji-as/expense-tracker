@@ -53,10 +53,19 @@
 ## Google Auth / Drive Rules
 - Use `AuthService.ensureToken()` for Google API access.
 - Do not manually cache or pass access tokens outside existing service boundaries.
+- Exception: native Android may persist the latest short-lived access token via `AuthService` only for the standalone home screen widget sync path. Keep keys scoped to `gapi_access_token` / `gapi_access_token_expires_at`, clear them on sign-out/scope mismatch/account-local clears, and do not use this pattern for web.
+- Do not clear persisted signed-in state just because a silent web access-token refresh fails; users should remain locally signed in and re-consent only when Drive access is actually needed.
 - Preserve full Drive scope unless a deliberate auth redesign is made:
   - Family partner access depends on shared-file/folder access.
 - Preserve `SCOPE_VERSION` behavior when changing scopes.
 - Drive errors should include operation context and flow through `driveError$` when user-visible.
+- Returning users with a valid local backup snapshot should not be blocked on Drive bootstrap before entering the app.
+- Keep Drive JSON as authoritative, but maintain the local backup snapshot (`spenza_drive_backup_snapshot_v1`) for fast startup and offline read access.
+- Scope local backup snapshots and backup-mode/config caches to the signed-in Google account; when explicit sign-in returns a different email, clear account-scoped local state before loading that account's Drive config.
+- Explicit sign-out must clear account-scoped local state immediately, including active store data, local backup snapshot, backup-mode/config cache, offline queue, Daily draft, AI key/insight cache, notification state, and auth/preferences cache, then navigate away from guarded routes to `/auth/callback`.
+- Web sign-out should clear local auth state before attempting best-effort Google token revocation so script/network failures cannot leave the app locally authenticated.
+- When cached backup data has rendered, background Drive sync failures should not replace the app with the boot retry screen.
+- If local backup changes are cached before a Drive write succeeds, preserve that dirty snapshot and flush it to Drive before reading remote data on the next successful Drive bootstrap.
 - Keep no-cache headers/cache-busting on Drive reads where stale data would break multi-device/family sync.
 - Keep `spenza-config.json` in `appDataFolder`.
 - Keep private single-user `spenza-backup.json` in `appDataFolder`.
@@ -203,6 +212,12 @@
 ## Notifications Rules
 - Do not request notification permissions at app startup.
 - Permission requests should be explicit user actions from Settings or relevant UI.
+- Device notification/SMS-derived spend detection must remain Android-only and explicit opt-in:
+  - Use Android notification-listener access rather than SMS inbox permissions.
+  - Require both OS notification-listener access and Spenza's own local toggle before parsing notifications.
+  - Parse notification text locally on-device only.
+  - Do not send notification contents to Gemini, Drive, Netlify functions, or other network services.
+  - Ask the user to review/save before creating an expense; do not auto-log detected spend notifications.
 - Preserve local notification initialization as non-blocking.
 - Prefer local daily notifications for user-controlled richer reminder content because they respect the user’s chosen time and do not require server/network availability.
 - Browser/PWA local reminder fallback cannot deliver while the app process is closed; use FCM push as the closed-app delivery path.
@@ -216,6 +231,36 @@
 - Web function URLs should use `/.netlify/functions`.
 - Firestore private credentials must stay in Netlify env vars, not client code.
 - Scheduler utilities must remain pure and unit-testable.
+
+## Native Android Widget Rules
+- Keep the home screen widget standalone and removable:
+  - Main app/PWA routes and Angular feature flows must not depend on widget classes.
+  - The widget should be hideable by disabling/removing `ExpenseWidgetProvider` and `ExpenseWidgetActivity` manifest entries.
+- Widget expenses must queue locally first under `spenza_widget_expense_queue_v1`; never block user confirmation on Drive/network.
+- Widget sync must merge into the same Drive backup JSON schema as `ExpenseStore` and dedupe by expense `id`.
+- Because Android WorkManager can delay background jobs, the Angular `ExpenseStore` must also flush current-account pending widget queue entries during cached startup, Drive bootstrap, and Drive refresh.
+- Widget queue entries must be tagged with the active Google email and must not sync into a different active account after account switching.
+- Widget sync may use cached native access tokens written by `AuthService`, but if the token is missing/expired/rejected it must keep the queue rather than prompting login or launching the full app.
+- Widget Gemini voice parsing must use the existing Netlify `parse-voice-expense` endpoint and user-supplied Gemini key from `spenza_ai_settings_private`; it must degrade to plain comment capture when AI is unavailable.
+- Native widget and widget Activity styling must match Spenza's PWA theme:
+  - Use light/night Android resources for system theme adaptation.
+  - Use the app's indigo/violet glass surface feel and canonical category colors.
+  - Keep widget visuals launcher-safe because `RemoteViews` supports limited animation; put richer motion in `ExpenseWidgetActivity`.
+- Widget should remain useful at a glance by showing daily insight from local app data:
+  - Today's spend.
+  - Daily budget derived from current limits/monthly income when possible.
+  - Progress toward budget.
+  - Comparison with yesterday.
+  - Include current-account queued widget expenses before Drive sync completes.
+- Widget Activity must remain keyboard-safe:
+  - Use a scrollable bottom-sheet layout.
+  - Use `adjustResize`/translucent theme behavior so the keyboard does not hide amount/comment/actions.
+  - Avoid a lonely full black background; use translucent dim over the launcher/app instead.
+- Keep widget categories mapped to canonical app types:
+  - Food -> `Food & Groceries`
+  - Transport -> `Transportation`
+  - Entertainment -> `Entertainment`
+  - Misc -> `Miscellaneous`
 
 ## Offline / Legacy Sheets Rules
 - Treat `SyncService` as legacy/Sheets queue unless a task explicitly revives it.
@@ -238,7 +283,7 @@
 
 ## Security And Privacy Rules
 - Never commit private Firebase Admin credentials or service account JSON.
-- Never persist OAuth access tokens outside `AuthService` memory.
+- Never persist OAuth access tokens outside `AuthService` ownership. The only current exception is the native-only short-lived widget sync cache described in Google Auth / Drive Rules.
 - Do not log Gemini API keys, OAuth tokens, FCM tokens, raw receipts, or sensitive receipt text.
 - Existing code logs some FCM tokens/debug data; do not add more sensitive logging.
 - Treat receipt files and Drive links as private user data.

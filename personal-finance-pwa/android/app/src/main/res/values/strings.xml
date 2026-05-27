@@ -7,4 +7,6 @@
     <string name="local_notification_channel_id">expense-reminders</string>
     <string name="local_notification_channel_name">Expense Reminders</string>
     <string name="local_notification_channel_description">Daily reminders and budget alerts</string>
+    <string name="expense_widget_name">Spenza Quick Expense</string>
+    <string name="spend_notification_listener_label">Spenza spend prompts</string>
 </resources>

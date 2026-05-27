@@ -267,6 +267,24 @@ export class BackupModeService {
     this.#lastDriveLoadAt = 0;
   }
 
+  async clearLocalCacheForAccountSwitch(): Promise<void> {
+    this.mode.set(null);
+    this.sharedFileId.set(null);
+    this.familyFolderId.set(null);
+    this.ownerRole.set(null);
+    this.#configFileId = null;
+    this.#driveLoadPromise = null;
+    this.#lastDriveLoadAt = 0;
+
+    await Promise.all([
+      this.storageService.remove(CACHE_KEY_MODE),
+      this.storageService.remove(CACHE_KEY_SHARED_FILE_ID),
+      this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
+      this.storageService.remove(CACHE_KEY_OWNER_ROLE),
+      this.storageService.remove(CACHE_KEY_CONFIG_FILE_ID),
+    ]);
+  }
+
   getMode(): BackupMode | null { return this.mode(); }
   getSharedFileId(): string | null { return this.sharedFileId(); }
   getFamilyFolderId(): string | null { return this.familyFolderId(); }

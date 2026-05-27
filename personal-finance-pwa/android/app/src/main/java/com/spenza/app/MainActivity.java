@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(SpendNotificationAccessPlugin.class);
         super.onCreate(savedInstanceState);
         
         // Initialize notification channels for reliable delivery

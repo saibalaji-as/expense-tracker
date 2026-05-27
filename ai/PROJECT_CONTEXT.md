@@ -8,6 +8,7 @@
   - Web PWA deployed to Netlify.
   - Android shell through Capacitor.
 - Current source of truth for user data: Google Drive JSON backup, not Google Sheets.
+- Returning users also keep a local cached copy of the active Drive backup for fast startup; Drive remains authoritative and syncs after launch when a Google access token is available.
 
 ## Tech Stack
 - Angular `^21.1.0`, standalone components, strict templates, zoneless change detection.
@@ -17,6 +18,7 @@
 - Charts: Chart.js `^4.5.1` through `ng2-charts`.
 - Persistence:
   - Capacitor Preferences for local key/value cache.
+  - Capacitor Preferences local backup snapshot for fast returning-user startup.
   - Google Drive API JSON files for authoritative app data/config.
   - IndexedDB via `idb` for legacy/offline Sheets queue.
   - Firestore only for FCM token registry.
@@ -108,6 +110,10 @@
   - Uses `@capgo/capacitor-social-login`.
   - Initializes Google provider once in service constructor.
   - Requests online access token through Google login.
+  - On native only, `AuthService` also stores the latest short-lived Google access token and expiry in Capacitor Preferences for the standalone Android home screen widget sync path:
+    - `gapi_access_token`
+    - `gapi_access_token_expires_at`
+  - Native token cache is cleared on sign-out, scope-version mismatch, and full Preferences clear.
 - Required scopes:
   - Sheets: `https://www.googleapis.com/auth/spreadsheets`.
   - Drive appDataFolder: `https://www.googleapis.com/auth/drive.appdata`.
@@ -119,9 +125,65 @@
   - `gapi_auth_state`
   - `gapi_user_email`
   - `gapi_scope_version`
+- Cached active backup key:
+  - `spenza_drive_backup_snapshot_v1`
 - `authGuard` waits for `AuthService.sessionRestored` before deciding.
 - `setupGuard` waits for auth/session and backup-mode cache, then routes users to mode/family setup when required.
 - `authInterceptor` only intercepts URLs containing `googleapis.com`; on 401 it calls `ensureToken()` and retries once.
+
+## Native Android Home Screen Widget
+- Android-only standalone quick expense widget is implemented under `android/app/src/main/java/com/spenza/app/` and Android resources.
+- Widget entry points:
+  - `ExpenseWidgetProvider`: home screen `AppWidgetProvider` with 4 buttons.
+  - `ExpenseWidgetActivity`: lightweight native Activity for amount/comment/mic input; does not launch the Capacitor WebView app.
+  - `WidgetExpenseQueue`: local queue stored in Capacitor Preferences under `spenza_widget_expense_queue_v1`.
+  - `WidgetExpenseSyncWorker`: WorkManager one-shot network-constrained sync to Google Drive.
+- Widget categories map to canonical app expense types:
+  - Food -> `Food & Groceries`
+  - Transport -> `Transportation`
+  - Entertainment -> `Entertainment`
+  - Shopping -> `Shopping/Clothing` when the launcher reports enough width for a fifth action.
+  - More -> opens the native category picker with all predefined app categories, including `Miscellaneous`.
+- Voice smart-fill:
+  - Uses Android `SpeechRecognizer` for transcript capture.
+  - If local AI settings contain a user Gemini key, calls production `parse-voice-expense` Netlify function with the same allowed categories.
+  - If Gemini is unavailable/missing, typed or spoken comment remains and amount can be entered manually.
+- Widget sync behavior:
+  - Saves confirmed expenses to local queue first.
+  - Sync reads active backup mode/config from Capacitor Preferences.
+  - Family mode writes to cached `spenza_shared_file_id`; single mode uses local backup snapshot file ID or discovers `spenza-backup.json` in `appDataFolder`.
+  - Merges queued expenses into Drive backup JSON by `id`, updates `lastUpdated`, and refreshes `spenza_drive_backup_snapshot_v1` after successful Drive write.
+  - Queue items are tagged with the Google email active at queue time and are not synced into a different active account.
+  - Android WorkManager background sync is best-effort and may be delayed by the OS.
+  - The Angular `ExpenseStore` also flushes `spenza_widget_expense_queue_v1` on cached startup, Drive bootstrap, and Drive refresh so opening the app makes widget expenses visible/persisted without waiting for WorkManager timing.
+- Widget daily insight:
+  - `ExpenseWidgetProvider` reads `spenza_drive_backup_snapshot_v1` plus current-account queued widget entries to display today's spend, calculated daily budget, progress, and yesterday comparison.
+  - Daily budget is derived from configured limits and monthly income when available; otherwise it falls back to monthly income divided by days in month.
+  - Current widget sizing uses two height modes: a 1-row quick-actions-only layout when launcher-reported height is short, and a 3-row daily insight + actions layout when height is increased.
+  - Width is horizontal-resizable from 4 action spaces to a wider 5 action space; the optional `Shopping/Clothing` action is shown only when launcher-reported width is wide enough, and the last slot remains `More`.
+- Easy removal/hide path:
+  - Disable/remove `ExpenseWidgetProvider` receiver and `ExpenseWidgetActivity` from `AndroidManifest.xml`.
+  - Remove the `expense_widget*` resources and `WidgetExpense*` Java classes if deleting fully.
+
+## Native Android Spend Notification Prompts
+- Android-only spend prompt detection is implemented with `SpendNotificationListenerService`.
+- User access model:
+  - The feature requires explicit Android notification-listener access for Spenza.
+  - Spenza also stores its own opt-in toggle under `spenza_spend_notification_prompts_enabled_v1`.
+  - Both the OS listener permission and Spenza toggle must be enabled before notifications are parsed.
+- Bridge/UI:
+  - `SpendNotificationAccessPlugin` exposes status, toggle persistence, and Android notification access settings to Angular.
+  - `SpendNotificationAccessService` and Settings show Android-only status/controls.
+- Runtime behavior:
+  - Reads posted notification title/body/expanded lines locally on-device.
+  - Also reads messaging-style notification extras and parses group-summary notifications, since some SMS/payment apps expose useful text only through those surfaces.
+  - Ignores Spenza's own notifications, ongoing notifications, likely income/refund/cashback/reversal messages, failed/pending/cancelled/request-only messages, OTP/security messages, and balance/reference amount contexts.
+  - Parses likely debit/spend/payment/card/UPI/POS/ATM/NACH/AutoPay/fee notifications for amount hints, including common spend words such as `used`, `debited`, `spent`, `paid`, `purchase`, `withdrawn`, `charged`, `deducted`, `sent`, and `transferred`.
+  - The Android listener requests rebind after disconnect on Android N+; Settings listener status detection accepts both long and short flattened component names.
+  - Shows a private `spend-prompts` channel notification asking the user to review/log the expense.
+  - Tapping the prompt opens `ExpenseWidgetActivity` with amount/comment prefilled and `Miscellaneous` as the default category.
+  - No expense is saved until the user taps Save in the native quick-expense sheet.
+  - The notification body is not uploaded or passed to Gemini; only a local dedupe fingerprint is stored.
 
 ## Backup Modes
 - `BackupModeService` owns mode/config state.
@@ -142,6 +204,11 @@
   - `spenza_owner_role`
   - `spenza_config_file_id`
 - Config load cache TTL: `60_000ms`.
+- Cached backup startup:
+  - After the app has an authenticated local session and complete local backup mode config, the app can hydrate `ExpenseStore` from `spenza_drive_backup_snapshot_v1` immediately.
+  - Cached backup snapshots are scoped to the signed-in Google email.
+  - Drive config/data refresh then runs in the background.
+  - Silent web token refresh failures do not clear local signed-in state; explicit sign-out/reset clears auth state and account-scoped local cache.
 - Family recovery:
   - If config is missing/incomplete, service searches for existing `Spenza Family` folders with `spenza-backup.json`.
   - Role is inferred from Drive `ownedByMe`.

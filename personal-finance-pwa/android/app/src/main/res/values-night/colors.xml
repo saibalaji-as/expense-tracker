@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#C084FC</color>
+    <color name="colorPrimaryDark">#111827</color>
+    <color name="colorAccent">#C084FC</color>
+    <color name="notificationColor">#C084FC</color>
+
+    <!-- Spenza native widget theme colors, matched to the PWA dark tokens -->
+    <color name="spenza_widget_bg_start">#111827</color>
+    <color name="spenza_widget_bg_end">#201339</color>
+    <color name="spenza_widget_surface">#1E293B</color>
+    <color name="spenza_widget_surface_pressed">#31224B</color>
+    <color name="spenza_widget_text">#F8FAFC</color>
+    <color name="spenza_widget_muted">#CBD5E1</color>
+    <color name="spenza_widget_stroke">#3E335A</color>
+    <color name="spenza_primary_start">#A78BFA</color>
+    <color name="spenza_primary_end">#E879F9</color>
+    <color name="spenza_food">#58D99A</color>
+    <color name="spenza_transport">#67C7FF</color>
+    <color name="spenza_entertainment">#D078FF</color>
+    <color name="spenza_shopping">#F9A8D4</color>
+    <color name="spenza_misc">#B9C0CA</color>
+    <color name="spenza_food_soft">#174635</color>
+    <color name="spenza_transport_soft">#173B5E</color>
+    <color name="spenza_entertainment_soft">#3B215E</color>
+    <color name="spenza_shopping_soft">#58213F</color>
+    <color name="spenza_misc_soft">#173F3E</color>
+    <color name="spenza_trend_bg">#20483C</color>
+    <color name="spenza_progress_track">#38515E</color>
+</resources>

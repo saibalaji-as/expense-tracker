@@ -168,8 +168,11 @@ export class AuthCallbackComponent {
     this.isLoading.set(true);
 
     try {
-      await this.authService.signIn();
-      await this.backupModeService.loadFromDrive();
+      const signInResult = await this.authService.signIn();
+      if (signInResult.accountChanged) {
+        await this.resetAccountScopedLocalState();
+      }
+      await this.backupModeService.loadFromDrive(true);
 
       // Check if a backup mode has been selected yet.
       // If not (new user or after a mode switch), go to mode selection first.
@@ -194,5 +197,13 @@ export class AuthCallbackComponent {
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  private async resetAccountScopedLocalState(): Promise<void> {
+    this.expenseStore.clearLocalData();
+    await Promise.all([
+      this.expenseStore.clearLocalBackupCache(),
+      this.backupModeService.clearLocalCacheForAccountSwitch(),
+    ]);
   }
 }

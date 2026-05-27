@@ -88,6 +88,19 @@ export class AiSettingsService {
     await this.save({ provider: 'disabled', geminiApiKey: null });
   }
 
+  async clearLocalState(): Promise<void> {
+    this.settingsRevision++;
+    this.settings.set(DEFAULT_AI_SETTINGS);
+    this.lastMessage.set(null);
+    this.lastError.set(null);
+    this.isLoading.set(false);
+
+    await Promise.all([
+      this.storageService.remove(this.localKey),
+      this.resetInsightCache(),
+    ]);
+  }
+
   async getActiveGeminiKey(): Promise<string | null> {
     let current = this.settings();
     const local = await this.readLocal();

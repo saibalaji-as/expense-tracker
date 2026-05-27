@@ -27,12 +27,44 @@
 
         </activity>
 
+        <activity
+            android:name=".ExpenseWidgetActivity"
+            android:theme="@style/AppTheme.WidgetActivity"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="${applicationId}.widget"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <!-- Standalone home screen expense widget. Remove this receiver/activity/work classes to hide the feature. -->
+        <receiver
+            android:name=".ExpenseWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/expense_widget_info" />
+        </receiver>
+
         <!-- Firebase Cloud Messaging Service -->
         <service
             android:name=".MyFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".SpendNotificationListenerService"
+            android:label="@string/spend_notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 

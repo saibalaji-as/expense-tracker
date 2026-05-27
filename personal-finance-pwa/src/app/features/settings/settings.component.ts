@@ -22,7 +22,9 @@ import { StorageService } from '../../core/services/storage.service';
 import { AppLanguage, I18nService } from '../../core/services/i18n.service';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
 import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
+import { SpendNotificationAccessService } from '../../core/services/spend-notification-access.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
+import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { SectionCardComponent, ModalComponent } from '../../shared/components';
@@ -661,6 +663,69 @@ interface BeforeInstallPromptEvent extends Event {
             </p>
           }
 
+          @if (spendNotificationAccess.supported()) {
+            <div class="rounded-2xl border border-border bg-card/40 p-4">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium">{{ 'settings.spendPrompts.title' | translate }}</p>
+                  <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {{ 'settings.spendPrompts.description' | translate }}
+                  </p>
+                  <p
+                    [class]="
+                      'mt-2 text-xs font-medium ' +
+                      (spendNotificationAccess.permissionGranted() ? 'text-success' : 'text-amber-600 dark:text-amber-400')
+                    "
+                  >
+                    {{
+                      (spendNotificationAccess.permissionGranted()
+                        ? 'settings.spendPrompts.accessGranted'
+                        : 'settings.spendPrompts.accessNeeded') | translate
+                    }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  [attr.aria-checked]="spendNotificationAccess.promptEnabled()"
+                  (click)="onSpendPromptToggle()"
+                  [disabled]="spendNotificationAccess.isLoading()"
+                  [class]="
+                    'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ' +
+                    (spendNotificationAccess.promptEnabled() ? 'bg-primary' : 'bg-muted')
+                  "
+                  aria-label="Toggle spend prompts"
+                >
+                  <span
+                    [class]="
+                      'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                      (spendNotificationAccess.promptEnabled() ? 'translate-x-5' : 'translate-x-0')
+                    "
+                  ></span>
+                </button>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  (click)="onOpenSpendNotificationAccess()"
+                  class="inline-flex items-center gap-2 rounded-xl border border-border bg-background/60 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
+                >
+                  <lucide-icon [img]="externalLinkIcon" class="h-4 w-4" />
+                  {{ 'settings.spendPrompts.openSettings' | translate }}
+                </button>
+                <button
+                  type="button"
+                  (click)="onRefreshSpendNotificationAccess()"
+                  class="inline-flex items-center gap-2 rounded-xl border border-border bg-background/60 px-4 py-2.5 text-sm font-medium hover:border-primary/40"
+                >
+                  <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
+                  {{ 'settings.spendPrompts.refresh' | translate }}
+                </button>
+              </div>
+            </div>
+          }
+
           <!-- Daily Reminder Toggle -->
           <div class="flex items-center justify-between">
             <div>
@@ -973,7 +1038,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
   readonly aiSettingsService = inject(AiSettingsService);
+  readonly spendNotificationAccess = inject(SpendNotificationAccessService);
   private readonly feedback = inject(UserFeedbackService);
+  private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -1043,14 +1110,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
     event.preventDefault();
     this.deferredPrompt.set(event as BeforeInstallPromptEvent);
   };
+  private readonly visibilityHandler = () => {
+    if (document.visibilityState === 'visible') {
+      void this.spendNotificationAccess.refreshStatus();
+    }
+  };
 
   ngOnInit(): void {
     // Capture the beforeinstallprompt event
     window.addEventListener('beforeinstallprompt', this.beforeInstallHandler);
+    document.addEventListener('visibilitychange', this.visibilityHandler);
     
     // Load notification preferences from storage
     this.loadNotificationPreferences();
     this.loadAiSettings();
+    void this.spendNotificationAccess.refreshStatus();
     
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
@@ -1233,23 +1307,53 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener('beforeinstallprompt', this.beforeInstallHandler);
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
     this.stopDeleteAccountCountdown();
   }
 
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────
 
   async onSignOut(): Promise<void> {
-    await this.authService.signOut();
-    // Router navigation is handled by the auth guard on the next route access
+    await Promise.allSettled([
+      this.notificationService.disable(),
+      this.localNotificationService.cancelDailyReminder(),
+      this.localNotificationService.cancelMonthlyNudge(),
+      this.authService.signOut(),
+    ]);
+
+    await this.clearSignedOutLocalState();
+    await this.router.navigate(['/auth/callback'], { replaceUrl: true });
   }
 
   async onSignIn(): Promise<void> {
     try {
-      await this.authService.signIn();
+      const signInResult = await this.authService.signIn();
+      if (signInResult.accountChanged) {
+        this.expenseStore.clearLocalData();
+        await Promise.all([
+          this.expenseStore.clearLocalBackupCache(),
+          this.backupModeService.clearLocalCacheForAccountSwitch(),
+        ]);
+      }
+      await this.backupModeService.loadFromDrive(true);
       await this.expenseStore.loadFromDrive();
     } catch (err) {
       console.error('[Settings] Sign-in failed:', err);
     }
+  }
+
+  private async clearSignedOutLocalState(): Promise<void> {
+    this.expenseStore.clearLocalData();
+    this.dailyExpenseDraftService.clearDraft();
+
+    await Promise.allSettled([
+      this.syncService.clearQueue(),
+      this.expenseStore.clearLocalBackupCache(),
+      this.backupModeService.clearLocalCacheForAccountSwitch(),
+      this.aiSettingsService.clearLocalState(),
+    ]);
+
+    await this.storageService.clear();
   }
 
   // ─── Import from Google Sheets ───────────────────────────────────────────────
@@ -1354,6 +1458,55 @@ export class SettingsComponent implements OnInit, OnDestroy {
         'Allow notifications in your device settings, then return here to enable reminders.'
       );
     }
+  }
+
+  async onSpendPromptToggle(): Promise<void> {
+    const enabled = !this.spendNotificationAccess.promptEnabled();
+    if (enabled && this.localNotificationService.permissionStatus() !== 'granted') {
+      const status = await this.localNotificationService.requestPermission();
+      if (status !== 'granted') {
+        this.feedback.warning(
+          'Spend prompts were not enabled.',
+          'Allow notification permission first so Spenza can show the review prompt.'
+        );
+        return;
+      }
+    }
+
+    await this.spendNotificationAccess.setPromptEnabled(enabled);
+    if (enabled) {
+      if (!this.spendNotificationAccess.permissionGranted()) {
+        await this.spendNotificationAccess.openSettings();
+        this.feedback.info(
+          'Spend prompts enabled.',
+          'Turn on Spenza spend prompts in Android notification access to let Spenza detect payment alerts.'
+        );
+        return;
+      }
+      this.feedback.success(
+        'Spend prompts enabled.',
+        'Spenza will suggest expense logs from payment notifications on this device.'
+      );
+    } else {
+      this.feedback.success(
+        'Spend prompts turned off.',
+        'Spenza will stop reading device notifications for expense suggestions.'
+      );
+    }
+  }
+
+  async onOpenSpendNotificationAccess(): Promise<void> {
+    await this.spendNotificationAccess.openSettings();
+  }
+
+  async onRefreshSpendNotificationAccess(): Promise<void> {
+    await this.spendNotificationAccess.refreshStatus();
+    this.feedback.info(
+      'Spend prompt status refreshed.',
+      this.spendNotificationAccess.permissionGranted()
+        ? 'Android notification access is enabled for Spenza.'
+        : 'Android notification access is not enabled yet.'
+    );
   }
 
   /**

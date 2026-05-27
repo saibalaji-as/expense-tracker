@@ -10,10 +10,32 @@ import {
 import { BudgetThresholdEvent } from '../models/local-notification.model';
 import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
-import { DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
-import { BackupModeService } from './backup-mode.service';
+import { BackupDocument, DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
+import { BackupMode, BackupModeService } from './backup-mode.service';
 import { AppCurrency, CurrencyService } from './currency.service';
+import { AuthService } from './auth.service';
 import { toLocalDateString } from '../utils/local-date';
+
+const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
+const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
+
+interface LocalBackupSnapshot {
+  version: '1';
+  userEmail: string | null;
+  fileId: string;
+  mode: BackupMode;
+  sharedFileId: string | null;
+  modifiedTime: string | null;
+  dirty: boolean;
+  savedAt: string;
+  doc: BackupDocument;
+}
+
+interface WidgetExpenseQueueItem {
+  userEmail: string | null;
+  entry: ExpenseEntry;
+  raw: unknown;
+}
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -179,6 +201,7 @@ export const ExpenseStore = signalStore(
     googleDriveService = inject(GoogleDriveService),
     backupModeService = inject(BackupModeService),
     currencyService = inject(CurrencyService),
+    authService = inject(AuthService),
   ) => {
     let localRevision = 0;
     let persistedRevision = 0;
@@ -202,6 +225,206 @@ export const ExpenseStore = signalStore(
       }
     };
 
+    const buildBackupDocument = (): BackupDocument => ({
+      version: '1.0',
+      lastUpdated: new Date().toISOString(),
+      metadata: {
+        monthlyIncome: store.monthlyIncome(),
+        currency: currencyService.currency(),
+        ...(store.receiptFolderId() ? { receiptFolderId: store.receiptFolderId()! } : {}),
+      },
+      expenses: store.entries(),
+      limits: store.limits(),
+    });
+
+    const isBackupDocument = (value: unknown): value is BackupDocument => {
+      if (typeof value !== 'object' || value === null) return false;
+      const candidate = value as Partial<BackupDocument>;
+      return (
+        typeof candidate.version === 'string' &&
+        Array.isArray(candidate.expenses) &&
+        Array.isArray(candidate.limits) &&
+        typeof candidate.metadata === 'object' &&
+        candidate.metadata !== null &&
+        typeof candidate.metadata.monthlyIncome === 'number'
+      );
+    };
+
+    const isExpenseEntry = (value: unknown): value is ExpenseEntry => {
+      if (typeof value !== 'object' || value === null) return false;
+      const candidate = value as Partial<ExpenseEntry>;
+      return (
+        typeof candidate.id === 'string' &&
+        candidate.id.trim() !== '' &&
+        typeof candidate.date === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(candidate.date) &&
+        typeof candidate.amount === 'number' &&
+        Number.isFinite(candidate.amount) &&
+        candidate.amount > 0 &&
+        typeof candidate.type === 'string' &&
+        candidate.type.trim() !== '' &&
+        typeof candidate.limit === 'number' &&
+        Number.isFinite(candidate.limit) &&
+        typeof candidate.savings === 'number' &&
+        Number.isFinite(candidate.savings) &&
+        typeof candidate.timestamp === 'string' &&
+        candidate.timestamp.trim() !== ''
+      );
+    };
+
+    const normalizeWidgetQueueItem = (raw: unknown): WidgetExpenseQueueItem | null => {
+      if (typeof raw !== 'object' || raw === null) return null;
+
+      const record = raw as Record<string, unknown>;
+      const wrappedEntry = record['entry'];
+      if (isExpenseEntry(wrappedEntry)) {
+        return {
+          userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
+          entry: wrappedEntry,
+          raw,
+        };
+      }
+
+      if (isExpenseEntry(raw)) {
+        return { userEmail: null, entry: raw, raw };
+      }
+
+      return null;
+    };
+
+    const readWidgetExpenseQueue = async (): Promise<unknown[]> => {
+      const raw = await storageService.get(WIDGET_EXPENSE_QUEUE_KEY);
+      if (!raw) return [];
+
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (err) {
+        console.warn('[ExpenseStore] Failed to parse widget expense queue:', err);
+        return [];
+      }
+    };
+
+    const widgetQueueItemMatchesCurrentUser = (item: WidgetExpenseQueueItem): boolean => {
+      const currentEmail = authService.userEmail();
+      return !!currentEmail && item.userEmail === currentEmail;
+    };
+
+    const flushPendingWidgetExpenses = async (): Promise<boolean> => {
+      const rawQueue = await readWidgetExpenseQueue();
+      if (rawQueue.length === 0) return false;
+
+      const activeItems: WidgetExpenseQueueItem[] = [];
+      const remainingRawItems: unknown[] = [];
+
+      for (const rawItem of rawQueue) {
+        const item = normalizeWidgetQueueItem(rawItem);
+        if (!item) continue;
+
+        if (widgetQueueItemMatchesCurrentUser(item)) {
+          activeItems.push(item);
+        } else {
+          remainingRawItems.push(rawItem);
+        }
+      }
+
+      if (activeItems.length === 0) return false;
+
+      const existingIds = new Set(store.entries().map((entry) => entry.id));
+      const newEntries = activeItems
+        .map((item) => item.entry)
+        .filter((entry) => {
+          if (existingIds.has(entry.id)) return false;
+          existingIds.add(entry.id);
+          return true;
+        });
+
+      await storageService.set(WIDGET_EXPENSE_QUEUE_KEY, JSON.stringify(remainingRawItems));
+      if (newEntries.length === 0) return false;
+
+      patchState(store, { entries: [...newEntries, ...store.entries()] });
+      localRevision += 1;
+      await methods.persistToDrive();
+
+      if (store.syncStatus() === 'error') {
+        console.warn('[ExpenseStore] Widget expenses were added locally but Drive persistence is pending.');
+      }
+
+      console.log('[ExpenseStore] Flushed widget expenses:', newEntries.length);
+      return true;
+    };
+
+    const readLocalBackupSnapshot = async (): Promise<LocalBackupSnapshot | null> => {
+      const raw = await storageService.get(LOCAL_BACKUP_CACHE_KEY);
+      if (!raw) return null;
+
+      try {
+        const parsed = JSON.parse(raw) as Partial<LocalBackupSnapshot>;
+        if (
+          parsed.version !== '1' ||
+          typeof parsed.fileId !== 'string' ||
+          parsed.fileId === '' ||
+          (parsed.mode !== 'single' && parsed.mode !== 'family') ||
+          !isBackupDocument(parsed.doc)
+        ) {
+          return null;
+        }
+
+        return {
+          version: '1',
+          userEmail: typeof parsed.userEmail === 'string' ? parsed.userEmail : null,
+          fileId: parsed.fileId,
+          mode: parsed.mode,
+          sharedFileId: typeof parsed.sharedFileId === 'string' ? parsed.sharedFileId : null,
+          modifiedTime: typeof parsed.modifiedTime === 'string' ? parsed.modifiedTime : null,
+          dirty: parsed.dirty === true,
+          savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : new Date(0).toISOString(),
+          doc: parsed.doc,
+        };
+      } catch (err) {
+        console.warn('[ExpenseStore] Failed to parse local backup snapshot:', err);
+        return null;
+      }
+    };
+
+    const snapshotMatchesActiveMode = (snapshot: LocalBackupSnapshot): boolean => {
+      const currentEmail = authService.userEmail();
+      if ((currentEmail || snapshot.userEmail) && snapshot.userEmail !== currentEmail) {
+        return false;
+      }
+
+      const mode = backupModeService.getMode();
+      if (mode === 'family') {
+        return snapshot.mode === 'family' && snapshot.fileId === backupModeService.getSharedFileId();
+      }
+
+      return mode === 'single' && snapshot.mode === 'single';
+    };
+
+    const writeLocalBackupSnapshot = async (
+      fileId: string,
+      doc: BackupDocument,
+      modifiedTime: string | null,
+      dirty: boolean
+    ): Promise<void> => {
+      const mode = backupModeService.getMode();
+      if (mode !== 'single' && mode !== 'family') return;
+
+      const snapshot: LocalBackupSnapshot = {
+        version: '1',
+        userEmail: authService.userEmail(),
+        fileId,
+        mode,
+        sharedFileId: mode === 'family' ? backupModeService.getSharedFileId() : null,
+        modifiedTime,
+        dirty,
+        savedAt: new Date().toISOString(),
+        doc,
+      };
+
+      await storageService.set(LOCAL_BACKUP_CACHE_KEY, JSON.stringify(snapshot));
+    };
+
     const applyBackupDocument = (
       fileId: string,
       doc: Awaited<ReturnType<GoogleDriveService['readBackupFile']>>,
@@ -219,6 +442,16 @@ export const ExpenseStore = signalStore(
       });
       localRevision = 0;
       persistedRevision = 0;
+      void writeLocalBackupSnapshot(fileId, doc, modifiedTime, false);
+    };
+
+    const flushDirtyLocalSnapshot = async (): Promise<boolean> => {
+      const snapshot = await readLocalBackupSnapshot();
+      if (!snapshot?.dirty || !snapshotMatchesActiveMode(snapshot)) return false;
+
+      const modifiedTime = await googleDriveService.writeBackupFile(snapshot.fileId, snapshot.doc);
+      applyBackupDocument(snapshot.fileId, snapshot.doc, modifiedTime);
+      return true;
     };
 
     const markLocalChangeAndPersist = async (): Promise<void> => {
@@ -398,9 +631,38 @@ export const ExpenseStore = signalStore(
           limits: [],
           monthlyIncome: 0,
           syncStatus: 'idle',
+          driveFileId: null,
           receiptFolderId: null,
           lastKnownDriveModifiedTime: null,
         });
+      },
+
+      async clearLocalBackupCache(): Promise<void> {
+        await storageService.remove(LOCAL_BACKUP_CACHE_KEY);
+      },
+
+      async loadFromLocalCache(): Promise<boolean> {
+        const snapshot = await readLocalBackupSnapshot();
+        if (!snapshot || !snapshotMatchesActiveMode(snapshot)) return false;
+
+        setCurrencyFromBackup(snapshot.doc.metadata.currency);
+        patchState(store, {
+          entries: snapshot.doc.expenses,
+          limits: snapshot.doc.limits,
+          monthlyIncome: snapshot.doc.metadata.monthlyIncome,
+          receiptFolderId: snapshot.doc.metadata.receiptFolderId ?? null,
+          driveFileId: snapshot.fileId,
+          lastKnownDriveModifiedTime: snapshot.modifiedTime,
+          syncStatus: snapshot.dirty ? 'syncing' : 'idle',
+        });
+        localRevision = snapshot.dirty ? 1 : 0;
+        persistedRevision = 0;
+        await flushPendingWidgetExpenses();
+        return true;
+      },
+
+      async flushPendingWidgetExpenses(): Promise<boolean> {
+        return flushPendingWidgetExpenses();
       },
 
       /**
@@ -516,6 +778,11 @@ export const ExpenseStore = signalStore(
         console.log('[ExpenseStore] loadFromDrive — mode:', mode);
 
         try {
+          if (await flushDirtyLocalSnapshot()) {
+            console.log('[ExpenseStore] loadFromDrive — flushed local backup snapshot');
+            return;
+          }
+
           if (mode === 'family') {
             // Family mode: read directly from the shared file ID — no find/create
             const fileId = backupModeService.getSharedFileId();
@@ -537,6 +804,7 @@ export const ExpenseStore = signalStore(
               currency: doc.metadata.currency
             });
             applyBackupDocument(fileId, doc, modifiedTime);
+            await flushPendingWidgetExpenses();
             console.log('[ExpenseStore] loadFromDrive — state updated. Store now has:', {
               entriesCount: store.entries().length,
               limitsCount: store.limits().length,
@@ -563,6 +831,8 @@ export const ExpenseStore = signalStore(
                 lastKnownDriveModifiedTime: await readModifiedTimeSafely(fileId),
                 syncStatus: 'idle',
               });
+              await writeLocalBackupSnapshot(fileId, buildBackupDocument(), store.lastKnownDriveModifiedTime(), false);
+              await flushPendingWidgetExpenses();
               console.log('[ExpenseStore] loadFromDrive — done (new empty backup)');
               return;
             }
@@ -572,6 +842,7 @@ export const ExpenseStore = signalStore(
             const modifiedTime = await readModifiedTimeSafely(fileId);
             console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
             applyBackupDocument(fileId, doc, modifiedTime);
+            await flushPendingWidgetExpenses();
             console.log('[ExpenseStore] loadFromDrive — done (existing backup loaded)');
           }
         } catch (err) {
@@ -615,23 +886,15 @@ export const ExpenseStore = signalStore(
 
           try {
             const revisionBeingPersisted = localRevision;
-            const doc = {
-              version: '1.0',
-              lastUpdated: new Date().toISOString(),
-              metadata: {
-                monthlyIncome: store.monthlyIncome(),
-                currency: currencyService.currency(),
-                ...(store.receiptFolderId() ? { receiptFolderId: store.receiptFolderId()! } : {}),
-              },
-              expenses: store.entries(),
-              limits: store.limits(),
-            };
+            const doc = buildBackupDocument();
+            await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), true);
             const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
             persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
             patchState(store, {
               lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
               syncStatus: 'idle',
             });
+            await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), false);
           } catch (err) {
             patchState(store, { syncStatus: 'error' });
             driveError$.next(err as DriveApiError | DriveParseError);
@@ -656,6 +919,7 @@ export const ExpenseStore = signalStore(
           console.log('[ExpenseStore] Remote backup changed, loading latest Drive data.');
           const doc = await googleDriveService.readBackupFile(fileId);
           applyBackupDocument(fileId, doc, remoteModifiedTime);
+          await flushPendingWidgetExpenses();
           return true;
         } catch (err) {
           console.warn('[ExpenseStore] refreshFromDriveIfChanged failed:', err);

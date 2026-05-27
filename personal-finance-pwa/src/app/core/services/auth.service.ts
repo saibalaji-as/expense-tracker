@@ -19,6 +19,13 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 // drive for family shared backup (includes shared file access), spreadsheets for Sheets import.
 const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
 const SCOPE_VERSION = '6'; // v6 = full drive scope instead of drive.file
+const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
+const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+
+export interface SignInResult {
+  email: string | null;
+  accountChanged: boolean;
+}
 
 export function computeScopes(_mode: BackupMode | null): string {
   return ALL_SCOPES;
@@ -101,6 +108,8 @@ export class AuthService {
       console.info('[AuthService] Scope version changed — clearing cached auth state to force re-consent.');
       await this.storageService.remove('gapi_auth_state');
       await this.storageService.remove('gapi_user_email');
+      await this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
+      await this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
       await this.storageService.set('gapi_scope_version', currentScopeVersion);
       return;
     }
@@ -114,7 +123,7 @@ export class AuthService {
   // Public API
   // ---------------------------------------------------------------------------
 
-  signIn(): Promise<void> {
+  signIn(): Promise<SignInResult> {
     return this.#isNative ? this.#nativeSignIn() : this.#webSignIn();
   }
 
@@ -150,7 +159,6 @@ export class AuthService {
               callback: (response: any) => {
                 this.#tokenRequestPromise = null;
                 if (response.error) {
-                  this.#clearAuthState();
                   reject(new Error(response.error_description ?? response.error));
                   return;
                 }
@@ -188,8 +196,9 @@ export class AuthService {
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
 
-  async #nativeSignIn(): Promise<void> {
+  async #nativeSignIn(): Promise<SignInResult> {
     await this.#nativeInitPromise;
+    const previousEmail = await this.storageService.get('gapi_user_email');
 
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
 
@@ -211,12 +220,19 @@ export class AuthService {
     this.isAuthenticated.set(true);
     await this.storageService.set('gapi_auth_state', '1');
     await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+    await this.storageService.set(NATIVE_ACCESS_TOKEN_KEY, token);
+    await this.storageService.set(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY, this.#nativeTokenExpiresAt(googleResult.accessToken));
 
     const email = googleResult.profile?.email ?? null;
     if (email) {
       this.userEmail.set(email);
       await this.storageService.set('gapi_user_email', email);
     }
+
+    return {
+      email,
+      accountChanged: !!previousEmail && !!email && previousEmail !== email,
+    };
   }
 
   async #nativeSignOut(): Promise<void> {
@@ -233,10 +249,10 @@ export class AuthService {
   // Web — Google Identity Services (GSI) popup flow
   // ---------------------------------------------------------------------------
 
-  #webSignIn(): Promise<void> {
+  #webSignIn(): Promise<SignInResult> {
     return waitForGsiScript().then(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<SignInResult>((resolve, reject) => {
           const tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: CLIENT_ID,
             scope: ALL_SCOPES,
@@ -249,6 +265,8 @@ export class AuthService {
               this.isAuthenticated.set(true);
               await this.storageService.set('gapi_auth_state', '1');
               await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+              const previousEmail = await this.storageService.get('gapi_user_email');
+              let signedInEmail: string | null = null;
               try {
                 const infoResponse = await fetch(
                   `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${response.access_token}`
@@ -256,14 +274,18 @@ export class AuthService {
                 if (infoResponse.ok) {
                   const info = await infoResponse.json();
                   if (info.email) {
-                    this.userEmail.set(info.email);
-                    await this.storageService.set('gapi_user_email', info.email);
+                    signedInEmail = String(info.email);
+                    this.userEmail.set(signedInEmail);
+                    await this.storageService.set('gapi_user_email', signedInEmail);
                   }
                 }
               } catch {
                 // Non-critical — email display is optional
               }
-              resolve();
+              resolve({
+                email: signedInEmail,
+                accountChanged: !!previousEmail && !!signedInEmail && previousEmail !== signedInEmail,
+              });
             },
           });
           tokenClient.requestAccessToken();
@@ -272,18 +294,21 @@ export class AuthService {
   }
 
   #webSignOut(): Promise<void> {
-    return waitForGsiScript().then(
-      () =>
-        new Promise<void>((resolve) => {
-          const token = this.#accessToken;
-          this.#clearAuthState();
-          if (token) {
+    const token = this.#accessToken;
+    this.#clearAuthState();
+
+    if (!token) return Promise.resolve();
+
+    return waitForGsiScript()
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
             google.accounts.oauth2.revoke(token, () => resolve());
-          } else {
-            resolve();
-          }
-        })
-    );
+          })
+      )
+      .catch((err) => {
+        console.warn('Google token revoke failed after local sign-out:', err);
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -297,5 +322,15 @@ export class AuthService {
     void this.storageService.remove('gapi_auth_state');
     void this.storageService.remove('gapi_user_email');
     void this.storageService.remove('gapi_scope_version');
+    void this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
+    void this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
+  }
+
+  #nativeTokenExpiresAt(accessToken: { expires?: string } | null): string {
+    const parsedExpiry = accessToken?.expires ? Date.parse(accessToken.expires) : NaN;
+    const expiresAt = Number.isFinite(parsedExpiry)
+      ? parsedExpiry
+      : Date.now() + 55 * 60 * 1000;
+    return String(expiresAt);
   }
 }

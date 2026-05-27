@@ -24,10 +24,6 @@ export const setupGuard: CanActivateFn = async (_route, state) => {
     backupModeService.initialized,
   ]);
 
-  if (authService.needsInteractiveWebToken()) {
-    return router.createUrlTree(['/auth/callback']);
-  }
-
   const url = state.url.split('?')[0].split('#')[0];
   let mode = backupModeService.getMode();
 

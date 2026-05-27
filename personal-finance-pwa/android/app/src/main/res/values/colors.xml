@@ -7,4 +7,27 @@
     
     <!-- Notification colors -->
     <color name="notificationColor">#488AFF</color>
+
+    <!-- Spenza native widget theme colors, matched to the PWA light tokens -->
+    <color name="spenza_widget_bg_start">#FAFBFF</color>
+    <color name="spenza_widget_bg_end">#F1EDFF</color>
+    <color name="spenza_widget_surface">#F6F3FF</color>
+    <color name="spenza_widget_surface_pressed">#E9E2FF</color>
+    <color name="spenza_widget_text">#1F2333</color>
+    <color name="spenza_widget_muted">#6B7280</color>
+    <color name="spenza_widget_stroke">#E5E0F5</color>
+    <color name="spenza_primary_start">#6D5DFB</color>
+    <color name="spenza_primary_end">#B257F6</color>
+    <color name="spenza_food">#32B77B</color>
+    <color name="spenza_transport">#41A8F5</color>
+    <color name="spenza_entertainment">#A855F7</color>
+    <color name="spenza_shopping">#F472B6</color>
+    <color name="spenza_misc">#7B8190</color>
+    <color name="spenza_food_soft">#DDF8E9</color>
+    <color name="spenza_transport_soft">#DCEEFF</color>
+    <color name="spenza_entertainment_soft">#EEDBFF</color>
+    <color name="spenza_shopping_soft">#FFE0F0</color>
+    <color name="spenza_misc_soft">#DDF7F2</color>
+    <color name="spenza_trend_bg">#DDF7EE</color>
+    <color name="spenza_progress_track">#D8E4EA</color>
 </resources>

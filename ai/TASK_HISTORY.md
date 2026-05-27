@@ -1,5 +1,481 @@
 # Task History
 
+## 2026-05-27 - Spend Notification Keyword Coverage And Listener Reliability
+- User reported a real spend notification using the keyword `Used` and said many notifications were not being listened to.
+- Expanded `SpendNotificationListenerService` keyword coverage:
+  - Added common spend terms and channels: `used`, `debit`, `dr`, `payment`, `purchased`, `withdrawal`, `charged`, `deducted`, `sent`, `transferred`, `txn`, `pos`, `atm`, `ecom`, `billpay`, `autopay`, `nach`, `ach debit`, `mandate debit`, `emi`, `fee`, `fees`, and `charges`.
+  - Kept broader channel terms such as UPI/card transaction while requiring better amount context before prompting.
+  - Added stronger non-spend filters for credits, refunds, cashback, reversals, salary/deposits, failed/declined/pending/processing/cancelled/rejected transactions, request-only messages, mandate setup messages, and OTP/PIN/CVV/password/security notifications.
+  - Reworked amount parsing to score amounts near spend keywords/currency markers and avoid likely balance/reference/OTP amount contexts.
+- Fixed likely listener miss culprits:
+  - No longer drops all group-summary notifications, because some SMS/payment apps expose transaction text only in summary notifications.
+  - Reads Android messaging-style notification extras in addition to title/text/big text/text lines.
+  - Adds `onListenerConnected`/`onListenerDisconnected` logging and requests Android notification listener rebind on disconnect for Android N+.
+  - Makes Settings permission-status detection tolerate both long and short flattened Android component names.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-26 - Android Payment Notification Spend Prompts
+- User requested a feature that can read device notifications such as SMS/payment alerts and ask the user whether to log the detected amount as an expense.
+- Added native Android notification-listener support:
+  - Added `SpendNotificationListenerService` using Android `NotificationListenerService`.
+  - Requires Android notification access and Spenza's own local toggle before parsing notification content.
+  - Ignores Spenza notifications, group summaries, ongoing notifications, and likely credits/refunds/cashback/reversals/salary/deposits.
+  - Locally parses likely debit/spent/paid/purchase notifications for an amount.
+  - Stores only a local dedupe fingerprint to avoid repeated prompts.
+- Added prompt notification flow:
+  - Added `spend-prompts` notification channel.
+  - Shows a private "Log this expense?" notification when a likely spend is detected.
+  - Tapping the prompt opens the existing native `ExpenseWidgetActivity` with the amount/comment prefilled and `Miscellaneous` as default category.
+  - The expense is not saved until the user reviews and taps Save.
+- Added Settings integration:
+  - Added `SpendNotificationAccessPlugin` and Angular `SpendNotificationAccessService`.
+  - Settings now shows Android-only payment notification prompt controls, permission status, refresh status, and a shortcut to Android notification access settings.
+  - Added English, Tamil, and Hindi i18n strings for the new Settings card.
+- Updated project rules:
+  - Notification/SMS-derived spend detection must stay explicit opt-in, Android notification-listener based, local-only, and review-before-save.
+- Verification:
+  - Ran `npm run build`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Both passed.
+
+## 2026-05-25 - Widget Dialog Task Isolation And Nav Bar Insets
+- User observed:
+  - When the main app was already open, using the widget brought the app forward first and then opened the dialog.
+  - Dialog buttons could appear behind the mobile navigation bar.
+- Changed `AndroidManifest.xml`:
+  - Assigned `ExpenseWidgetActivity` a separate widget task affinity.
+  - Added `launchMode="singleTop"` and `finishOnTaskLaunch="true"` while keeping it excluded from recents.
+- Changed `ExpenseWidgetProvider.java`:
+  - Adds `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP` to widget button intents, so the widget dialog launches into its own lightweight task instead of the app task.
+- Changed `ExpenseWidgetActivity.java`:
+  - Bottom-sheet inset handling now uses the larger of IME bottom inset and navigation-bar bottom inset for both the amount form and category picker.
+  - This keeps dialog controls above the navigation bar when the keyboard is closed and directly above the keyboard when it is open.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget More Category Picker
+- User requested a Show More expense type at the last widget slot; tapping it should open a dialog with expense type chips like the app, then let the user select the type.
+- Changed widget action slots:
+  - Replaced the final visible widget tile with `More` in both 1-row and 3-row layouts.
+  - Kept optional Shopping as the extra fifth action for wide placements.
+- Changed `ExpenseWidgetProvider.java`:
+  - Binds the final `More` tile to a special native category extra.
+- Changed `WidgetExpenseConstants.java` and `WidgetExpenseUtils.java`:
+  - Added a special `TYPE_MORE` sentinel.
+  - Added all predefined app categories to native widget allowed types.
+  - Added normalization aliases for the expanded category set.
+- Changed `ExpenseWidgetActivity.java`:
+  - If opened with `TYPE_MORE`, first renders a bottom-sheet category picker.
+  - Category picker shows two-column chip-style options for all predefined categories.
+  - Selecting a chip switches into the existing amount/comment/mic form with the chosen canonical type.
+  - Display labels are shortened where useful while saved type values remain canonical.
+- Added `ic_widget_more.xml`.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget 1-Row And 3-Row Grid Modes
+- User identified the launcher grid behavior and requested:
+  - Use 3-height and 4/5-width grid sizing instead of a 4x4-style minimum.
+  - Short/reduced height should become a 1x4 layout showing only expense types.
+  - Increased height should become a 3x4 layout showing daily insight plus expense types.
+  - 4-wide placements should show 4 expense types; 5-wide placements should show 5.
+- Changed `expense_widget_info.xml`:
+  - Lowered minimum widget height to support a short 1-row layout.
+  - Enabled horizontal and vertical resizing.
+  - Set target height to 3 cells and max resize width/height hints for 5-wide and 3-row states.
+- Changed `ExpenseWidgetProvider.java`:
+  - Chooses `expense_widget_quick` when launcher-reported height is short.
+  - Chooses `expense_widget` when launcher-reported height is tall enough for daily insight.
+  - Shows the optional Shopping tile only when launcher-reported width is wide enough.
+- Added `expense_widget_quick.xml`:
+  - 1-row quick-action-only widget layout with Food, Travel, Fun, optional Shop, and Misc.
+- Changed native category support:
+  - Added `Shopping/Clothing` as the fifth optional widget category.
+  - Added shopping icon/background resources and widget colors.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Native Widget Form Mic Button Alignment
+- User reported the quick-expense mic button was too large and should align/orient with the Cancel and Save buttons.
+- Changed `ExpenseWidgetActivity.java`:
+  - Reduced mic button layout from `72dp x 72dp` to `52dp x 52dp`.
+  - Reduced mic icon padding from `22dp` to `15dp`.
+  - Set the actions row gravity to `CENTER_VERTICAL`.
+  - Made Cancel and Save action params explicitly `52dp` tall so all three controls share the same height.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Revert Dark Compact Widget Redesign
+- User requested reverting the dark compact widget redesign because it still did not look better.
+- Reverted only the last widget redesign:
+  - Restored `expense_widget_info.xml` to vertical-resizable widget hints with `minHeight=150dp`, `maxResizeHeight=300dp`, and `resizeMode="vertical"`.
+  - Restored `ExpenseWidgetProvider.java` provider-side switching between `expense_widget` and `expense_widget_compact`.
+  - Restored `expense_widget.xml` to the previous pale vertical dashboard with large text, progress bar, trend badge, and one-row category actions.
+  - Restored light widget colors and button/background drawables from before the dark compact attempt.
+- Kept unrelated fixes, including the native widget form keyboard-gap fix.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Dark Compact Reference-Style Widget Redesign
+- User expected the Spenza widget to look at least like a provided dark compact finance widget reference.
+- Changed widget sizing and rendering:
+  - `expense_widget_info.xml` now requests a fixed compact 4x2-style footprint and disables widget resizing with `resizeMode="none"`.
+  - `ExpenseWidgetProvider.java` now always renders `expense_widget` and no longer switches between normal/compact layouts.
+  - Daily budget text is formatted as `spent / budget` on two lines for a compact finance-widget layout.
+- Rebuilt `expense_widget.xml`:
+  - Dark horizontal card.
+  - Left side contains Spenza, Daily Budget, amount/budget, progress, and yesterday comparison.
+  - Right side contains DAILY INSIGHT and a 2x2 quick-action tile grid.
+  - Kept labels aligned with actual widget actions: Food, Travel, Fun, Misc.
+- Changed widget drawables/colors:
+  - Darkened the widget background, tile surface, pressed state, text, stroke, and progress track colors.
+  - Added `spenza_widget_tile` color for action cards.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Native Widget Form Keyboard Gap Fix
+- User shared a screenshot where the quick expense bottom-sheet dialog left an awkward dimmed gap above the keyboard.
+- Finding:
+  - `ExpenseWidgetActivity` changed the sheet `ScrollView` height to `MATCH_PARENT` when IME insets were present.
+  - The sheet content stayed at the top of that full-height scroll container, leaving transparent/dimmed space between the visible sheet content and keyboard.
+- Changed `ExpenseWidgetActivity.java`:
+  - Kept the `ScrollView` height as `WRAP_CONTENT` while applying the IME bottom margin.
+  - This keeps the sheet content bottom-anchored directly above the keyboard instead of stretching the container.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Revert Compressed Fixed-Height Widget
+- User shared a device screenshot showing the fixed-height attempt looked poor and non-standard, with tiny content pinned near the top and a large empty lower area.
+- Reverted the prior compressed-widget direction:
+  - `expense_widget_info.xml` now uses the previous standard widget hints: `300dp` width, `150dp` minimum height, `300dp` max resize height, and `resizeMode="vertical"`.
+  - `ExpenseWidgetProvider.java` restored launcher-size-based switching between `expense_widget` and `expense_widget_compact`.
+  - `expense_widget.xml` restored the previous larger text/icon sizing, `12dp` root padding, vertical centering, and 64dp full-width action row.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Fixed-Height Full-Width Widget Dashboard
+- User reported the widget still had top/bottom empty space, should take the full width, and should not allow user height resizing.
+- Changed `expense_widget_info.xml`:
+  - Locked the widget footprint to a 4x2-style `320dp x 170dp` size.
+  - Set `resizeMode="none"` and made min/max resize height equal so supported launchers should not expose height resizing.
+- Changed `ExpenseWidgetProvider.java`:
+  - Removed launcher-size-based portrait/landscape layout switching.
+  - Always renders the main `expense_widget` dashboard layout.
+- Changed `expense_widget.xml`:
+  - Reduced root top/bottom padding and removed vertical centering.
+  - Tightened text, progress, trend, and action-row sizing so the dashboard fills the fixed height without top/bottom slack.
+  - Kept all four category actions in a full-width single row.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget Two-State Size Hints And Single-Row Portrait Actions
+- User still saw whitespace in both widget layouts and requested:
+  - Only two size states: landscape and portrait.
+  - Tighter spacing in both states.
+  - Portrait icons in a single row instead of two rows.
+  - Border around the icon only, not large action cards.
+- Changed `expense_widget_info.xml`:
+  - Returned resizing to vertical-only.
+  - Added `maxResizeWidth` and `maxResizeHeight` hints so supported launchers are constrained closer to the two intended footprints.
+  - Width is fixed by min/max resize width; height spans short landscape to taller portrait.
+- Changed `expense_widget.xml`:
+  - Replaced the 2x2 category grid with a compact single-row four-action layout.
+  - Kept type tap targets transparent, with no full-card border/background.
+  - Added small bordered icon chips for the category icons only.
+- Changed `expense_widget_compact.xml`:
+  - Tightened the landscape action cluster.
+  - Kept icon-chip borders while reducing label/icon sizes inside the compact landscape action group.
+- Changed `expense_widget_*_icon_bg.xml`:
+  - Added a subtle stroke to each icon chip background.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Compact Borderless Widget Type Actions
+- User reported category/type actions still used too much space in both portrait and landscape widgets, and the landscape insight area still had visible top/bottom whitespace.
+- Changed `expense_widget.xml`:
+  - Replaced the weighted full-height category grid with a compact fixed-height grid.
+  - Removed visible bordered action-card backgrounds from category tap targets.
+  - Removed icon badge backgrounds so only the category icons and labels remain, with small padding.
+- Changed `expense_widget_compact.xml`:
+  - Made the insight area wider than the action area.
+  - Reduced action grid to a compact fixed-size 2x2 group.
+  - Removed visible borders/background cards from type actions and removed icon badge backgrounds.
+  - Increased spacing inside the insight stack so it uses the landscape widget height more intentionally.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Mature Portrait And Landscape Widget Styling
+- User reported the Spenza widget style still looked immature and requested stricter standards:
+  - Only portrait and landscape styles.
+  - Both styles should cover full width.
+  - No unused white space inside widgets.
+  - Increase text size roughly 30%.
+  - Match the app theme background.
+- Changed `ExpenseWidgetProvider.java`:
+  - Replaced height-only compact switching with orientation-based switching from launcher-reported widget width vs height.
+  - Keeps exactly two rendered layout styles: portrait (`expense_widget`) and landscape (`expense_widget_compact`).
+- Changed `expense_widget_info.xml`:
+  - Enabled horizontal and vertical resizing so launchers can reach both portrait and landscape shapes.
+  - Raised the minimum width/height to support the fuller dashboard layouts.
+- Changed `expense_widget.xml`:
+  - Rebuilt the portrait layout with larger text, larger icons, stronger hierarchy, and a weighted 2x2 action grid that fills remaining widget height.
+- Changed `expense_widget_compact.xml`:
+  - Rebuilt the landscape layout as a full-width split dashboard with insight content on the left and a weighted 2x2 action grid on the right.
+- Changed `expense_widget_background.xml` and `values/colors.xml`:
+  - Removed background drawable padding to avoid double-padding.
+  - Adjusted light widget background/surface colors closer to the app theme tokens.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Native Widget Form Mic Icon And Keyboard Resize Fix
+- User reported the native quick-expense form mic icon looked poor and asked to use the icon style already used in the app; screenshots also showed the keyboard still covering the form fields.
+- Changed `ExpenseWidgetActivity.java`:
+  - Replaced the emoji/text mic `Button` with an `ImageButton`.
+  - Anchored the translucent Activity as a full-height transparent window instead of a bottom `WRAP_CONTENT` window.
+  - Kept the bottom sheet visually anchored at the bottom inside a `FrameLayout`.
+  - Added Android 11+ IME inset handling that lifts the sheet above the keyboard and lets the scroll view fill available height while typing.
+- Added `res/drawable/ic_widget_mic.xml`:
+  - Native vector mic based on the Lucide-style mic used in the Angular Daily form.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget Fixed Width And Compact Icon Corrections
+- User reported the widget still had too much empty space, tiny icons, poor responsiveness, and horizontal resize handles.
+- Changed `expense_widget_info.xml`:
+  - Set `resizeMode="vertical"` so supported launchers should allow height changes only.
+  - Increased/fixed `minWidth` and `minResizeWidth` to keep the widget width stable.
+- Changed `ExpenseWidgetProvider.java`:
+  - Raised the compact layout switch threshold so reduced-height launcher sizes activate `expense_widget_compact` sooner.
+- Changed `expense_widget.xml`:
+  - Removed stretch-weight behavior from the standard action grid.
+  - Gave each action tile a fixed height.
+  - Increased normal icon badge size to `38dp`.
+- Changed `expense_widget_compact.xml`:
+  - Kept the insight panel on the left and action buttons on the right.
+  - Fixed the action panel width and action tile heights.
+  - Increased compact icon badge size to `30dp`.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Responsive Short-Height Widget Layout
+- User asked whether reducing the widget height can show a compact landscape layout like the reference image.
+- Changed `ExpenseWidgetProvider.java`:
+  - Added `onAppWidgetOptionsChanged()` handling.
+  - Added option-based layout switching using `OPTION_APPWIDGET_MIN_HEIGHT`.
+  - Uses the normal daily insight dashboard above the threshold and `expense_widget_compact` for short-height widgets.
+  - Guards against launchers temporarily reporting height `0` during initial placement.
+- Added `expense_widget_compact.xml`:
+  - Compact horizontal dashboard with app icon, Spenza title, daily budget/spend, progress, trend, and four icon category actions.
+  - Keeps the same widget action ids, so existing Food/Transport/Entertainment/Misc click behavior remains unchanged.
+- Changed `expense_widget_info.xml`:
+  - Added `minResizeHeight="118dp"` so launchers can reduce the widget height enough to activate the compact layout.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Compact Widget Icon Tile Styling
+- User reported the daily insight widget was still too large and lacked icons in the expense type buttons.
+- Changed `expense_widget.xml`:
+  - Removed the Gemini/spark badge from the header.
+  - Tightened spacing around the daily insight section.
+  - Replaced plain text category blocks with compact icon + label tiles.
+  - Increased category label size for better readability at the smaller widget footprint.
+- Changed widget resources:
+  - Reduced the widget provider default size from a 4x5-style request to a smaller 3x3 request in `expense_widget_info.xml`.
+  - Added native vector icons for Food, Transport, Fun, and Misc.
+  - Added soft category icon badge backgrounds for light and dark system themes.
+  - Switched quick tiles to a lighter Spenza surface card treatment with pressed feedback.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget Daily Insight And Keyboard-Safe Form Redesign
+- User rejected the previous widget/form styling and provided a target design:
+  - Widget should look like a polished Spenza card and include daily insight.
+  - Native expense form should avoid lonely black background.
+  - Keyboard should not hide fields/actions.
+  - Daily insight should use real app data.
+- Changed `ExpenseWidgetProvider.java`:
+  - Added daily insight binding from `spenza_drive_backup_snapshot_v1`.
+  - Includes current-account queued widget entries from `spenza_widget_expense_queue_v1` before Drive sync completes.
+  - Displays today's spend, calculated daily budget, progress percentage, and comparison with yesterday.
+  - Refreshes widget immediately after a new widget expense is queued.
+- Changed widget resources:
+  - Resized widget target in `expense_widget_info.xml`.
+  - Rebuilt `expense_widget.xml` as a daily-insight mini dashboard with Spenza header, progress bar, trend badge, and four action tiles.
+  - Added progress/trend/spark drawable resources.
+- Changed `ExpenseWidgetActivity.java` and native theme:
+  - Added translucent `AppTheme.WidgetActivity`.
+  - Added `windowSoftInputMode="adjustResize"`.
+  - Changed form to a scrollable bottom sheet with lighter dim, handle, large rounded amount/comment fields, prominent mic/save controls, and quick comment chips.
+  - Keeps system light/dark palette support.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Native Widget Styling And Animation Polish
+- User reported the home screen widget and native amount input screen looked plain/flat and asked for impressive styling, good animation, strict Spenza theme alignment, and light/dark behavior from the system theme.
+- Changed Android widget resources:
+  - Added Spenza light/dark native colors in `values/colors.xml` and `values-night/colors.xml`.
+  - Restyled `expense_widget.xml` with Spenza title/subtitle, glassy gradient card surface, category-colored gradient buttons, and pressed-state drawable selectors.
+  - Added category gradient drawables for Food, Transport, Entertainment, and Misc.
+- Changed `ExpenseWidgetActivity.java`:
+  - Converted the native input UI into a themed bottom-sheet style with a dimmed backdrop.
+  - Added system light/dark palette selection from `Configuration.UI_MODE_NIGHT`.
+  - Added rounded Spenza-style input fields, gradient primary Save button, secondary Mic/Cancel buttons, and ripple/press feedback.
+  - Added entrance animation, save exit animation, smart-fill pop feedback, and mic/listening pulse animation.
+- Constraint noted:
+  - Android home screen widgets are `RemoteViews`, so real continuous animation is launcher-limited; richer motion is implemented in the native Activity while the widget uses stateful drawable feedback.
+- Updated `AI_RULES.md` with the native widget theme/styling rule.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Passed.
+
+## 2026-05-25 - Widget Queue Flushes When Main App Opens
+- User observed that widget-saved expenses showed the "Expense queued" toast but sometimes did not appear in the app until opening/retrying the app 2-3 times.
+- Finding:
+  - The widget correctly queued expenses locally.
+  - Background Drive sync relied on Android WorkManager, which is network-constrained and OS-scheduled, so it can be delayed.
+  - The Angular app only saw widget expenses after WorkManager eventually merged them into Drive/local snapshot.
+- Changed `personal-finance-pwa/src/app/core/services/expense-store.service.ts`:
+  - Added parsing for `spenza_widget_expense_queue_v1` queue items.
+  - Filters queue items to the currently signed-in Google email.
+  - Deduplicates entries by expense `id` against the current store.
+  - Merges pending widget expenses into store state and persists through the existing serialized Drive write path.
+  - Removes consumed current-account queue items while preserving queue items for other accounts.
+  - Flushes the widget queue during cached startup, full Drive bootstrap, and Drive refresh.
+- Behavior after fix:
+  - Opening the full app after widget saves should show current-account widget expenses immediately, even if WorkManager has not yet run.
+  - If Drive persistence is temporarily unavailable, entries still remain visible locally and the existing dirty backup snapshot path can retry.
+- Updated `PROJECT_CONTEXT.md` and `AI_RULES.md` with the app-side queue flush rule.
+- Verification:
+  - Ran `npm run build`.
+  - Passed.
+
+## 2026-05-25 - Native Android Home Screen Quick Expense Widget
+- User requested a reliable native Android home screen widget because PWA app widgets were limited/unreliable.
+- Requirements:
+  - Show 4 category buttons: Food, Transport, Entertainment, Miscellaneous.
+  - Open a native Android amount input with mic comments.
+  - Use Gemini AI to extract expense details from comments like the app flow.
+  - Save confirmed expense to a local queue.
+  - Sync queued expenses to Google Drive API when network is available.
+  - Avoid full app launch by using a lightweight native Activity.
+  - Avoid re-login by reusing existing auth token from Capacitor Preferences.
+- Changed Android native project:
+  - Added `ExpenseWidgetProvider` with a 4-button `RemoteViews` widget.
+  - Added `ExpenseWidgetActivity` for standalone native amount/comment/mic input without launching the WebView app.
+  - Added Android `SpeechRecognizer` voice capture; if `spenza_ai_settings_private` contains a user Gemini key, it calls the existing production `parse-voice-expense` Netlify function and applies parsed amount/date/category/comment.
+  - Added `WidgetExpenseQueue` storing queued items in Capacitor Preferences key `spenza_widget_expense_queue_v1`.
+  - Added `WidgetExpenseSyncWorker` using WorkManager network constraints to merge queued expenses into the active Drive backup JSON by `id`.
+  - Added `WidgetExpenseConstants` and `WidgetExpenseUtils` for storage keys, canonical category mapping, entry construction, local date, daily limit calculation, and cached snapshot updates.
+  - Added widget resources: `expense_widget.xml`, `expense_widget_info.xml`, and widget background/button drawables.
+  - Added WorkManager dependency to `android/app/build.gradle`.
+  - Registered `ExpenseWidgetActivity` and `ExpenseWidgetProvider` in `AndroidManifest.xml`.
+- Changed `personal-finance-pwa/src/app/core/services/auth.service.ts`:
+  - Native sign-in stores the latest short-lived Google access token and expiry in Capacitor Preferences keys `gapi_access_token` and `gapi_access_token_expires_at`.
+  - Sign-out and scope-version mismatch clear those token-cache keys.
+- Safety/isolation decisions:
+  - Widget queue saves locally first and never blocks confirmation on Drive/network.
+  - Widget queue entries are tagged with the Google email active at queue time and are not synced into another active account after account switching.
+  - If token is missing/expired/rejected, the worker keeps the queue and retries later instead of launching the app or prompting login.
+  - Feature is removable by disabling/removing `ExpenseWidgetProvider` and `ExpenseWidgetActivity` manifest entries plus the `WidgetExpense*` classes/resources.
+- Updated `PROJECT_CONTEXT.md` and `AI_RULES.md` for the native widget architecture and native-only token-cache exception.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `npm run build`.
+  - Both passed.
+
+## 2026-05-25 - Settings Sign-Out Clears Local Session And Leaves Guarded Route
+- User reported a critical bug: pressing Sign out in Settings left the user on the Settings screen and should wipe all local cache/supporting local files for the logged-in account.
+- Findings:
+  - `SettingsComponent.onSignOut()` only called `authService.signOut()` and relied on auth guards during a later route access.
+  - This meant a signed-out user could remain on `/settings`.
+  - The earlier account-switch cleanup existed, but explicit sign-out did not clear the active backup snapshot, backup-mode cache, offline queue, Daily draft, AI local key/cache, notification state, or all local preferences in one place.
+  - Web sign-out cleared local auth state only after the Google script was available, so a GSI script/revoke edge case could delay local sign-out.
+- Changed `personal-finance-pwa/src/app/core/services/auth.service.ts`:
+  - Web sign-out now clears local auth state immediately, then attempts Google token revocation as best-effort.
+- Changed `personal-finance-pwa/src/app/core/services/ai-settings.service.ts`:
+  - Added `clearLocalState()` to remove private AI key/settings and weekly insight cache/usage while resetting service signals.
+- Changed `personal-finance-pwa/src/app/features/settings/settings.component.ts`:
+  - Sign-out now disables push notification state, cancels local reminders, signs out auth, clears local expense state, clears Daily draft, clears offline queue, removes active backup snapshot, clears backup-mode/config cache, clears AI settings/cache, clears Capacitor Preferences, and navigates to `/auth/callback` with `replaceUrl`.
+- Updated `PROJECT_CONTEXT.md` and `AI_RULES.md` with explicit sign-out cleanup rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/guards/auth.guard.spec.ts src/app/features/auth/auth-flow.integration.spec.ts src/app/features/settings/settings.component.spec.ts`.
+  - Ran `npm run build`.
+  - All passed.
+
+## 2026-05-25 - Google Account Switch Cache Isolation
+- User asked what happens if a user signs in with a different Google email and reported abnormal behavior, including restarting the setup cycle even though that account has a Spenza folder in Drive.
+- Findings:
+  - Before this fix, explicit sign-in replaced the token/email but did not reliably clear account-scoped local backup-mode cache or the active local backup snapshot.
+  - The fast-startup snapshot added earlier was not tied to a Google email.
+  - On account switch, Spenza could briefly reuse the previous account's cached mode/file/snapshot before the newly selected account's Drive config was fully loaded.
+  - If the new account had its own Spenza folder/config, stale local cache could still steer startup into the wrong setup branch first.
+- Changed `personal-finance-pwa/src/app/core/services/auth.service.ts`:
+  - Explicit sign-in now returns the signed-in email and whether it differs from the previously stored email.
+- Changed `personal-finance-pwa/src/app/core/services/backup-mode.service.ts`:
+  - Added `clearLocalCacheForAccountSwitch()` to clear local mode/shared-file/folder/role/config-ID state without writing anything to Drive.
+- Changed `personal-finance-pwa/src/app/core/services/expense-store.service.ts`:
+  - Local backup snapshots now include `userEmail`.
+  - Cached startup refuses snapshots whose email does not match the restored signed-in email.
+  - Older snapshots without an email are skipped once a current email is known.
+  - Added `clearLocalBackupCache()` and made `clearLocalData()` reset `driveFileId`.
+- Changed `personal-finance-pwa/src/app/features/auth/auth-callback.component.ts` and `personal-finance-pwa/src/app/features/settings/settings.component.ts`:
+  - When explicit sign-in switches Google email, Spenza clears account-scoped local state and force-loads the new account's Drive config before loading backup data.
+- Updated `PROJECT_CONTEXT.md` and `AI_RULES.md` with account-scoped local cache behavior.
+- Verification:
+  - Ran `npx vitest run src/app/core/guards/auth.guard.spec.ts src/app/features/auth/auth-flow.integration.spec.ts`.
+  - Ran `npm run build`.
+  - All passed.
+
+## 2026-05-25 - Fast Startup From Local Drive Backup Cache
+- User reported an uncomfortable boot/sign-in experience:
+  - Spenza appeared to require Google sign-in every time.
+  - Sign-in often showed Retry and took too long.
+  - User expected the app to open immediately and do Google/Drive work after startup.
+- Findings:
+  - `AuthService` restored local signed-in state, but web access tokens are memory-only and disappear after app/browser restart.
+  - A silent web token refresh failure cleared persisted auth state, which made a returning user look fully signed out.
+  - `App.bootstrapData()` and `setupGuard` redirected to `/auth/callback` whenever the restored web session had no live token.
+  - `ExpenseStore` had no local Drive backup snapshot, so the boot screen had to wait for Drive config plus Drive backup load before rendering user data.
+- Changed `personal-finance-pwa/src/app/core/services/auth.service.ts`:
+  - Silent web token refresh errors no longer clear persisted auth state.
+- Changed `personal-finance-pwa/src/app/core/guards/setup.guard.ts`:
+  - Removed the redirect to `/auth/callback` that was based only on a missing in-memory web token.
+- Changed `personal-finance-pwa/src/app/core/services/expense-store.service.ts`:
+  - Added local active-backup snapshot storage under `spenza_drive_backup_snapshot_v1`.
+  - Remote Drive reads and successful writes refresh the local snapshot.
+  - App startup can hydrate expenses, limits, income, receipt folder, file ID, and modified time from the local snapshot.
+  - Local changes are cached as dirty before Drive persistence; successful Drive writes clear the dirty marker.
+  - Dirty cached snapshots are flushed to Drive before the next remote backup read.
+- Changed `personal-finance-pwa/src/app/app.ts`:
+  - Returning users with local auth, complete local backup-mode config, and a matching local backup snapshot enter the app from cached data immediately.
+  - Drive config/data bootstrap runs in the background after cached startup.
+  - Background Drive failures after cached data has rendered no longer replace the app with the loading retry screen.
+- Updated `PROJECT_CONTEXT.md` with the local cached backup startup architecture.
+- Updated `AI_RULES.md` with the new auth/session and cached-backup startup rules.
+- Verification:
+  - Ran `npx vitest run src/app/core/guards/auth.guard.spec.ts src/app/features/auth/auth-flow.integration.spec.ts`.
+  - Ran `npm run build`.
+  - All passed.
+
 ## 2026-05-23 - Weekly AI Credit Optimization And Language-Switch Hardening
 - User felt Gemini credits were draining faster after enhancing weekly insights and reported that AI insights sometimes did not work after language changes.
 - Findings:

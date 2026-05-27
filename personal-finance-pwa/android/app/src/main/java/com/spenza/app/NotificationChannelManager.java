@@ -19,14 +19,17 @@ public class NotificationChannelManager {
     // Channel IDs
     public static final String CHANNEL_ID_REMINDERS = "expense-reminders";
     public static final String CHANNEL_ID_BUDGET_ALERTS = "budget-alerts";
+    public static final String CHANNEL_ID_SPEND_PROMPTS = "spend-prompts";
     
     // Channel Names
     private static final String CHANNEL_NAME_REMINDERS = "Expense Reminders";
     private static final String CHANNEL_NAME_BUDGET_ALERTS = "Budget Alerts";
+    private static final String CHANNEL_NAME_SPEND_PROMPTS = "Spend Prompts";
     
     // Channel Descriptions
     private static final String CHANNEL_DESC_REMINDERS = "Daily reminders to log your expenses";
     private static final String CHANNEL_DESC_BUDGET_ALERTS = "Alerts when you exceed budget limits";
+    private static final String CHANNEL_DESC_SPEND_PROMPTS = "Prompts to log expenses detected from device notifications";
     
     /**
      * Create all notification channels
@@ -43,6 +46,8 @@ public class NotificationChannelManager {
                 
                 // Create Budget Alerts channel
                 createBudgetAlertsChannel(notificationManager);
+
+                createSpendPromptsChannel(notificationManager);
                 
                 android.util.Log.d("NotificationChannelManager", "Notification channels created");
             }
@@ -126,6 +131,25 @@ public class NotificationChannelManager {
             
             android.util.Log.d("NotificationChannelManager", 
                 "Budget alerts channel created with HIGH importance");
+        }
+    }
+
+    private static void createSpendPromptsChannel(NotificationManager notificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID_SPEND_PROMPTS,
+                CHANNEL_NAME_SPEND_PROMPTS,
+                NotificationManager.IMPORTANCE_DEFAULT
+            );
+            channel.setDescription(CHANNEL_DESC_SPEND_PROMPTS);
+            channel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PRIVATE);
+            channel.enableVibration(false);
+            channel.enableLights(true);
+            channel.setLightColor(0xFF14B8A6);
+            channel.setShowBadge(true);
+            channel.setBypassDnd(false);
+            notificationManager.createNotificationChannel(channel);
+            android.util.Log.d("NotificationChannelManager", "Spend prompts channel created");
         }
     }
     

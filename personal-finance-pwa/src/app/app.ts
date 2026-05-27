@@ -35,6 +35,7 @@ export class App implements OnInit, OnDestroy {
   private driveErrorSubscription: Subscription | null = null;
   private routeScrollSubscription: Subscription | null = null;
   private isRefreshingFromDrive = false;
+  private hasRenderedCachedData = false;
 
   private startLoadingTimeout(): void {
     // Clear any existing timeout
@@ -90,6 +91,17 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    const loadedCachedData = await this.tryLoadCachedStartupData();
+    if (loadedCachedData) {
+      this.clearLoadingTimeout();
+      this.loadingError.set(null);
+      this.isLoading.set(false);
+      this.hasRenderedCachedData = true;
+      await this.redirectAfterDataAvailable();
+      void this.bootstrapDriveInBackground();
+      return;
+    }
+
     if (this.router.url.startsWith('/auth/callback') && this.authService.needsInteractiveWebToken()) {
       this.clearLoadingTimeout();
       this.loadingError.set(null);
@@ -122,9 +134,6 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    const currentUrl = this.router.url.split('?')[0].split('#')[0];
-    const isSetupRoute = currentUrl === '/mode-select' || currentUrl === '/family-setup';
-
     console.log('[App] Starting Drive bootstrap...');
     await this.withBootstrapRetries(async () => {
       await this.expenseStore.loadFromDrive();
@@ -136,6 +145,23 @@ export class App implements OnInit, OnDestroy {
 
     this.loadingError.set(null);
     this.startDrivePollLoop();
+    await this.redirectAfterDataAvailable();
+  }
+
+  private async tryLoadCachedStartupData(): Promise<boolean> {
+    const mode = this.backupModeService.getMode();
+    const localSetupComplete =
+      mode === 'single' ||
+      (mode === 'family' && !!this.backupModeService.getSharedFileId());
+
+    if (!localSetupComplete) return false;
+
+    return this.expenseStore.loadFromLocalCache();
+  }
+
+  private async redirectAfterDataAvailable(): Promise<void> {
+    const currentUrl = this.router.url.split('?')[0].split('#')[0];
+    const isSetupRoute = currentUrl === '/mode-select' || currentUrl === '/family-setup';
 
     const needsIncomeSetup = this.expenseStore.monthlyIncome() <= 0;
 
@@ -157,6 +183,25 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  private async bootstrapDriveInBackground(): Promise<void> {
+    try {
+      await this.backupModeService.loadFromDrive();
+
+      const mode = this.backupModeService.getMode();
+      if (mode === null || (mode === 'family' && !this.backupModeService.getSharedFileId())) {
+        return;
+      }
+
+      await this.expenseStore.loadFromDrive();
+      if (this.expenseStore.syncStatus() !== 'error') {
+        this.startDrivePollLoop();
+        await this.redirectAfterDataAvailable();
+      }
+    } catch (err) {
+      console.warn('[App] Background Drive bootstrap failed:', err);
+    }
+  }
+
   private async withBootstrapRetries<T>(operation: () => Promise<T>, label: string): Promise<T> {
     let lastError: unknown;
 
@@ -164,10 +209,6 @@ export class App implements OnInit, OnDestroy {
       try {
         return await operation();
       } catch (err) {
-        if (this.authService.needsInteractiveWebToken()) {
-          await this.router.navigate(['/auth/callback']);
-          throw err;
-        }
         lastError = err;
         const delay = BOOTSTRAP_RETRY_DELAYS_MS[attempt];
         if (delay === undefined) break;
@@ -282,8 +323,10 @@ export class App implements OnInit, OnDestroy {
 
       // Map error to user-friendly message and set loading error state
       const errorMessage = this.mapDriveErrorToMessage(err);
-      this.loadingError.set(errorMessage);
-      this.isLoading.set(false); // Stop loading state when error occurs
+      if (!this.hasRenderedCachedData) {
+        this.loadingError.set(errorMessage);
+        this.isLoading.set(false); // Stop loading state when error occurs
+      }
 
       console.error('[App] Drive error:', err);
     });
