@@ -12,12 +12,16 @@ final class WidgetExpenseConstants {
     static final String SHARED_FILE_ID_KEY = "spenza_shared_file_id";
     static final String OWNER_ROLE_KEY = "spenza_owner_role";
     static final String AI_SETTINGS_KEY = "spenza_ai_settings_private";
+    static final String CURRENCY_KEY = "spenza_currency";
     static final String SPEND_NOTIFICATION_PROMPTS_ENABLED_KEY = "spenza_spend_notification_prompts_enabled_v1";
     static final String SPEND_NOTIFICATION_DEDUPE_KEY = "spenza_spend_notification_dedupe_v1";
     static final String WIDGET_CATEGORY_EXTRA = "com.spenza.app.WIDGET_CATEGORY";
     static final String WIDGET_AMOUNT_EXTRA = "com.spenza.app.WIDGET_AMOUNT";
     static final String WIDGET_COMMENT_EXTRA = "com.spenza.app.WIDGET_COMMENT";
     static final String WIDGET_SOURCE_EXTRA = "com.spenza.app.WIDGET_SOURCE";
+    static final String WIDGET_AMOUNT_KIND_EXTRA = "com.spenza.app.WIDGET_AMOUNT_KIND";
+    static final String WIDGET_AMOUNT_KIND_EXPENSE = "expense";
+    static final String WIDGET_AMOUNT_KIND_CREDIT = "credit";
     static final String WIDGET_SOURCE_NOTIFICATION_PROMPT = "notification-prompt";
     static final String TYPE_MORE = "__spenza_more__";
     static final String SYNC_WORK_NAME = "spenza-widget-expense-sync";

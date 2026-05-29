@@ -19,140 +19,13 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
+import org.json.JSONObject;
+
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class SpendNotificationListenerService extends NotificationListenerService {
     private static final String TAG = "SpendNotification";
     private static final long DEDUPE_WINDOW_MS = 10 * 60 * 1000L;
-
-    private static final String[] SPEND_KEYWORDS = {
-        "debited",
-        "debit",
-        "dr",
-        "spent",
-        "used",
-        "paid",
-        "payment",
-        "purchase",
-        "purchased",
-        "withdrawn",
-        "withdrawal",
-        "charged",
-        "deducted",
-        "sent",
-        "transferred",
-        "upi",
-        "card transaction",
-        "transaction of",
-        "txn",
-        "pos",
-        "atm",
-        "ecom",
-        "e-commerce",
-        "billpay",
-        "bill paid",
-        "autopay",
-        "auto pay",
-        "nach",
-        "ach debit",
-        "mandate debit",
-        "emi",
-        "fee",
-        "fees",
-        "charges"
-    };
-
-    private static final String[] AMOUNT_CONTEXT_KEYWORDS = {
-        "debited",
-        "debit",
-        "spent",
-        "used",
-        "paid",
-        "payment",
-        "purchase",
-        "purchased",
-        "withdrawn",
-        "withdrawal",
-        "charged",
-        "deducted",
-        "sent",
-        "transferred",
-        "pos",
-        "atm",
-        "bill paid",
-        "autopay",
-        "auto pay",
-        "nach",
-        "emi",
-        "fee",
-        "fees",
-        "charges"
-    };
-
-    private static final String[] INCOME_KEYWORDS = {
-        "credited",
-        "received",
-        "refund",
-        "refunded",
-        "cashback",
-        "reversed",
-        "reversal",
-        "salary",
-        "deposited",
-        "deposit",
-        "credited to",
-        "credit received",
-        "payment received",
-        "money received"
-    };
-
-    private static final String[] NON_FINAL_TRANSACTION_KEYWORDS = {
-        "failed",
-        "declined",
-        "unsuccessful",
-        "pending",
-        "processing",
-        "timed out",
-        "timeout",
-        "cancelled",
-        "canceled",
-        "rejected",
-        "request received",
-        "payment request",
-        "collect request",
-        "mandate created",
-        "mandate setup"
-    };
-
-    private static final String[] SENSITIVE_SECURITY_KEYWORDS = {
-        "otp",
-        "one time password",
-        "pin",
-        "cvv",
-        "password",
-        "verification code",
-        "authorise",
-        "authorize",
-        "authentication"
-    };
-
-    private static final String[] BALANCE_CONTEXT_KEYWORDS = {
-        "balance",
-        "bal",
-        "avl",
-        "available",
-        "limit",
-        "ref",
-        "reference",
-        "otp"
-    };
-
-    private static final Pattern AMOUNT_CANDIDATE = Pattern.compile(
-        "(?:(rs\\.?|inr|₹|usd|\\$|aed|د\\.إ)\\s*)?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)(?:\\s*(rs\\.?|inr|₹|usd|\\$|aed|د\\.إ))?",
-        Pattern.CASE_INSENSITIVE
-    );
 
     @Override
     public void onListenerConnected() {
@@ -179,7 +52,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
 
         String text = collectText(notification);
-        SpendCandidate candidate = SpendCandidate.from(text, sbn.getPackageName());
+        SpendCandidate candidate = SpendCandidate.from(text, sbn.getPackageName(), currentCurrency());
         if (candidate == null || isDuplicate(candidate)) return;
         showPrompt(candidate);
     }
@@ -246,6 +119,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         intent.putExtra(WidgetExpenseConstants.WIDGET_AMOUNT_EXTRA, candidate.amount);
         intent.putExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA, candidate.comment);
         intent.putExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA, WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT);
+        intent.putExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA, candidate.amountKind);
 
         int requestCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -260,10 +134,10 @@ public class SpendNotificationListenerService extends NotificationListenerServic
             NotificationChannelManager.CHANNEL_ID_SPEND_PROMPTS
         )
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Log this expense?")
-            .setContentText("Detected " + candidate.displayAmount() + " spent. Tap to review and save.")
+            .setContentTitle(candidate.isCredit() ? "Record received money?" : "Log this expense?")
+            .setContentText("Detected " + candidate.displayAmount() + (candidate.isCredit() ? " received." : " spent.") + " Tap to review and save.")
             .setStyle(new NotificationCompat.BigTextStyle().bigText(
-                "Detected " + candidate.displayAmount() + " spent. Tap to review and save."
+                "Detected " + candidate.displayAmount() + (candidate.isCredit() ? " received." : " spent.") + " Tap to review and save."
             ))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -277,104 +151,89 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         }
     }
 
+    private String currentCurrency() {
+        SharedPreferences prefs = WidgetExpenseQueue.prefs(this);
+        String savedCurrency = prefs.getString(WidgetExpenseConstants.CURRENCY_KEY, null);
+        if ("USD".equalsIgnoreCase(savedCurrency)) return "USD";
+        if ("AED".equalsIgnoreCase(savedCurrency)) return "AED";
+        if ("INR".equalsIgnoreCase(savedCurrency)) return "INR";
+
+        String raw = prefs.getString(WidgetExpenseConstants.LOCAL_BACKUP_CACHE_KEY, null);
+        if (raw != null) {
+            try {
+                JSONObject root = new JSONObject(raw);
+                JSONObject doc = root.optJSONObject("doc");
+                JSONObject metadata = doc == null ? null : doc.optJSONObject("metadata");
+                String currency = metadata == null ? null : metadata.optString("currency", null);
+                if ("USD".equalsIgnoreCase(currency)) return "USD";
+                if ("AED".equalsIgnoreCase(currency)) return "AED";
+                if ("INR".equalsIgnoreCase(currency)) return "INR";
+            } catch (Exception ignored) {
+                // Use app default.
+            }
+        }
+        return "INR";
+    }
+
     private static final class SpendCandidate {
         final double amount;
         final String comment;
         final String sourcePackage;
+        final String currency;
+        final String amountKind;
 
-        private SpendCandidate(double amount, String comment, String sourcePackage) {
+        private SpendCandidate(double amount, String comment, String sourcePackage, String currency, String amountKind) {
             this.amount = amount;
             this.comment = comment;
             this.sourcePackage = sourcePackage == null ? "" : sourcePackage;
+            this.currency = normalizeCurrency(currency);
+            this.amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(amountKind)
+                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
+                : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
         }
 
-        static SpendCandidate from(String rawText, String sourcePackage) {
+        static SpendCandidate from(String rawText, String sourcePackage, String currency) {
             if (TextUtils.isEmpty(rawText)) return null;
-            String normalized = rawText.replace('\n', ' ').replaceAll("\\s+", " ").trim();
-            String lower = normalized.toLowerCase(Locale.US);
-            if (!looksLikeSpend(lower) || looksLikeCreditOrNonSpend(lower)) return null;
+            SpendNotificationClassifier.Classification classification =
+                SpendNotificationClassifier.classify(rawText, sourcePackage, currency);
+            if (!classification.shouldPrompt()) return null;
 
-            double amount = parseAmount(normalized);
-            if (amount <= 0) return null;
+            String normalized = classification.normalizedText;
             String comment = normalized.length() > 90 ? normalized.substring(0, 87).trim() + "..." : normalized;
-            return new SpendCandidate(amount, comment, sourcePackage);
+            String amountKind = classification.type == SpendNotificationClassifier.Type.INCOME_OR_REFUND
+                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
+                : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+            return new SpendCandidate(classification.amount, comment, sourcePackage, currency, amountKind);
         }
 
-        private static boolean looksLikeSpend(String lower) {
-            return containsAny(lower, SPEND_KEYWORDS);
-        }
-
-        private static boolean looksLikeCreditOrNonSpend(String lower) {
-            return containsAny(lower, INCOME_KEYWORDS)
-                || containsAny(lower, NON_FINAL_TRANSACTION_KEYWORDS)
-                || containsAny(lower, SENSITIVE_SECURITY_KEYWORDS);
-        }
-
-        private static double parseAmount(String text) {
-            Matcher matcher = AMOUNT_CANDIDATE.matcher(text);
-            double bestAmount = 0;
-            int bestScore = 0;
-            String lower = text.toLowerCase(Locale.US);
-
-            while (matcher.find()) {
-                double amount = parseMoney(matcher.group(2));
-                if (amount <= 0) continue;
-                int start = matcher.start();
-                int end = matcher.end();
-                String window = lower.substring(Math.max(0, start - 42), Math.min(lower.length(), end + 42));
-                if (containsAny(window, BALANCE_CONTEXT_KEYWORDS) && !containsAny(window, AMOUNT_CONTEXT_KEYWORDS)) {
-                    continue;
-                }
-
-                boolean hasCurrency = !isBlank(matcher.group(1)) || !isBlank(matcher.group(3));
-                int score = 0;
-                if (hasCurrency) score += 4;
-                if (containsAny(window, AMOUNT_CONTEXT_KEYWORDS)) score += 6;
-                if (containsAny(window, new String[] { "balance", "bal", "avl", "available" })) score -= 3;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestAmount = amount;
-                }
-            }
-            return bestScore >= 4 ? bestAmount : 0;
-        }
-
-        private static double parseMoney(String raw) {
-            if (raw == null) return 0;
-            try {
-                return Double.parseDouble(raw.replace(",", ""));
-            } catch (NumberFormatException ignored) {
-                return 0;
-            }
-        }
-
-        private static boolean containsAny(String text, String[] needles) {
-            for (String needle : needles) {
-                if (containsTerm(text, needle)) return true;
-            }
-            return false;
-        }
-
-        private static boolean containsTerm(String text, String needle) {
-            if (isBlank(text) || isBlank(needle)) return false;
-            if (needle.indexOf(' ') >= 0 || needle.indexOf('-') >= 0) {
-                return text.contains(needle);
-            }
-            return Pattern.compile("(^|[^a-z0-9])" + Pattern.quote(needle) + "([^a-z0-9]|$)")
-                .matcher(text)
-                .find();
-        }
-
-        private static boolean isBlank(String text) {
-            return text == null || text.trim().isEmpty();
+        boolean isCredit() {
+            return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(amountKind);
         }
 
         String displayAmount() {
-            return "₹" + String.format(Locale.US, "%.0f", Math.max(0, amount));
+            return currencySymbol(currency) + String.format(Locale.US, "%.0f", Math.max(0, amount));
         }
 
         String dedupeKey() {
-            return sourcePackage + ":" + WidgetExpenseUtils.roundMoney(amount) + ":" + comment.hashCode();
+            return sourcePackage + ":" + amountKind + ":" + currency + ":" + WidgetExpenseUtils.roundMoney(amount) + ":" + comment.hashCode();
+        }
+
+        private static String normalizeCurrency(String currency) {
+            if ("USD".equalsIgnoreCase(currency)) return "USD";
+            if ("AED".equalsIgnoreCase(currency)) return "AED";
+            return "INR";
+        }
+
+        private static String currencySymbol(String currency) {
+            switch (currency) {
+                case "USD":
+                    return "$";
+                case "AED":
+                    return "AED ";
+                case "INR":
+                default:
+                    return "₹";
+            }
         }
     }
 }

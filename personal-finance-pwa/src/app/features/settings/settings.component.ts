@@ -1660,6 +1660,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       },
       expenses: this.expenseStore.entries(),
       limits: this.expenseStore.limits(),
+      accounts: this.expenseStore.accounts(),
+      accountAdjustments: this.expenseStore.accountAdjustments(),
+      debts: this.expenseStore.debts(),
+      debtPayments: this.expenseStore.debtPayments(),
     };
     const json = `${JSON.stringify(doc, null, 2)}\n`;
     const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
@@ -1735,6 +1739,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const candidate = parsed as Partial<BackupDocument>;
     const expenses = (parsed as BackupDocument).expenses;
     const limits = (parsed as BackupDocument).limits;
+    const accounts = Array.isArray(candidate.accounts) ? candidate.accounts : [];
+    const accountAdjustments = Array.isArray(candidate.accountAdjustments) ? candidate.accountAdjustments : [];
+    const debts = Array.isArray(candidate.debts) ? candidate.debts : [];
+    const debtPayments = Array.isArray(candidate.debtPayments) ? candidate.debtPayments : [];
     const metadata = candidate.metadata ?? { monthlyIncome: 0, currency: this.currencyService.currency() };
 
     return {
@@ -1747,6 +1755,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
       },
       expenses,
       limits,
+      accounts,
+      accountAdjustments,
+      debts,
+      debtPayments,
     };
   }
 
@@ -2012,6 +2024,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
             ...privateDoc,
             expenses: mergedExpenses,
             limits: sharedDoc.limits.length > 0 ? sharedDoc.limits : privateDoc.limits,
+            accounts: (sharedDoc.accounts?.length ?? 0) > 0 ? sharedDoc.accounts : privateDoc.accounts ?? [],
+            accountAdjustments: [
+              ...(privateDoc.accountAdjustments ?? []),
+              ...(sharedDoc.accountAdjustments ?? []),
+            ],
+            debts: (sharedDoc.debts?.length ?? 0) > 0 ? sharedDoc.debts : privateDoc.debts ?? [],
+            debtPayments: [
+              ...(privateDoc.debtPayments ?? []),
+              ...(sharedDoc.debtPayments ?? []),
+            ],
             metadata: sharedDoc.metadata.monthlyIncome > 0 ? sharedDoc.metadata : privateDoc.metadata,
             lastUpdated: new Date().toISOString(),
           };
@@ -2063,6 +2085,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
         },
         expenses: this.expenseStore.entries(),
         limits: this.expenseStore.limits(),
+        accounts: this.expenseStore.accounts(),
+        accountAdjustments: this.expenseStore.accountAdjustments(),
+        debts: this.expenseStore.debts(),
+        debtPayments: this.expenseStore.debtPayments(),
       };
 
       // Step 3: Write current data to the new file

@@ -33,16 +33,18 @@ import { TranslatePipe } from '../../pipes';
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="title"
-        class="fixed inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-xl bg-card p-6 shadow-xl border border-border"
+        class="fixed inset-x-4 top-1/2 z-50 max-h-[calc(100vh-2rem)] -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl sm:mx-auto sm:max-w-2xl"
         (keydown.escape)="onCancel()"
         tabindex="-1"
       >
         <h2 class="mb-4 text-lg font-semibold text-foreground">{{ title }}</h2>
         <ng-content />
-        <div class="mt-6 flex justify-end gap-3">
-          <app-button variant="ghost" (click)="onCancel()">{{ 'common.cancel' | translate }}</app-button>
-          <app-button variant="primary" (click)="onConfirm()">{{ 'common.confirm' | translate }}</app-button>
-        </div>
+        @if (showActions) {
+          <div class="mt-6 flex justify-end gap-3">
+            <app-button variant="ghost" (click)="onCancel()">{{ 'common.cancel' | translate }}</app-button>
+            <app-button variant="primary" (click)="onConfirm()">{{ 'common.confirm' | translate }}</app-button>
+          </div>
+        }
       </div>
     }
   `,
@@ -51,6 +53,7 @@ import { TranslatePipe } from '../../pipes';
 export class ModalComponent implements OnChanges, OnDestroy {
   @Input() title = '';
   @Input() isOpen = false;
+  @Input() showActions = true;
 
   @Output() confirmed = new EventEmitter<void>();
   @Output() cancelled = new EventEmitter<void>();

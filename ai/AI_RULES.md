@@ -79,6 +79,7 @@
 - Preserve `BackupDocument.version = '1.0'` until an explicit migration is implemented.
 - Add backward-compatible optional fields when extending backup schema.
 - When reading older backup JSON, tolerate missing optional fields.
+- When a remote Drive backup is missing newer finance arrays because an older app build rewrote the file, preserve cached/in-memory finance arrays if present and upgrade the backup instead of treating the missing arrays as an intentional delete.
 - When writing backup JSON, preserve:
   - `metadata.monthlyIncome`
   - `metadata.currency`
@@ -86,6 +87,10 @@
 - Deduplicate expenses by `id` during migrations/merges.
 - For family/single merges, shared/family entries currently take precedence on ID conflict.
 - Settings data export should use the restore-compatible Spenza backup JSON shape, not CSV, so users can keep a complete local backup file.
+- Keep account balance side effects centralized in `ExpenseStore`; components should set/link `ExpenseEntry.accountId` but must not directly mutate account balances.
+- When changing balance-affecting expense mutations, preserve reverse/apply behavior for create, split-create, edit, and delete so account balances stay consistent.
+- Keep debt/EMI payment side effects centralized in `ExpenseStore.recordDebtPayment`, `updateDebtPayment`, and `deleteDebtPayment`; components must not independently create/delete debt-payment expenses, mutate debt balances, or deduct/restore accounts.
+- Keep generic Daily edit/delete blocked for `source: 'debt-payment'` or `debtId` entries; debt-payment history must be managed from Finances through the dedicated reversal/edit store methods.
 
 ## Budget And Category Rules
 - Use `category-definitions.ts` as the only source of truth for predefined categories.
@@ -126,6 +131,7 @@
 - Prefer shared UI components before creating new visual primitives:
   - `SectionCardComponent`
   - `ModalComponent`
+  - `ThemedSelectComponent` for app dropdowns/selectors.
   - `CategoryIconComponent`
   - `ProgressRingComponent`
   - `SparklineComponent`
@@ -133,6 +139,7 @@
   - shared pipes.
 - Use `lucide-angular` icons and register needed icons through `LUCIDE_ICONS` provider in standalone components.
 - Use Tailwind utility classes and design tokens from `src/styles.css`.
+- Do not add native `<select>` controls in Angular templates for visible app dropdowns; use `ThemedSelectComponent` so menus match the Spenza theme.
 - Use CSS variables for semantic/category colors; avoid hardcoded color duplicates where tokens exist.
 - Keep dark mode compatible with `.dark` class and tokenized colors.
 - Do not add new in-app explanatory/marketing text where a functional UI control would suffice.
@@ -215,9 +222,19 @@
 - Device notification/SMS-derived spend detection must remain Android-only and explicit opt-in:
   - Use Android notification-listener access rather than SMS inbox permissions.
   - Require both OS notification-listener access and Spenza's own local toggle before parsing notifications.
+  - Spend prompt parsing should only accept SMS/messaging-source notification packages; ignore payment apps, wallet apps, bank apps, app stores, and other non-SMS sources.
   - Parse notification text locally on-device only.
+  - Classify notification intent locally before extracting an amount or prompting; only high-confidence expense-transaction or income/received classifications should open the review sheet.
+  - Require the detected amount to include a marker for the currently selected app currency before prompting:
+    - INR: `₹`, `INR`, `Rs`, rupee/rupees.
+    - USD: `$`, `US$`, `USD`, dollar/dollars.
+    - AED: `AED`, `د.إ`, `dh/dhs`, dirham/dirhams.
   - Do not send notification contents to Gemini, Drive, Netlify functions, or other network services.
-  - Ask the user to review/save before creating an expense; do not auto-log detected spend notifications.
+  - Ask the user to review/save before creating an expense or account adjustment; do not auto-log detected spend/credit notifications.
+- Native widget received-money flow must write account-balance increases as `accountAdjustments`, not as expense entries or income pseudo-expenses.
+- Keep `spenza_widget_expense_queue_v1` backward compatible:
+  - Legacy raw expense entries and `{ entry }` items remain valid.
+  - New adjustment items use `{ kind: 'adjustment', adjustment }` and must update both the selected account balance and the adjustment audit log.
 - Preserve local notification initialization as non-blocking.
 - Prefer local daily notifications for user-controlled richer reminder content because they respect the user’s chosen time and do not require server/network availability.
 - Browser/PWA local reminder fallback cannot deliver while the app process is closed; use FCM push as the closed-app delivery path.
@@ -241,6 +258,7 @@
 - Because Android WorkManager can delay background jobs, the Angular `ExpenseStore` must also flush current-account pending widget queue entries during cached startup, Drive bootstrap, and Drive refresh.
 - Widget queue entries must be tagged with the active Google email and must not sync into a different active account after account switching.
 - Widget sync may use cached native access tokens written by `AuthService`, but if the token is missing/expired/rejected it must keep the queue rather than prompting login or launching the full app.
+- When Angular writes `spenza_drive_backup_snapshot_v1` on native Android, refresh the home-screen widget through `ExpenseWidgetPlugin.refresh()` so widget insight reflects app-created Drive-backed changes such as debt payments without waiting for a later widget action.
 - Widget Gemini voice parsing must use the existing Netlify `parse-voice-expense` endpoint and user-supplied Gemini key from `spenza_ai_settings_private`; it must degrade to plain comment capture when AI is unavailable.
 - Native widget and widget Activity styling must match Spenza's PWA theme:
   - Use light/night Android resources for system theme adaptation.

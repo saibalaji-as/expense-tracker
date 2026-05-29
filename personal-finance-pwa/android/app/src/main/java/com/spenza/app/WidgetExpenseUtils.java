@@ -49,6 +49,41 @@ final class WidgetExpenseUtils {
         return entry;
     }
 
+    static JSONObject buildAccountAdjustment(
+        SharedPreferences prefs,
+        String accountId,
+        double amount,
+        String reason
+    ) throws JSONException {
+        JSONObject adjustment = new JSONObject();
+        String email = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+        String role = prefs.getString(WidgetExpenseConstants.OWNER_ROLE_KEY, null);
+
+        adjustment.put("id", UUID.randomUUID().toString());
+        adjustment.put("accountId", accountId);
+        adjustment.put("amount", roundMoney(amount));
+        adjustment.put("kind", "increase");
+        if (reason != null && !reason.trim().isEmpty()) adjustment.put("reason", reason.trim());
+        adjustment.put("createdAt", isoNow());
+        if (email != null && !email.trim().isEmpty()) adjustment.put("createdByEmail", email);
+        if (role != null && !role.trim().isEmpty()) adjustment.put("createdByRole", role);
+        return adjustment;
+    }
+
+    static JSONArray activeAccounts(SharedPreferences prefs) {
+        JSONObject doc = localBackupDocument(prefs);
+        JSONArray accounts = doc == null ? null : doc.optJSONArray("accounts");
+        JSONArray active = new JSONArray();
+        if (accounts == null) return active;
+        for (int i = 0; i < accounts.length(); i++) {
+            JSONObject account = accounts.optJSONObject(i);
+            if (account != null && !account.optBoolean("archived", false)) {
+                active.put(account);
+            }
+        }
+        return active;
+    }
+
     static String normalizeWidgetType(String type) {
         if (type == null) return WidgetExpenseConstants.TYPE_MISC;
         String trimmed = type.trim();

@@ -90,6 +90,7 @@
 - `/daily`: daily expense entry/list; guarded by auth/setup.
 - `/monthly`: monthly analysis; guarded.
 - `/limits`: budget limit setup; guarded.
+- `/finances`: account balance management; guarded.
 - `/dashboard`: analytics, activity, AI/local insights; guarded.
 - `/settings`: backup, AI, notifications, import/export, account reset; guarded.
 - `/auth/callback`: public Google sign-in/re-consent page.
@@ -143,22 +144,25 @@
   - Transport -> `Transportation`
   - Entertainment -> `Entertainment`
   - Shopping -> `Shopping/Clothing` when the launcher reports enough width for a fifth action.
-  - More -> opens the native category picker with all predefined app categories, including `Miscellaneous`.
+  - More -> opens the native quick-expense form with all predefined app categories available in-form, including `Miscellaneous`.
 - Voice smart-fill:
   - Uses Android `SpeechRecognizer` for transcript capture.
   - If local AI settings contain a user Gemini key, calls production `parse-voice-expense` Netlify function with the same allowed categories.
   - If Gemini is unavailable/missing, typed or spoken comment remains and amount can be entered manually.
 - Widget sync behavior:
-  - Saves confirmed expenses to local queue first.
+  - Saves confirmed widget expenses and received-money account adjustments to local queue first.
+  - Queue items carry `kind: 'expense'` with an `entry` or `kind: 'adjustment'` with an account-balance `adjustment`.
   - Sync reads active backup mode/config from Capacitor Preferences.
   - Family mode writes to cached `spenza_shared_file_id`; single mode uses local backup snapshot file ID or discovers `spenza-backup.json` in `appDataFolder`.
-  - Merges queued expenses into Drive backup JSON by `id`, updates `lastUpdated`, and refreshes `spenza_drive_backup_snapshot_v1` after successful Drive write.
+  - Merges queued expenses into Drive backup JSON by `id`; queued adjustments increase the selected account balance and append to `accountAdjustments` by `id`.
+  - Updates `lastUpdated` and refreshes `spenza_drive_backup_snapshot_v1` after successful Drive write.
   - Queue items are tagged with the Google email active at queue time and are not synced into a different active account.
   - Android WorkManager background sync is best-effort and may be delayed by the OS.
-  - The Angular `ExpenseStore` also flushes `spenza_widget_expense_queue_v1` on cached startup, Drive bootstrap, and Drive refresh so opening the app makes widget expenses visible/persisted without waiting for WorkManager timing.
+  - The Angular `ExpenseStore` also flushes `spenza_widget_expense_queue_v1` on cached startup, Drive bootstrap, and Drive refresh so opening the app makes widget expenses/adjustments visible and persisted without waiting for WorkManager timing.
 - Widget daily insight:
   - `ExpenseWidgetProvider` reads `spenza_drive_backup_snapshot_v1` plus current-account queued widget entries to display today's spend, calculated daily budget, progress, and yesterday comparison.
   - Daily budget is derived from configured limits and monthly income when available; otherwise it falls back to monthly income divided by days in month.
+  - Angular app-side backup snapshot writes call native `ExpenseWidgetPlugin.refresh()`, which redraws `ExpenseWidgetProvider` after Drive-backed changes such as debt-payment expenses update the local snapshot.
   - Current widget sizing uses two height modes: a 1-row quick-actions-only layout when launcher-reported height is short, and a 3-row daily insight + actions layout when height is increased.
   - Width is horizontal-resizable from 4 action spaces to a wider 5 action space; the optional `Shopping/Clothing` action is shown only when launcher-reported width is wide enough, and the last slot remains `More`.
 - Easy removal/hide path:
@@ -177,12 +181,16 @@
 - Runtime behavior:
   - Reads posted notification title/body/expanded lines locally on-device.
   - Also reads messaging-style notification extras and parses group-summary notifications, since some SMS/payment apps expose useful text only through those surfaces.
-  - Ignores Spenza's own notifications, ongoing notifications, likely income/refund/cashback/reversal messages, failed/pending/cancelled/request-only messages, OTP/security messages, and balance/reference amount contexts.
+  - Uses `SpendNotificationClassifier` as a local deterministic classifier before amount extraction/prompting.
+  - Classifier result types include expense transaction, income/refund, balance/statement, payment request, failed/pending, security/OTP, app-update/system, and unknown.
+  - Only high-confidence `EXPENSE_TRANSACTION` or `INCOME_OR_REFUND` classifications open the review sheet.
+  - Ignores Spenza's own notifications, ongoing notifications, failed/pending/cancelled/request-only messages, OTP/security messages, and balance/reference amount contexts.
   - Parses likely debit/spend/payment/card/UPI/POS/ATM/NACH/AutoPay/fee notifications for amount hints, including common spend words such as `used`, `debited`, `spent`, `paid`, `purchase`, `withdrawn`, `charged`, `deducted`, `sent`, and `transferred`.
   - The Android listener requests rebind after disconnect on Android N+; Settings listener status detection accepts both long and short flattened component names.
-  - Shows a private `spend-prompts` channel notification asking the user to review/log the expense.
-  - Tapping the prompt opens `ExpenseWidgetActivity` with amount/comment prefilled and `Miscellaneous` as the default category.
-  - No expense is saved until the user taps Save in the native quick-expense sheet.
+  - Shows a private `spend-prompts` channel notification asking the user to review/log the detected amount.
+  - Tapping an expense prompt opens `ExpenseWidgetActivity` with amount/comment prefilled, Expense selected, and `Miscellaneous` as the default category.
+  - Tapping a credit/received prompt opens `ExpenseWidgetActivity` with amount/comment prefilled and Received selected so the user can choose the target account.
+  - No expense or account adjustment is saved until the user taps Save in the native sheet.
   - The notification body is not uploaded or passed to Gemini; only a local dedupe fingerprint is stored.
 
 ## Backup Modes
@@ -218,6 +226,12 @@
 - Backup document schema:
   - `version: '1.0'`
   - `lastUpdated: ISO datetime`
+  - Optional account-balance arrays for finances:
+    - `accounts`
+    - `accountAdjustments`
+  - Optional debt/EMI arrays for finances:
+    - `debts`
+    - `debtPayments`
   - `metadata.monthlyIncome: number`
   - `metadata.currency: 'INR' | 'USD' | 'AED' | string`
   - `metadata.receiptFolderId?: string`
@@ -245,6 +259,9 @@
   - `timestamp`: ISO datetime.
   - `comment?: string`.
   - `receipt?: ExpenseReceipt`.
+  - `accountId?: string` links an expense to an asset account for balance deduction/reversal.
+  - `debtId?: string` is reserved for future Debt/EMI payment linkage.
+  - `source?: string` can identify system-created or imported entry sources.
   - `createdByEmail`, `createdByRole`, `updatedByEmail`, `updatedByRole` support family activity attribution.
 - `ExpenseReceipt` fields:
   - `fileId`, `fileName`, `mimeType`, `size`, `viewUrl`, `uploadedAt`.
@@ -289,6 +306,63 @@
   - Buffer 0
 - `category-definitions.ts` is the single source of truth for predefined expense type names, category IDs, visual metadata, budget groups, and recommended percentages.
 - `PREDEFINED_EXPENSE_TYPES` and `DEFAULT_BUDGET_PERCENTAGES` are derived exports from `CATEGORY_DEFS`.
+
+## Account Balances
+- Asset-account models live in `core/models/asset-account.model.ts`.
+- `AssetAccount` represents user-managed cash/bank/wallet-style balances:
+  - `id`, `name`, `type`, `balance`, `allowOverdraft`, `isDefault`, `archived`, timestamps, and optional actor metadata.
+- `AccountBalanceAdjustment` records manual balance corrections:
+  - Manual adjustments do not create expense entries.
+  - Manual negative adjustments respect `allowOverdraft`.
+- `ExpenseStore` owns account state and account mutations:
+  - `accounts`
+  - `accountAdjustments`
+  - `activeAccounts`
+  - `defaultAccount`
+  - `totalAssets`
+  - `addAccount`, `updateAccount`, `setDefaultAccount`, `adjustAccountBalance`, `deleteAccount`
+- Only one account can be default at a time.
+- Deleting an account is blocked when any expense references that account ID.
+- Daily expense logging optionally links an `ExpenseEntry.accountId` to an active account:
+  - New expenses deduct the expense amount from the selected account.
+  - Split-bill saves deduct the aggregate linked amounts atomically.
+  - Editing an expense reverses the old linked-account effect and applies the new one.
+  - Deleting an expense restores the linked account balance.
+  - Overdraft-blocked accounts reject balance-affecting expense saves before state is patched.
+  - Existing/imported/widget expenses without `accountId` do not affect account balances.
+
+## Debts And EMIs
+- Debt models live in `core/models/debt-account.model.ts`.
+- `DebtAccount` represents credit-card, personal-loan, vehicle-loan, home-loan, and other liabilities:
+  - `id`, `name`, `type`, `principalAmount`, `remainingBalance`, optional `interestRate`, optional `monthlyEmi`, `startDate`, optional `nextDueDate`, `status`, timestamps, and optional actor metadata.
+- `DebtPayment` records payments made toward debts:
+  - `id`, `debtId`, `expenseId`, `accountId`, `amount`, `date`, `createdAt`, and optional actor metadata.
+- `ExpenseStore` owns debt state and debt mutations:
+  - `debts`
+  - `debtPayments`
+  - `activeDebts`
+  - `totalLiabilities`
+  - `addDebt`, `updateDebt`, `deleteDebt`, `recordDebtPayment`, `updateDebtPayment`, `deleteDebtPayment`
+- `Debt Payment` is a predefined visible expense category with `0%` default recommendation.
+- `recordDebtPayment()` is the transaction boundary for EMI/debt payments:
+  - Validates active debt, selected account, payment amount, date, overpayment, and overdraft rules.
+  - Creates an `ExpenseEntry` with type `Debt Payment`, `accountId`, `debtId`, and `source: 'debt-payment'`.
+  - Deducts the selected account balance.
+  - Reduces the debt remaining balance.
+  - Creates a `DebtPayment` audit record.
+  - Marks the debt as `paid` when the remaining balance reaches zero.
+  - Persists once to the Drive backup.
+- `updateDebtPayment()` and `deleteDebtPayment()` are the reversal/edit boundaries for debt-payment logs:
+  - Reverse the previous account deduction.
+  - Restore/reapply the debt remaining balance.
+  - Update or remove the generated `Debt Payment` expense.
+  - Persist once to the Drive backup.
+- Generic Daily expense edit/delete remains blocked for debt-payment entries; debt-payment history is managed from Finances.
+- `FinancesComponent` is the debt management UI for now:
+  - Add/edit debt.
+  - View active and paid debts with progress bars.
+  - Record, edit, and delete debt payments from active accounts.
+  - Delete debts after their payment logs are removed.
 
 ## State Management
 - Central store: `ExpenseStore` in `core/services/expense-store.service.ts`.
@@ -438,6 +512,7 @@
   - `SectionCardComponent`: common content section container.
   - `CategoryIconComponent`: category visual identity using `CATEGORY_DEFS`.
   - `ProgressRingComponent`, `SparklineComponent`, `ChartBaseComponent`.
+  - `ThemedSelectComponent`: app-wide themed dropdown control with reactive-form and direct value binding support.
   - `ModalComponent`, `ToastComponent`, `OfflineBannerComponent`, form primitives.
 - Styling conventions:
   - Tailwind utilities.

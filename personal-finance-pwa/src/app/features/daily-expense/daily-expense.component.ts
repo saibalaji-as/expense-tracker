@@ -37,6 +37,7 @@ import {
   Check,
   Crop,
   Users,
+  WalletCards,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -51,12 +52,14 @@ import { AuthService } from '../../core/services/auth.service';
 import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraft, DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
-import { ExpenseEntry, ExpenseReceipt } from '../../core/models/expense-entry.model';
+import { AssetAccount, ExpenseEntry, ExpenseReceipt } from '../../core/models';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
   SectionCardComponent,
   CategoryIconComponent,
   ProgressRingComponent,
+  ThemedSelectComponent,
+  ThemedSelectOption,
 } from '../../shared/components';
 import {
   CATEGORY_DEFS,
@@ -107,13 +110,14 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     SectionCardComponent,
     CategoryIconComponent,
     ProgressRingComponent,
+    ThemedSelectComponent,
     LucideAngularModule,
   ],
   providers: [
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards }),
     },
   ],
   template: `
@@ -323,6 +327,20 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                 </div>
               </div>
             </div>
+
+            @if (activeAccounts().length > 0) {
+              <div class="mt-2.5">
+                <label for="account-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}</label>
+                <div class="mt-1">
+                  <app-themed-select formControlName="accountId" [options]="paymentAccountOptions()" size="sm" />
+                </div>
+                @if (selectedAccount(); as account) {
+                  <p class="mt-1 text-[11px] text-muted-foreground">
+                    {{ i18n.t('daily.paymentSourceBalance', { amount: currencyService.format(account.balance, i18n.locale()) }) }}
+                  </p>
+                }
+              </div>
+            }
 
             <!-- Live pills -->
             <div class="mt-2.5 grid grid-cols-2 gap-2">
@@ -637,21 +655,12 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                         <div class="grid grid-cols-[minmax(0,1fr)_6.75rem_2.25rem] items-end gap-2">
                           <label class="min-w-0">
                             <span class="mb-1 block pl-1 text-[10px] font-semibold uppercase text-muted-foreground">{{ 'daily.receipt.split.category' | translate }}</span>
-                            <span class="relative block">
-                              <span class="pointer-events-none absolute left-2 top-1/2 z-10 -translate-y-1/2">
-                                <app-category-icon [categoryId]="getCatId(row.type)" size="xs" />
-                              </span>
-                              <select
-                                [value]="row.type"
-                                (change)="updateSplitRowFromEvent(row.id, 'type', $event)"
-                                class="h-11 w-full min-w-0 appearance-none rounded-xl border border-border bg-card/80 py-2 pl-9 pr-8 text-xs font-semibold text-foreground outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20 dark:bg-muted/40"
-                              >
-                                @for (cat of availableCategories(); track cat.id) {
-                                  <option [value]="cat.name" [selected]="cat.name === row.type">{{ getCategoryLabel(cat) }}</option>
-                                }
-                              </select>
-                              <lucide-icon name="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                            </span>
+                            <app-themed-select
+                              [value]="row.type"
+                              [options]="splitCategoryOptions()"
+                              size="sm"
+                              (valueChange)="updateSplitRow(row.id, 'type', $event)"
+                            />
                           </label>
                           <label>
                             <span class="mb-1 block pl-1 text-[10px] font-semibold uppercase text-muted-foreground">{{ 'daily.receipt.split.amount' | translate }}</span>
@@ -776,7 +785,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                     </div>
                     <p class="truncate text-xs text-muted-foreground">
                       @if (group.count === 1) {
-                        {{ formatEntryTime(group.entries[0].timestamp) }} · {{ expenseActorLabel(group.entries[0]) }}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
+                        {{ formatEntryTime(group.entries[0].timestamp) }} · {{ expenseActorLabel(group.entries[0]) }}@if (accountName(group.entries[0].accountId)) {<span> · {{ accountName(group.entries[0].accountId) }}</span>}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
                       } @else {
                         {{ i18n.t('daily.entries.multiple', { count: group.count }) }} · {{ groupActorSummary(group.entries) }}
                       }
@@ -894,9 +903,17 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
               <div class="mt-2 text-[10px] text-muted-foreground">
                 {{ entry.date }} at {{ formatEntryTime(entry.timestamp) }}
               </div>
-              <div class="mt-2 inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
-                <lucide-icon name="users" class="h-3.5 w-3.5" />
-                {{ expenseActorLabel(entry) }}
+              <div class="mt-2 flex flex-wrap gap-2">
+                <div class="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                  <lucide-icon name="users" class="h-3.5 w-3.5" />
+                  {{ expenseActorLabel(entry) }}
+                </div>
+                @if (accountName(entry.accountId)) {
+                  <div class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/50 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                    <lucide-icon name="wallet-cards" class="h-3.5 w-3.5" />
+                    {{ accountName(entry.accountId) }}
+                  </div>
+                }
               </div>
               @if (entry.receipt) {
                 @if (isImageReceipt(entry.receipt)) {
@@ -1026,7 +1043,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           </span>
                         </div>
                         <p class="text-[10px] text-muted-foreground">
-                          {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}
+                          {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}@if (accountName(entry.accountId)) {<span> · {{ accountName(entry.accountId) }}</span>}
                         </p>
                       </div>
                       <!-- Action buttons -->
@@ -1254,6 +1271,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     amount: [null as number | null, [Validators.required, Validators.min(0.01)]],
     limit: [{ value: 0, disabled: true }],
     date: [toLocalDateString(), Validators.required], // Default to today
+    accountId: [''],
     comment: [''],
   });
 
@@ -1539,6 +1557,26 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return getCategoryDef(this.getCatId(typeName));
   });
 
+  readonly activeAccounts = computed(() => this.expenseStore.activeAccounts());
+  readonly selectedAccount = computed((): AssetAccount | null => {
+    this.formValue();
+    const accountId = this.form.get('accountId')?.value ?? '';
+    return this.activeAccounts().find((account) => account.id === accountId) ?? null;
+  });
+  readonly paymentAccountOptions = computed<ThemedSelectOption[]>(() =>
+    this.activeAccounts().map((account) => ({
+      value: account.id,
+      label: `${account.name} · ${this.currencyService.format(account.balance, this.i18n.locale())}`,
+      icon: 'wallet-cards',
+    }))
+  );
+  readonly splitCategoryOptions = computed<ThemedSelectOption[]>(() =>
+    this.availableCategories().map((category) => ({
+      value: category.name,
+      label: this.getCategoryLabel(category),
+    }))
+  );
+
   readonly splitBillTotal = computed(() => this.receiptExtraction()?.amount ?? Number(this.form.get('amount')?.value ?? 0) ?? 0);
   readonly splitRowsTotal = computed(() =>
     Number(this.splitRows().reduce((sum, row) => sum + Number(row.amount ?? 0), 0).toFixed(2))
@@ -1569,6 +1607,25 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       if (!extraction || applied) return;
 
       untracked(() => this.applyReceiptExtraction(false));
+    });
+
+    effect(() => {
+      const accounts = this.activeAccounts();
+      const defaultAccountId = this.defaultAccountId();
+
+      untracked(() => {
+        if (this.isEditMode()) return;
+        const accountControl = this.form.get('accountId');
+        if (!accountControl) return;
+
+        const current = accountControl.value ?? '';
+        const currentIsValid = accounts.some((account) => account.id === current);
+        if (accounts.length === 0 && current) {
+          accountControl.setValue('', { emitEvent: false });
+        } else if (accounts.length > 0 && !currentIsValid) {
+          accountControl.setValue(defaultAccountId, { emitEvent: false });
+        }
+      });
     });
   }
 
@@ -1641,6 +1698,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         expenseType: draft.expenseType,
         amount: draft.amount,
         date: draft.date,
+        accountId: draft.accountId ?? '',
         comment: draft.comment,
       }, { emitEvent: false });
       this.setActiveDate(draft.date, false);
@@ -1659,6 +1717,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       expenseType: raw.expenseType ?? '',
       amount: raw.amount ?? null,
       date: raw.date ?? this.selectedDate(),
+      accountId: raw.accountId ?? '',
       comment: raw.comment ?? '',
       splitBillMode: this.splitBillMode(),
       splitRows: this.splitRows(),
@@ -1674,6 +1733,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private isEmptyDraft(draft: DailyExpenseDraft): boolean {
     return !draft.expenseType
       && !draft.amount
+      && !draft.accountId
       && !draft.comment.trim()
       && !draft.splitBillMode
       && draft.splitRows.length === 0
@@ -1685,15 +1745,33 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     amount: number | null;
     limit: number;
     date: string;
+    accountId?: string;
     comment: string;
   }): void {
     this.suppressDraftSave = true;
     try {
       this.draftService.clearDraft();
-      this.form.reset(value);
+      this.form.reset({
+        ...value,
+        accountId: value.accountId ?? this.defaultAccountId(),
+      });
     } finally {
       this.suppressDraftSave = false;
     }
+  }
+
+  private defaultAccountId(): string {
+    return this.expenseStore.defaultAccount()?.id ?? '';
+  }
+
+  private selectedPaymentAccountId(): string | undefined {
+    const accountId = this.form.get('accountId')?.value ?? '';
+    return this.activeAccounts().some((account) => account.id === accountId) ? accountId : undefined;
+  }
+
+  accountName(accountId: string | undefined): string {
+    if (!accountId) return '';
+    return this.expenseStore.accounts().find((account) => account.id === accountId)?.name ?? '';
   }
 
   // ─── Helper: map type name → category ID ─────────────────────────────────
@@ -2502,6 +2580,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const limit = this.form.get('limit')?.value ?? 0;
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
+    const accountId = this.selectedPaymentAccountId();
     const receipt = await this.uploadSelectedReceipt(id, date);
     const actor = this.activityActor();
 
@@ -2515,6 +2594,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       timestamp,
       comment,
       receipt,
+      accountId,
       createdByEmail: actor.email,
       createdByRole: actor.role,
     };
@@ -2548,6 +2628,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       amount: null, 
       limit: 0, 
       date,
+      accountId: this.defaultAccountId(),
       comment: '' 
     });
     this.clearSelectedReceipt();
@@ -2571,6 +2652,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const firstId = crypto.randomUUID();
     const receipt = await this.uploadSelectedReceipt(firstId, date);
     const actor = this.activityActor();
+    const accountId = this.selectedPaymentAccountId();
 
     const entries = rows.map((row, index): ExpenseEntry => {
       const id = index === 0 ? firstId : crypto.randomUUID();
@@ -2593,6 +2675,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         timestamp,
         comment,
         receipt,
+        accountId,
         createdByEmail: actor.email,
         createdByRole: actor.role,
       };
@@ -2618,6 +2701,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       amount: null,
       limit: 0,
       date,
+      accountId: this.defaultAccountId(),
       comment: ''
     });
     this.clearSelectedReceipt();
@@ -2634,6 +2718,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
     const date = this.form.get('date')?.value ?? originalEntry.date;
+    const accountId = this.selectedPaymentAccountId();
     const uploadedReceipt = await this.uploadSelectedReceipt(originalEntry.id, date);
     const actor = this.activityActor();
 
@@ -2646,6 +2731,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       savings,
       comment,
       receipt: uploadedReceipt ?? originalEntry.receipt,
+      accountId,
       timestamp: new Date().toISOString(),
       updatedByEmail: actor.email,
       updatedByRole: actor.role,
@@ -2678,6 +2764,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       amount: null, 
       limit: 0, 
       date, 
+      accountId: this.defaultAccountId(),
       comment: '' 
     });
     this.clearSelectedReceipt();
@@ -2703,6 +2790,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       amount: entry.amount,
       limit: entry.limit,
       date: entry.date,
+      accountId: entry.accountId ?? this.defaultAccountId(),
       comment: entry.comment || '',
     });
 
@@ -2720,6 +2808,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       amount: null, 
       limit: 0, 
       date, 
+      accountId: this.defaultAccountId(),
       comment: '' 
     });
   }

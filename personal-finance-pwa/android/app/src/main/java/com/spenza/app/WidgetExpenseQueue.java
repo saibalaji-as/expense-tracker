@@ -14,11 +14,28 @@ final class WidgetExpenseQueue {
     private WidgetExpenseQueue() {}
 
     static synchronized void enqueue(Context context, JSONObject entry) throws JSONException {
+        enqueueExpense(context, entry);
+    }
+
+    static synchronized void enqueueExpense(Context context, JSONObject entry) throws JSONException {
         SharedPreferences prefs = prefs(context);
         JSONArray queue = readQueue(context);
         JSONObject queued = new JSONObject();
         queued.put("userEmail", prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null));
+        queued.put("kind", "expense");
         queued.put("entry", entry);
+        queue.put(queued);
+        prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
+        WidgetExpenseSyncWorker.schedule(context);
+    }
+
+    static synchronized void enqueueAdjustment(Context context, JSONObject adjustment) throws JSONException {
+        SharedPreferences prefs = prefs(context);
+        JSONArray queue = readQueue(context);
+        JSONObject queued = new JSONObject();
+        queued.put("userEmail", prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null));
+        queued.put("kind", "adjustment");
+        queued.put("adjustment", adjustment);
         queue.put(queued);
         prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
         WidgetExpenseSyncWorker.schedule(context);

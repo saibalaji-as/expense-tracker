@@ -33,7 +33,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  CreditCard,
   Lightbulb,
+  Wallet,
   Users,
 } from 'lucide-angular';
 
@@ -62,7 +64,7 @@ interface ActivityItem {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Sparkles, ArrowRight, Activity, AlertTriangle, CheckCircle2, Clock3, Lightbulb, Users }),
+      useValue: new LucideIconProvider({ Sparkles, ArrowRight, Activity, AlertTriangle, CheckCircle2, Clock3, CreditCard, Lightbulb, Wallet, Users }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,6 +92,101 @@ interface ActivityItem {
           </div>
         </div>
       </div>
+
+      <section class="mb-6 glass-card overflow-hidden p-0">
+        <div class="border-b border-border/60 bg-primary/5 px-5 py-4 md:px-6">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-2">
+              <span class="grid h-9 w-9 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
+                <lucide-icon name="wallet" class="h-4 w-4" />
+              </span>
+              <div>
+                <h2 class="text-base font-semibold tracking-tight md:text-lg">{{ 'dashboard.netWorth.title' | translate }}</h2>
+                <p class="mt-0.5 text-xs text-muted-foreground md:text-sm">{{ 'dashboard.netWorth.description' | translate }}</p>
+              </div>
+            </div>
+            <a
+              routerLink="/finances"
+              class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-background/80 px-3 py-2 text-xs font-semibold text-primary shadow-sm transition-all hover:border-primary/50 hover:shadow-glow"
+            >
+              {{ hasNetWorthData() ? ('dashboard.netWorth.manage' | translate) : ('dashboard.netWorth.setup' | translate) }}
+              <lucide-icon name="arrow-right" class="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </div>
+
+        @if (hasNetWorthData()) {
+          <div class="grid gap-4 p-5 md:grid-cols-[minmax(0,1.05fr)_minmax(280px,0.95fr)] md:p-6">
+            <div class="rounded-2xl border border-border/80 bg-background/55 p-4">
+              <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ 'dashboard.netWorth.current' | translate }}</p>
+              <p
+                class="mt-2 text-3xl font-semibold tracking-tight tabular-nums md:text-4xl"
+                [class.text-destructive]="expenseStore.netWorth() < 0"
+                [style.color]="expenseStore.netWorth() > 0 ? 'var(--success)' : null"
+              >
+                {{ expenseStore.netWorth() | currencyFormat }}
+              </p>
+              <div class="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+                <div class="flex h-full w-full">
+                  <span class="h-full bg-primary" [style.width.%]="assetShare()"></span>
+                  <span class="h-full bg-destructive" [style.width.%]="liabilityShare()"></span>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <p class="text-muted-foreground">{{ 'dashboard.netWorth.assets' | translate }}</p>
+                  <p class="font-semibold tabular-nums">{{ expenseStore.totalAssets() | currencyFormat }}</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-muted-foreground">{{ 'dashboard.netWorth.liabilities' | translate }}</p>
+                  <p class="font-semibold tabular-nums text-destructive">{{ expenseStore.totalLiabilities() | currencyFormat }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-3 md:grid-cols-1">
+              <div class="rounded-2xl border border-border/80 bg-background/55 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="grid h-8 w-8 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <lucide-icon name="wallet" class="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ 'dashboard.netWorth.accounts' | translate }}</p>
+                    <p class="text-sm font-semibold">{{ expenseStore.activeAccounts().length }}</p>
+                  </div>
+                </div>
+              </div>
+              <div class="rounded-2xl border border-border/80 bg-background/55 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="grid h-8 w-8 place-items-center rounded-xl bg-destructive/10 text-destructive">
+                    <lucide-icon name="credit-card" class="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ 'dashboard.netWorth.activeDebts' | translate }}</p>
+                    <p class="text-sm font-semibold">{{ expenseStore.activeDebtCount() }}</p>
+                  </div>
+                </div>
+              </div>
+              <div class="rounded-2xl border border-border/80 bg-background/55 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="grid h-8 w-8 place-items-center rounded-xl bg-amber-400/15 text-amber-600">
+                    <lucide-icon name="clock-3" class="h-4 w-4" />
+                  </span>
+                  <div class="min-w-0">
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{{ 'dashboard.netWorth.nextDue' | translate }}</p>
+                    <p class="truncate text-sm font-semibold">{{ nextDebtDueLabel() }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        } @else {
+          <div class="m-5 rounded-2xl border border-dashed border-border p-6 text-center md:m-6">
+            <p class="text-sm font-semibold">{{ 'dashboard.netWorth.emptyTitle' | translate }}</p>
+            <p class="mt-1 text-sm text-muted-foreground">{{ 'dashboard.netWorth.emptyDescription' | translate }}</p>
+          </div>
+        }
+      </section>
 
       <!-- Phase 1 deterministic insights -->
       <div class="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
@@ -511,6 +608,33 @@ export class DashboardComponent implements OnInit {
     return total / dayOfMonth;
   });
 
+  readonly hasNetWorthData = computed(() =>
+    this.expenseStore.activeAccounts().length > 0 || this.expenseStore.activeDebts().length > 0
+  );
+
+  readonly assetShare = computed(() => {
+    const assets = Math.max(0, this.expenseStore.totalAssets());
+    const liabilities = Math.max(0, this.expenseStore.totalLiabilities());
+    const total = assets + liabilities;
+    return total > 0 ? Math.round((assets / total) * 100) : 0;
+  });
+
+  readonly liabilityShare = computed(() => {
+    const assets = Math.max(0, this.expenseStore.totalAssets());
+    const liabilities = Math.max(0, this.expenseStore.totalLiabilities());
+    const total = assets + liabilities;
+    return total > 0 ? Math.round((liabilities / total) * 100) : 0;
+  });
+
+  readonly nextDebtDueLabel = computed(() => {
+    const debt = this.expenseStore.nextDebtDue();
+    if (!debt?.nextDueDate) return this.i18n.t('dashboard.netWorth.noDueDate');
+    return this.i18n.t('dashboard.netWorth.nextDueValue', {
+      name: debt.name,
+      date: this.formatDate(debt.nextDueDate),
+    });
+  });
+
   readonly weeklyInsightSummary = computed(() => {
     const entries = this.expenseStore.entries();
     const current = this.entriesBetween(entries, 6, 0);
@@ -775,6 +899,13 @@ export class DashboardComponent implements OnInit {
 
   private formatMoney(amount: number): string {
     return this.currencyService.format(Math.round(amount), this.i18n.locale());
+  }
+
+  private formatDate(date: string): string {
+    return parseLocalDate(date).toLocaleDateString(this.i18n.locale(), {
+      month: 'short',
+      day: 'numeric',
+    });
   }
 
   private entriesBetween(entries: ExpenseEntry[], daysAgoStart: number, daysAgoEnd: number): ExpenseEntry[] {

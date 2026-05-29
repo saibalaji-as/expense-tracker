@@ -134,6 +134,14 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     group: 'buffer',
     recommendedPct: 0,
   },
+  {
+    id: 'debt-payment',
+    name: 'Debt Payment',
+    icon: 'receipt-indian-rupee',
+    colorVar: '--cat-misc',
+    group: 'buffer',
+    recommendedPct: 0,
+  },
 ];
 
 /**

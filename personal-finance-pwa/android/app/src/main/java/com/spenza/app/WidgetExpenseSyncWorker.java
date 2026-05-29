@@ -76,6 +76,16 @@ public class WidgetExpenseSyncWorker extends Worker {
                 expenses = new JSONArray();
                 doc.put("expenses", expenses);
             }
+            JSONArray accounts = doc.optJSONArray("accounts");
+            if (accounts == null) {
+                accounts = new JSONArray();
+                doc.put("accounts", accounts);
+            }
+            JSONArray accountAdjustments = doc.optJSONArray("accountAdjustments");
+            if (accountAdjustments == null) {
+                accountAdjustments = new JSONArray();
+                doc.put("accountAdjustments", accountAdjustments);
+            }
 
             Set<String> existingIds = new HashSet<>();
             for (int i = 0; i < expenses.length(); i++) {
@@ -83,8 +93,15 @@ public class WidgetExpenseSyncWorker extends Worker {
                 String id = expense == null ? null : expense.optString("id", null);
                 if (id != null) existingIds.add(id);
             }
+            Set<String> existingAdjustmentIds = new HashSet<>();
+            for (int i = 0; i < accountAdjustments.length(); i++) {
+                JSONObject adjustment = accountAdjustments.optJSONObject(i);
+                String id = adjustment == null ? null : adjustment.optString("id", null);
+                if (id != null) existingAdjustmentIds.add(id);
+            }
 
             JSONArray mergedExpenses = new JSONArray();
+            JSONArray mergedAdjustments = new JSONArray();
             String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
             List<JSONObject> remaining = new ArrayList<>();
             int syncedCount = 0;
@@ -95,20 +112,43 @@ public class WidgetExpenseSyncWorker extends Worker {
                     continue;
                 }
 
-                JSONObject entry = queuedItem.optJSONObject("entry");
-                if (entry == null) entry = queuedItem;
-                String id = entry.optString("id", "");
-                if (!id.isEmpty() && !existingIds.contains(id)) {
-                    mergedExpenses.put(entry);
-                    existingIds.add(id);
+                String kind = queuedItem.optString("kind", "expense");
+                if ("adjustment".equals(kind)) {
+                    JSONObject adjustment = queuedItem.optJSONObject("adjustment");
+                    if (adjustment == null) {
+                        syncedCount++;
+                        continue;
+                    }
+                    String id = adjustment.optString("id", "");
+                    if (!id.isEmpty() && !existingAdjustmentIds.contains(id)) {
+                        if (!applyAccountAdjustment(accounts, adjustment)) {
+                            remaining.add(queuedItem);
+                            continue;
+                        }
+                        mergedAdjustments.put(adjustment);
+                        existingAdjustmentIds.add(id);
+                    }
+                } else {
+                    JSONObject entry = queuedItem.optJSONObject("entry");
+                    if (entry == null) entry = queuedItem;
+                    String id = entry.optString("id", "");
+                    if (!id.isEmpty() && !existingIds.contains(id)) {
+                        mergedExpenses.put(entry);
+                        existingIds.add(id);
+                    }
                 }
                 syncedCount++;
             }
             for (int i = 0; i < expenses.length(); i++) {
                 mergedExpenses.put(expenses.get(i));
             }
+            for (int i = 0; i < accountAdjustments.length(); i++) {
+                mergedAdjustments.put(accountAdjustments.get(i));
+            }
 
             doc.put("expenses", mergedExpenses);
+            doc.put("accounts", accounts);
+            doc.put("accountAdjustments", mergedAdjustments);
             doc.put("lastUpdated", WidgetExpenseUtils.isoNow());
             String modifiedTime = writeBackupFile(fileId, token, doc);
             writeLocalBackupSnapshot(prefs, fileId, modifiedTime, doc);
@@ -122,6 +162,26 @@ public class WidgetExpenseSyncWorker extends Worker {
             Log.e(TAG, "Widget expense sync failed.", error);
             return Result.retry();
         }
+    }
+
+    private static boolean applyAccountAdjustment(JSONArray accounts, JSONObject adjustment) throws JSONException {
+        String accountId = adjustment.optString("accountId", "");
+        double amount = WidgetExpenseUtils.roundMoney(adjustment.optDouble("amount", 0));
+        if (accountId.isEmpty() || amount <= 0) return false;
+
+        for (int i = 0; i < accounts.length(); i++) {
+            JSONObject account = accounts.optJSONObject(i);
+            if (account == null || !accountId.equals(account.optString("id", "")) || account.optBoolean("archived", false)) {
+                continue;
+            }
+            double nextBalance = WidgetExpenseUtils.roundMoney(account.optDouble("balance", 0) + amount);
+            account.put("balance", nextBalance);
+            account.put("updatedAt", WidgetExpenseUtils.isoNow());
+            if (adjustment.has("createdByEmail")) account.put("updatedByEmail", adjustment.optString("createdByEmail"));
+            if (adjustment.has("createdByRole")) account.put("updatedByRole", adjustment.optString("createdByRole"));
+            return true;
+        }
+        return false;
     }
 
     private static String validAccessToken(SharedPreferences prefs) {

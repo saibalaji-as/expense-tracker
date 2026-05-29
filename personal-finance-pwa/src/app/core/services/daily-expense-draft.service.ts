@@ -4,6 +4,7 @@ export interface DailyExpenseDraft {
   expenseType: string;
   amount: number | null;
   date: string;
+  accountId: string;
   comment: string;
   splitBillMode: boolean;
   splitRows: Array<{

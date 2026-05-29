@@ -28,6 +28,14 @@ export const routes: Routes = [
     canActivate: [authGuard, setupGuard],
   },
   {
+    path: 'finances',
+    loadComponent: () =>
+      import('./features/finances/finances.component').then(
+        (m) => m.FinancesComponent
+      ),
+    canActivate: [authGuard, setupGuard],
+  },
+  {
     path: 'dashboard',
     loadComponent: () =>
       import('./features/dashboard/dashboard.component').then(

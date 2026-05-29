@@ -32,7 +32,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
-import { ModalComponent } from '../../shared/components';
+import { ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
@@ -66,6 +66,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
   imports: [
     ReactiveFormsModule,
     ModalComponent,
+    ThemedSelectComponent,
     CurrencyFormatPipe,
     TranslatePipe,
     SectionCardComponent,
@@ -181,14 +182,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                       [style.color]="'var(' + getCatColorVar(i) + ')'"
                     >{{ getGroupName(group.get('category')?.value) }}</span>
                   } @else {
-                    <select
-                      formControlName="category"
-                      class="rounded-lg border border-border bg-card/60 px-2 py-1.5 text-xs font-medium text-foreground outline-none focus:border-primary"
-                    >
-                      @for (budgetGroup of budgetGroups; track budgetGroup) {
-                        <option [value]="budgetGroup">{{ getGroupName(budgetGroup) }}</option>
-                      }
-                    </select>
+                    <app-themed-select formControlName="category" [options]="budgetGroupOptions()" size="xs" />
                   }
                   <!-- Rec % -->
                   <span class="text-right text-xs text-muted-foreground">
@@ -245,14 +239,9 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                         [placeholder]="'limits.custom.namePlaceholder' | translate"
                         class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
                       />
-                      <select
-                        formControlName="category"
-                        class="mt-1.5 w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-[11px] font-medium text-foreground outline-none focus:border-primary"
-                      >
-                        @for (budgetGroup of budgetGroups; track budgetGroup) {
-                          <option [value]="budgetGroup">{{ getGroupName(budgetGroup) }}</option>
-                        }
-                      </select>
+                      <div class="mt-1.5">
+                        <app-themed-select formControlName="category" [options]="budgetGroupOptions()" size="xs" />
+                      </div>
                       @if (isCustomTypeInvalid(group)) {
                         <p class="mt-1 text-[10px] text-destructive">{{ 'limits.custom.nameRequired' | translate }}</p>
                       }
@@ -397,6 +386,13 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
     const key = String(group ?? '').toLowerCase();
     const translated = this.i18n.t(`budgetGroup.${key}`);
     return translated.startsWith('budgetGroup.') ? String(group ?? '') : translated;
+  }
+
+  budgetGroupOptions(): ThemedSelectOption[] {
+    return this.budgetGroups.map((group) => ({
+      value: group,
+      label: this.getGroupName(group),
+    }));
   }
 
   // Lucide icon references for template use

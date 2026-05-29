@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { ExpenseEntry, ExpenseLimit, ExpenseReceipt } from '../models';
+import { AccountBalanceAdjustment, AssetAccount, DebtAccount, DebtPayment, ExpenseEntry, ExpenseLimit, ExpenseReceipt } from '../models';
 import { AuthService } from './auth.service';
 
 // ─── Data Models ──────────────────────────────────────────────────────────────
@@ -14,6 +14,10 @@ export interface BackupDocument {
   };
   expenses: ExpenseEntry[];
   limits: ExpenseLimit[];
+  accounts?: AssetAccount[];
+  accountAdjustments?: AccountBalanceAdjustment[];
+  debts?: DebtAccount[];
+  debtPayments?: DebtPayment[];
 }
 
 // ─── Error Types ──────────────────────────────────────────────────────────────
@@ -63,6 +67,10 @@ export function buildInitialDocument(timestamp: string): BackupDocument {
     metadata: { monthlyIncome: 0, currency: 'INR' },
     expenses: [],
     limits: [],
+    accounts: [],
+    accountAdjustments: [],
+    debts: [],
+    debtPayments: [],
   };
 }
 

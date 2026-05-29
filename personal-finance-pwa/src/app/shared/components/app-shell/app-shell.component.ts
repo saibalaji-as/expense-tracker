@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CalendarRange,
   SlidersHorizontal,
+  WalletCards,
   LayoutDashboard,
   Settings,
 } from 'lucide-angular';
@@ -31,7 +32,7 @@ interface NavItem {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, LayoutDashboard, Settings }),
+      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, WalletCards, LayoutDashboard, Settings }),
     },
   ],
   template: `
@@ -136,6 +137,7 @@ export class AppShellComponent {
     { path: '/daily',     labelKey: 'nav.daily',     icon: CalendarDays },
     { path: '/monthly',   labelKey: 'nav.monthly',   icon: CalendarRange },
     { path: '/limits',    labelKey: 'nav.limits',    icon: SlidersHorizontal },
+    { path: '/finances',  labelKey: 'nav.finances',  icon: WalletCards },
     { path: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
     { path: '/settings',  labelKey: 'nav.settings',  icon: Settings },
   ];

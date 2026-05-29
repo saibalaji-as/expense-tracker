@@ -1,7 +1,7 @@
 # Current State
 
 ## Last Memory Refresh
-- Date: 2026-05-23.
+- Date: 2026-05-29.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
@@ -16,12 +16,101 @@
   - Family mode: shared `Spenza Family/spenza-backup.json`.
 - Google Sheets is migration/legacy only.
 - AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
+- Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Native widget insight refresh after app-side finance changes:
+  - Added `ExpenseWidgetPlugin` with a `refresh()` bridge method that calls `ExpenseWidgetProvider.updateAll()`.
+  - Registered the plugin in `MainActivity`.
+  - `ExpenseStore.writeLocalBackupSnapshot()` now refreshes the native Android widget after writing `spenza_drive_backup_snapshot_v1`, so app-created entries such as debt payments appear in widget insight immediately instead of waiting for a later widget expense/update.
+- Native widget dialog app-theme polish:
+  - `ExpenseWidgetActivity` no longer uses stock Android `Spinner` controls for Amount kind, Expense type, or Receive into account.
+  - Added a custom native themed dropdown matching the Angular `ThemedSelectComponent` pattern: rounded trigger, icon badge, chevron rotation, themed floating menu, selected-row highlight, check mark, and capped scrolling list height.
+  - Tuned widget dialog typography, helper text, amount/comment input sizing, input radius, and action button radius to better match Spenza's app text and control styles.
+- Native widget credit/received adjustment flow:
+  - `ExpenseWidgetActivity` now has an Amount kind dropdown with `Expense` and `Received`.
+  - Expense mode keeps the existing amount, comment, mic, and Save behavior, with expense type now selected from a compact dropdown instead of the previous chip grid.
+  - Received mode hides expense categories, shows an account dropdown from active cached finance accounts, and saves the amount as a Finance account-balance increase adjustment.
+  - Widget queue items now carry a `kind` of `expense` or `adjustment`; Android WorkManager sync and Angular `ExpenseStore.flushPendingWidgetExpenses()` both understand the new adjustment item shape.
+  - Queued credit adjustments update the selected account balance and append an `accountAdjustments` audit record, matching the Finance screen Adjust flow.
+  - Credit/received SMS notifications now preselect `Received` when opening the native widget dialog.
+- Native spend notification listener tightening:
+  - Spend prompts now only classify SMS/messaging-source notifications; payment apps, wallet apps, bank apps, and other non-SMS notifications are ignored even when they contain money-like text.
+  - The native classifier now requires an amount to include the currently selected app currency marker before prompting.
+  - Supported currency markers include INR forms (`₹`, `INR`, `Rs`, rupee), USD forms (`$`, `US$`, `USD`, dollar), and AED forms (`AED`, `د.إ`, `dh/dhs`, dirham).
+  - The listener reads the current currency from `spenza_currency`, falls back to the cached Drive backup snapshot metadata, and uses that currency in the prompt amount display/dedupe key.
+  - Added Android unit coverage for non-SMS rejection, selected-currency mismatch, USD SMS classification, and bare-amount rejection.
+- Debt/EMI edit/delete logs:
+  - `ExpenseStore` now supports `deleteDebt`, `updateDebtPayment`, and `deleteDebtPayment`.
+  - Debt payment edits reverse the previous payment effect, apply the new account/date/amount/comment, update the generated `Debt Payment` expense, update account balances, and recalculate debt remaining/status in one persisted mutation.
+  - Debt payment deletes remove the generated `Debt Payment` expense, restore the payment account balance, increase the debt remaining balance, and persist the updated debt/account/payment arrays.
+  - Finances now shows per-debt payment history with edit/delete controls.
+  - Finances now shows a delete button for debts; debts with payment logs must have those logs deleted first.
+  - Generic Daily edit/delete remains blocked for debt-payment entries so reversal always runs through Finances.
+- Native widget expense form category selector:
+  - `ExpenseWidgetActivity` now always opens the expense log form directly, including the widget More action.
+  - The native expense form includes an in-form two-column expense type selector for all predefined widget categories.
+  - Notification-listener spend prompts still prefill amount/comment and default to `Miscellaneous`, but users can change the expense type in the same form before tapping Save.
+  - Voice smart-fill category changes update the in-form selector and title instead of silently changing only the saved value.
+- App-wide themed dropdowns:
+  - Added shared `ThemedSelectComponent` for Spenza-styled dropdown triggers and floating menus.
+  - Replaced all native Angular app `<select>` controls in Daily, split bill, Limits, and Finances with `ThemedSelectComponent`.
+  - The shared dropdown supports reactive forms through ControlValueAccessor and direct `[value]` / `(valueChange)` binding for row-level selectors.
+- Finances screen polish:
+  - Add/Edit debt dialog is now shorter on mobile: numeric debt fields render as two inputs per row, while debt name, debt type, and date fields stay full width.
+  - Debt type selection no longer uses the plain native dropdown or horizontal scrolling chips; it uses a themed full-width dropdown trigger with an icon-led floating menu bound to the same debt form control.
+  - Debt form inputs use tighter vertical padding and spacing to reduce modal scroll height.
+  - Finances now uses an explicit page grid gap with bottom mobile breathing room so summary, account, and debt sections no longer visually touch.
+  - Clicking Add account/Edit account opens the account form in a modal dialog.
+  - Clicking Add debt/Edit debt opens the debt form in a modal dialog.
+  - Shared `ModalComponent` now supports hiding its built-in action footer for custom form actions and has max-height scrolling for longer dialogs.
+  - Debt-payment edit/delete reversal is now implemented through dedicated Finances payment-history controls.
+  - `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md` includes Phase 5 notes for the reversal flow.
+- Old-app finance backup overwrite guard:
+  - If an older Spenza build writes a backup document without finance arrays, the new app can otherwise interpret missing `accounts`, `accountAdjustments`, `debts`, and `debtPayments` as empty arrays.
+  - `ExpenseStore.applyBackupDocument` now preserves cached in-memory finance arrays when the remote Drive backup is missing those arrays, then immediately upgrades/persists the backup with the restored arrays.
+  - This protects users who still have a local cached finance snapshot after accidentally opening/saving from an older app build.
+- Account balances and debt/EMI Phase 4:
+  - `ExpenseStore` now exposes `netWorth`, `activeDebtCount`, and `nextDebtDue` computed state in addition to total assets and total liabilities.
+  - Dashboard now shows a net-worth summary band near the top with current net worth, total assets, total liabilities, active account count, active debt count, next debt due, and a direct Finances link.
+  - Dashboard net-worth empty state guides users to set up accounts/debts when no finance data exists.
+  - Added English, Tamil, and Hindi i18n strings for the dashboard net-worth card.
+- Debt/EMI Phase 3:
+  - Added Drive-backed `DebtAccount` and `DebtPayment` models with optional `debts` and `debtPayments` backup arrays.
+  - Added `Debt Payment` as a predefined visible expense category with `0%` default recommendation.
+  - `ExpenseStore` now owns debt state, active debt computation, total liabilities, debt add/edit, and atomic debt payment recording.
+  - Recording a debt payment creates a `Debt Payment` expense, links it to the debt and payment account, deducts the selected account, reduces debt remaining balance, creates a payment record, and marks the debt paid at zero.
+  - Overpayments are rejected, and account overdraft rules are reused for debt payments.
+  - Generic Daily edit/delete operations are blocked for debt-payment entries to avoid debt/payment/account inconsistency.
+  - `FinancesComponent` now includes debt/EMI add/edit/delete UI, active/paid debt list, progress bars, inline payment recording, and payment-history edit/delete.
+  - Settings backup export/restore and family backup merge/rotation now include debt arrays.
+- Account balances Phase 2:
+  - Daily expense form now includes an optional payment-source selector when active accounts exist.
+  - The default asset account is preselected for new Daily expenses; editing an existing expense preserves its linked account or falls back to the current default.
+  - Same-session Daily drafts now remember the selected account.
+  - Expense list/detail surfaces show linked account names where available.
+  - `ExpenseStore` centrally applies account balance effects for expense create, split-create, edit, and delete.
+  - Linked expenses deduct from the selected account; edits reverse the previous linked-account deduction before applying the updated expense; deletes restore the linked account balance.
+  - Account overdraft protection is enforced during expense saves, including aggregate split expenses.
+  - Existing expenses without `accountId` remain balance-neutral.
+- Account balances Phase 1:
+  - Added optional Drive backup arrays `accounts` and `accountAdjustments`, preserving `version: '1.0'` and tolerating older backups without those arrays.
+  - Added `AssetAccount` and `AccountBalanceAdjustment` models.
+  - `ExpenseStore` now owns accounts, manual balance adjustments, active/default account computed state, and total asset computation.
+  - Added account CRUD methods with Drive persistence, single-default-account behavior, manual balance adjustments that do not create expenses, overdraft protection for manual decreases, and delete blocking for accounts referenced by linked expenses.
+  - Added a guarded `/finances` route and app-shell nav item.
+  - Added `FinancesComponent` for adding/editing accounts, marking a default account, manually adjusting balances, and deleting accounts with confirmation.
+  - Settings backup export/restore and family file rotation now include account arrays.
+  - Phase 1 intentionally does not change Daily expense logging or auto-deduct balances yet.
 - Android payment notification spend prompts:
   - Added an Android-only, explicit opt-in notification-listener path for detecting likely spend/payment notifications.
   - The feature uses Android `NotificationListenerService` and requires the user to enable Spenza in Android notification access settings; no SMS inbox permission is requested.
+  - Added a local deterministic `SpendNotificationClassifier` that classifies notification intent before amount extraction or prompting.
+  - Classifier types include expense transaction, income/refund, balance/statement, payment request, failed/pending, security/OTP, app-update/system, and unknown.
+  - Only high-confidence `EXPENSE_TRANSACTION` classifications open the quick-expense review sheet.
   - Notification text is parsed locally on-device for likely debit/spend/payment/card/UPI/POS/ATM/NACH/AutoPay/fee-style messages, including common terms such as `used`, `debited`, `spent`, `paid`, `purchase`, `withdrawn`, `charged`, `deducted`, `sent`, and `transferred`.
+  - The parser now ignores known app-store/update sources such as Google Play Store, Samsung Galaxy Store, and Amazon Appstore before amount parsing.
+  - The parser now rejects app-update, install/download, Play Protect/security-scan, backup, and sync-complete notification wording so app maintenance summaries are not treated as spends.
   - The parser ignores likely credits, refunds, cashback, reversals, salary/deposits, failed/pending/cancelled/request-only transactions, OTP/security messages, and balance/reference amount contexts.
   - The listener now reads messaging-style notification extras and no longer drops all group-summary notifications, because some SMS/payment apps expose useful text only there.
   - The native listener requests Android rebind after disconnect on Android N+ and Settings status detection now tolerates both long and short flattened listener component names.
@@ -51,7 +140,7 @@
   - Widget text and icon treatments were enlarged substantially, with app-theme light/dark background colors and tighter root/background padding.
   - Latest widget refinement makes the category actions compact, removes bordered action cards and icon badge backgrounds, and gives the landscape insight area more of the available width so the widget no longer wastes large blocks around expense-type buttons.
   - Latest widget sizing behavior follows launcher grid patterns: short height uses a 1-row action-only layout, taller height uses a 3-row daily insight + actions layout, wider 5-column placements reveal a Shopping action mapped to `Shopping/Clothing`, and the final slot is a More action.
-  - Widget More opens the native quick-expense Activity in category-picker mode, showing chip-style choices for all predefined app categories before continuing to the amount/comment form.
+  - Widget More opens the native quick-expense form directly with `Miscellaneous` selected by default; the same form now includes all category choices so users can correct the type without navigating through a separate picker screen.
   - Native expense form now uses a translucent Activity theme, a scrollable keyboard-resizing bottom sheet, a lighter dimmed backdrop, larger fields, prominent mic/save controls, and quick comment chips.
   - Native expense form mic control now uses a Lucide-style vector mic matching the Angular app, replacing the earlier emoji/text glyph.
   - Native expense form mic control is now sized/aligned to match the Save and Cancel buttons in the action row.

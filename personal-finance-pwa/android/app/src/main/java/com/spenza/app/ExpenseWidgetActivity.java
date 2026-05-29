@@ -26,7 +26,9 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
@@ -61,16 +63,26 @@ public class ExpenseWidgetActivity extends Activity {
     private SharedPreferences prefs;
     private SpeechRecognizer speechRecognizer;
     private String selectedType;
+    private String selectedAmountKind;
+    private String selectedAccountId;
     private String parsedDate;
     private double prefillAmount;
     private String prefillComment;
     private boolean openedFromSpendPrompt;
     private EditText amountInput;
     private EditText commentInput;
+    private TextView titleText;
+    private TextView eyebrowText;
+    private TextView helperText;
+    private TextView typeLabel;
     private TextView statusText;
+    private LinearLayout typeSelectorContainer;
+    private LinearLayout accountSelectorContainer;
     private ProgressBar progressBar;
     private ImageButton micButton;
+    private ThemedDropdown typeDropdown;
     private Palette palette;
+    private final ArrayList<JSONObject> activeAccounts = new ArrayList<>();
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -80,20 +92,21 @@ public class ExpenseWidgetActivity extends Activity {
         String requestedType = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_CATEGORY_EXTRA);
         prefillAmount = getIntent().getDoubleExtra(WidgetExpenseConstants.WIDGET_AMOUNT_EXTRA, 0);
         prefillComment = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA);
+        selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(
+            getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA)
+        )
+            ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
+            : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
         openedFromSpendPrompt = WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT.equals(
             getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA)
         );
-        boolean shouldPickType = WidgetExpenseConstants.TYPE_MORE.equals(requestedType);
-        selectedType = shouldPickType
+        selectedType = WidgetExpenseConstants.TYPE_MORE.equals(requestedType)
             ? WidgetExpenseConstants.TYPE_MISC
             : WidgetExpenseUtils.normalizeWidgetType(requestedType);
+        loadActiveAccounts();
         parsedDate = WidgetExpenseUtils.localDateToday();
         configureWindow();
-        if (shouldPickType) {
-            showCategoryPicker();
-        } else {
-            showExpenseForm();
-        }
+        showExpenseForm();
     }
 
     @Override
@@ -130,12 +143,6 @@ public class ExpenseWidgetActivity extends Activity {
         animateSheetIn(content);
     }
 
-    private void showCategoryPicker() {
-        View content = buildCategoryPickerContent();
-        setContentView(content);
-        animateSheetIn(content);
-    }
-
     private View buildContent() {
         FrameLayout container = new FrameLayout(this);
         container.setClipToPadding(false);
@@ -158,44 +165,68 @@ public class ExpenseWidgetActivity extends Activity {
         handleParams.gravity = Gravity.CENTER_HORIZONTAL;
         root.addView(handle, handleParams);
 
-        TextView eyebrow = new TextView(this);
-        eyebrow.setText(openedFromSpendPrompt ? "Detected spend" : "Quick expense");
-        eyebrow.setTextColor(palette.text);
-        eyebrow.setTextSize(15);
-        eyebrow.setLetterSpacing(0f);
-        eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(eyebrow, marginTop(matchWrap(), 24));
+        eyebrowText = new TextView(this);
+        eyebrowText.setText(openedFromSpendPrompt ? "Detected spend" : "Quick expense");
+        eyebrowText.setTextColor(palette.muted);
+        eyebrowText.setTextSize(12);
+        eyebrowText.setLetterSpacing(0f);
+        eyebrowText.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(eyebrowText, marginTop(matchWrap(), 24));
 
-        TextView title = new TextView(this);
-        title.setText("Add " + displayType(selectedType));
-        title.setTextColor(palette.text);
-        title.setTextSize(30);
-        title.setGravity(Gravity.START);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title, marginTop(matchWrap(), 4));
+        titleText = new TextView(this);
+        titleText.setTextColor(palette.text);
+        titleText.setTextSize(26);
+        titleText.setGravity(Gravity.START);
+        titleText.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(titleText, marginTop(matchWrap(), 4));
 
-        TextView helper = new TextView(this);
-        helper.setText(openedFromSpendPrompt
-            ? "Review the amount before saving. Nothing is logged until you tap Save."
-            : "Saved locally first. Drive sync follows automatically.");
-        helper.setTextColor(palette.muted);
-        helper.setTextSize(16);
-        root.addView(helper, marginTop(matchWrap(), 6));
+        helperText = new TextView(this);
+        helperText.setTextColor(palette.muted);
+        helperText.setTextSize(14);
+        helperText.setLineSpacing(dp(2), 1f);
+        root.addView(helperText, marginTop(matchWrap(), 6));
+
+        TextView amountKindLabel = new TextView(this);
+        amountKindLabel.setText("Amount kind");
+        amountKindLabel.setTextColor(palette.muted);
+        amountKindLabel.setTextSize(13);
+        amountKindLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(amountKindLabel, marginTop(matchWrap(), 22));
+
+        root.addView(buildAmountKindSelector(), marginTop(matchWrap(), 10));
+
+        typeLabel = new TextView(this);
+        typeLabel.setText("Expense type");
+        typeLabel.setTextColor(palette.muted);
+        typeLabel.setTextSize(13);
+        typeLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(typeLabel, marginTop(matchWrap(), 22));
+
+        typeSelectorContainer = new LinearLayout(this);
+        typeSelectorContainer.setOrientation(LinearLayout.VERTICAL);
+        typeSelectorContainer.addView(buildTypeSelector());
+        root.addView(typeSelectorContainer, marginTop(matchWrap(), 10));
+
+        accountSelectorContainer = new LinearLayout(this);
+        accountSelectorContainer.setOrientation(LinearLayout.VERTICAL);
+        accountSelectorContainer.addView(buildAccountSelector());
+        root.addView(accountSelectorContainer, marginTop(matchWrap(), 22));
 
         amountInput = new EditText(this);
         amountInput.setHint("Amount");
         amountInput.setSingleLine(true);
         amountInput.setTextColor(palette.text);
         amountInput.setHintTextColor(palette.muted);
-        amountInput.setTextSize(28);
+        amountInput.setTextSize(24);
+        amountInput.setTypeface(Typeface.DEFAULT_BOLD);
         amountInput.setPadding(dp(20), dp(10), dp(20), dp(10));
-        amountInput.setMinHeight(dp(78));
+        amountInput.setMinHeight(dp(66));
         amountInput.setBackground(inputBackground());
         amountInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         if (prefillAmount > 0) {
             amountInput.setText(String.valueOf(WidgetExpenseUtils.roundMoney(prefillAmount)));
         }
-        root.addView(amountInput, marginTop(matchWrap(), 26));
+        root.addView(amountInput, marginTop(matchWrap(), 18));
 
         commentInput = new EditText(this);
         commentInput.setHint("Comment or tap mic");
@@ -203,9 +234,9 @@ public class ExpenseWidgetActivity extends Activity {
         commentInput.setMaxLines(3);
         commentInput.setTextColor(palette.text);
         commentInput.setHintTextColor(palette.muted);
-        commentInput.setTextSize(18);
+        commentInput.setTextSize(15);
         commentInput.setPadding(dp(20), dp(10), dp(20), dp(10));
-        commentInput.setMinHeight(dp(68));
+        commentInput.setMinHeight(dp(58));
         commentInput.setBackground(inputBackground());
         commentInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         if (prefillComment != null && !prefillComment.trim().isEmpty()) {
@@ -247,6 +278,8 @@ public class ExpenseWidgetActivity extends Activity {
         statusText.setText("");
         root.addView(statusText, marginTop(matchWrap(), 8));
 
+        updateAmountKindUi();
+
         FrameLayout.LayoutParams sheetParams = new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -267,111 +300,111 @@ public class ExpenseWidgetActivity extends Activity {
         return container;
     }
 
-    private View buildCategoryPickerContent() {
-        FrameLayout container = new FrameLayout(this);
-        container.setClipToPadding(false);
-
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(false);
-        scrollView.setClipToPadding(false);
-        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-
-        int padding = dp(24);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(padding, padding, padding, padding);
-        root.setBackground(sheetBackground());
-        scrollView.addView(root, matchWrap());
-
-        View handle = new View(this);
-        handle.setBackground(handleBackground());
-        LinearLayout.LayoutParams handleParams = new LinearLayout.LayoutParams(dp(74), dp(5));
-        handleParams.gravity = Gravity.CENTER_HORIZONTAL;
-        root.addView(handle, handleParams);
-
-        TextView eyebrow = new TextView(this);
-        eyebrow.setText("Quick expense");
-        eyebrow.setTextColor(palette.text);
-        eyebrow.setTextSize(15);
-        eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(eyebrow, marginTop(matchWrap(), 24));
-
-        TextView title = new TextView(this);
-        title.setText("Choose expense type");
-        title.setTextColor(palette.text);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title, marginTop(matchWrap(), 4));
-
-        TextView helper = new TextView(this);
-        helper.setText("Pick a category, then add amount and comment.");
-        helper.setTextColor(palette.muted);
-        helper.setTextSize(15);
-        root.addView(helper, marginTop(matchWrap(), 6));
-
-        LinearLayout chipColumn = new LinearLayout(this);
-        chipColumn.setOrientation(LinearLayout.VERTICAL);
-        root.addView(chipColumn, marginTop(matchWrap(), 20));
-
-        LinearLayout row = null;
+    private View buildTypeSelector() {
+        ArrayList<DropdownOption> options = new ArrayList<>();
         for (int i = 0; i < WidgetExpenseConstants.ALLOWED_TYPES.length; i++) {
-            if (i % 2 == 0) {
-                row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                chipColumn.addView(row, i == 0 ? matchWrap() : marginTop(matchWrap(), 10));
-            }
-            if (row != null) {
-                row.addView(categoryTypeChip(WidgetExpenseConstants.ALLOWED_TYPES[i]), categoryChipParams(i % 2 == 0));
-            }
+            String value = WidgetExpenseConstants.ALLOWED_TYPES[i];
+            options.add(new DropdownOption(value, displayType(value), categoryIcon(value), categorySoftColor(value), categoryColor(value)));
         }
+        typeDropdown = new ThemedDropdown(options, selectedType, value -> {
+            selectedType = value;
+            parsedDate = WidgetExpenseUtils.localDateToday();
+            updateSelectedTypeUi();
+        });
+        return typeDropdown.view();
+    }
 
-        Button cancelButton = actionButton("Cancel");
-        styleButton(cancelButton, ButtonTone.SECONDARY);
-        cancelButton.setOnClickListener(v -> finish());
-        root.addView(cancelButton, marginTop(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)), 18));
+    private View buildAmountKindSelector() {
+        ArrayList<DropdownOption> options = new ArrayList<>();
+        options.add(new DropdownOption(
+            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE,
+            "Expense",
+            R.drawable.ic_widget_food,
+            palette.expenseSoft,
+            palette.expense
+        ));
+        options.add(new DropdownOption(
+            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT,
+            "Received",
+            R.drawable.ic_widget_misc,
+            palette.successSoft,
+            palette.success
+        ));
+        return new ThemedDropdown(options, selectedAmountKind, value -> {
+            selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(value)
+                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
+                : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+            updateAmountKindUi();
+        }).view();
+    }
 
-        FrameLayout.LayoutParams sheetParams = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM
-        );
-        container.addView(scrollView, sheetParams);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            container.setOnApplyWindowInsetsListener((view, insets) -> {
-                int keyboardBottom = insets.getInsets(WindowInsets.Type.ime()).bottom;
-                int navigationBottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
-                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scrollView.getLayoutParams();
-                params.bottomMargin = Math.max(keyboardBottom, navigationBottom);
-                params.height = FrameLayout.LayoutParams.WRAP_CONTENT;
-                scrollView.setLayoutParams(params);
-                return insets;
-            });
+    private View buildAccountSelector() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+
+        TextView label = new TextView(this);
+        label.setText("Receive into account");
+        label.setTextColor(palette.muted);
+        label.setTextSize(13);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        container.addView(label, matchWrap());
+
+        ArrayList<DropdownOption> options = new ArrayList<>();
+        for (JSONObject account : activeAccounts) {
+            options.add(new DropdownOption(
+                account.optString("id", ""),
+                account.optString("name", "Account"),
+                R.drawable.ic_widget_misc,
+                palette.accountSoft,
+                palette.account
+            ));
         }
+        if (options.isEmpty()) {
+            options.add(new DropdownOption("", "No active accounts", R.drawable.ic_widget_misc, palette.disabledSoft, palette.muted));
+        }
+        ThemedDropdown dropdown = new ThemedDropdown(options, selectedAccountId == null ? "" : selectedAccountId, value -> {
+            selectedAccountId = value == null || value.trim().isEmpty() ? null : value;
+        });
+        dropdown.setEnabled(!activeAccounts.isEmpty());
+        container.addView(dropdown.view(), marginTop(matchWrap(), 8));
         return container;
     }
 
-    private TextView categoryTypeChip(String type) {
-        TextView chip = new TextView(this);
-        chip.setText(displayType(type));
-        chip.setTextColor(palette.chipText);
-        chip.setTextSize(15);
-        chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setGravity(Gravity.CENTER);
-        chip.setSingleLine(true);
-        chip.setPadding(dp(10), 0, dp(10), 0);
-        chip.setBackground(chipBackground());
-        chip.setOnClickListener(v -> {
-            selectedType = type;
-            parsedDate = WidgetExpenseUtils.localDateToday();
-            showExpenseForm();
-        });
-        return chip;
+    private void updateSelectedTypeUi() {
+        updateAmountKindUi();
+        if (typeDropdown != null) {
+            typeDropdown.setSelectedValue(selectedType);
+        }
     }
 
-    private LinearLayout.LayoutParams categoryChipParams(boolean firstInRow) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
-        params.setMargins(firstInRow ? 0 : dp(8), 0, firstInRow ? dp(8) : 0, 0);
-        return params;
+    private int selectedTypeIndex() {
+        for (int i = 0; i < WidgetExpenseConstants.ALLOWED_TYPES.length; i++) {
+            if (WidgetExpenseConstants.ALLOWED_TYPES[i].equals(selectedType)) return i;
+        }
+        return -1;
+    }
+
+    private void updateAmountKindUi() {
+        boolean credit = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind);
+        if (eyebrowText != null) {
+            eyebrowText.setText(openedFromSpendPrompt ? (credit ? "Detected credit" : "Detected spend") : "Quick amount");
+        }
+        if (titleText != null) {
+            titleText.setText(credit ? "Add received money" : "Add " + displayType(selectedType));
+        }
+        if (helperText != null) {
+            helperText.setText(credit
+                ? "Choose the account to increase. This saves as a Finance adjustment."
+                : (openedFromSpendPrompt
+                    ? "Review the amount before saving. Nothing is logged until you tap Save."
+                    : "Saved locally first. Drive sync follows automatically."));
+        }
+        if (typeLabel != null) typeLabel.setVisibility(credit ? View.GONE : View.VISIBLE);
+        if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
+        if (accountSelectorContainer != null) accountSelectorContainer.setVisibility(credit ? View.VISIBLE : View.GONE);
+        if (micButton != null) {
+            micButton.setContentDescription(credit ? "Record voice note" : "Record voice expense");
+        }
     }
 
     private Button actionButton(String label) {
@@ -459,8 +492,38 @@ public class ExpenseWidgetActivity extends Activity {
     private GradientDrawable inputBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(palette.input);
-        drawable.setCornerRadius(dp(28));
+        drawable.setCornerRadius(dp(18));
         drawable.setStroke(dp(1), palette.stroke);
+        return drawable;
+    }
+
+    private GradientDrawable selectBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(palette.control);
+        drawable.setCornerRadius(dp(18));
+        drawable.setStroke(dp(1), palette.stroke);
+        return drawable;
+    }
+
+    private GradientDrawable dropdownPanelBackground() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(palette.popover);
+        drawable.setCornerRadius(dp(18));
+        drawable.setStroke(dp(1), palette.stroke);
+        return drawable;
+    }
+
+    private GradientDrawable dropdownRowBackground(boolean selected) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(selected ? palette.primaryStart : Color.TRANSPARENT);
+        drawable.setCornerRadius(dp(14));
+        return drawable;
+    }
+
+    private GradientDrawable iconBadgeBackground(int color) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(12));
         return drawable;
     }
 
@@ -471,7 +534,7 @@ public class ExpenseWidgetActivity extends Activity {
                 ? new int[] { palette.primaryStart, palette.primaryEnd }
                 : new int[] { palette.secondary, palette.secondary }
         );
-        normal.setCornerRadius(dp(24));
+        normal.setCornerRadius(dp(16));
         normal.setStroke(dp(1), tone == ButtonTone.PRIMARY ? 0x44FFFFFF : palette.stroke);
         button.setTextColor(tone == ButtonTone.PRIMARY ? Color.WHITE : palette.primaryStart);
         button.setBackground(new RippleDrawable(
@@ -677,6 +740,7 @@ public class ExpenseWidgetActivity extends Activity {
         String parsedType = WidgetExpenseUtils.normalizeWidgetType(expense.optString("type", selectedType));
         selectedType = parsedType;
         parsedDate = expense.optString("date", WidgetExpenseUtils.localDateToday());
+        updateSelectedTypeUi();
 
         String parsedComment = expense.optString("comment", "").trim();
         if (!parsedComment.isEmpty()) {
@@ -699,6 +763,11 @@ public class ExpenseWidgetActivity extends Activity {
             return;
         }
 
+        if (WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
+            saveCredit(amount);
+            return;
+        }
+
         try {
             JSONObject entry = WidgetExpenseUtils.buildExpenseEntry(
                 prefs,
@@ -716,6 +785,54 @@ public class ExpenseWidgetActivity extends Activity {
         }
     }
 
+    private void saveCredit(double amount) {
+        if (selectedAccountId == null || selectedAccountId.trim().isEmpty()) {
+            toast(activeAccounts.isEmpty() ? "Add an account in Finances first." : "Choose an account.");
+            return;
+        }
+
+        try {
+            JSONObject adjustment = WidgetExpenseUtils.buildAccountAdjustment(
+                prefs,
+                selectedAccountId,
+                amount,
+                commentInput.getText().toString()
+            );
+            WidgetExpenseQueue.enqueueAdjustment(this, adjustment);
+            ExpenseWidgetProvider.updateAll(this);
+            toast("Credit queued for account adjustment.");
+            finishWithAnimation();
+        } catch (JSONException error) {
+            toast("Could not queue credit.");
+        }
+    }
+
+    private void loadActiveAccounts() {
+        activeAccounts.clear();
+        JSONArray accounts = WidgetExpenseUtils.activeAccounts(prefs);
+        int defaultIndex = -1;
+        for (int i = 0; i < accounts.length(); i++) {
+            JSONObject account = accounts.optJSONObject(i);
+            if (account == null) continue;
+            activeAccounts.add(account);
+            if (account.optBoolean("isDefault", false)) defaultIndex = activeAccounts.size() - 1;
+        }
+        if (activeAccounts.isEmpty()) {
+            selectedAccountId = null;
+            return;
+        }
+        JSONObject selected = activeAccounts.get(defaultIndex >= 0 ? defaultIndex : 0);
+        selectedAccountId = selected.optString("id", null);
+    }
+
+    private int selectedAccountIndex() {
+        if (selectedAccountId == null) return activeAccounts.isEmpty() ? -1 : 0;
+        for (int i = 0; i < activeAccounts.size(); i++) {
+            if (selectedAccountId.equals(activeAccounts.get(i).optString("id", null))) return i;
+        }
+        return activeAccounts.isEmpty() ? -1 : 0;
+    }
+
     private String activeGeminiKey() {
         String raw = prefs.getString(WidgetExpenseConstants.AI_SETTINGS_KEY, null);
         if (raw == null) return null;
@@ -730,6 +847,9 @@ public class ExpenseWidgetActivity extends Activity {
     }
 
     private String currentCurrency() {
+        String savedCurrency = prefs.getString(WidgetExpenseConstants.CURRENCY_KEY, null);
+        if (savedCurrency != null && !savedCurrency.trim().isEmpty()) return savedCurrency;
+
         String raw = prefs.getString(WidgetExpenseConstants.LOCAL_BACKUP_CACHE_KEY, null);
         if (raw != null) {
             try {
@@ -816,10 +936,229 @@ public class ExpenseWidgetActivity extends Activity {
         return type;
     }
 
+    private int categoryIcon(String type) {
+        if (WidgetExpenseConstants.TYPE_FOOD.equals(type) || WidgetExpenseConstants.TYPE_DINING.equals(type)) {
+            return R.drawable.ic_widget_food;
+        }
+        if (WidgetExpenseConstants.TYPE_TRANSPORT.equals(type)) return R.drawable.ic_widget_transport;
+        if (WidgetExpenseConstants.TYPE_ENTERTAINMENT.equals(type)) return R.drawable.ic_widget_entertainment;
+        if (WidgetExpenseConstants.TYPE_SHOPPING.equals(type)) return R.drawable.ic_widget_shopping;
+        return R.drawable.ic_widget_misc;
+    }
+
+    private int categoryColor(String type) {
+        if (WidgetExpenseConstants.TYPE_FOOD.equals(type) || WidgetExpenseConstants.TYPE_DINING.equals(type)) return palette.food;
+        if (WidgetExpenseConstants.TYPE_TRANSPORT.equals(type)) return palette.transport;
+        if (WidgetExpenseConstants.TYPE_ENTERTAINMENT.equals(type)) return palette.entertainment;
+        if (WidgetExpenseConstants.TYPE_SHOPPING.equals(type)) return palette.shopping;
+        if (WidgetExpenseConstants.TYPE_SAVINGS.equals(type) || WidgetExpenseConstants.TYPE_INVESTMENTS.equals(type)) return palette.success;
+        return palette.misc;
+    }
+
+    private int categorySoftColor(String type) {
+        if (WidgetExpenseConstants.TYPE_FOOD.equals(type) || WidgetExpenseConstants.TYPE_DINING.equals(type)) return palette.foodSoft;
+        if (WidgetExpenseConstants.TYPE_TRANSPORT.equals(type)) return palette.transportSoft;
+        if (WidgetExpenseConstants.TYPE_ENTERTAINMENT.equals(type)) return palette.entertainmentSoft;
+        if (WidgetExpenseConstants.TYPE_SHOPPING.equals(type)) return palette.shoppingSoft;
+        if (WidgetExpenseConstants.TYPE_SAVINGS.equals(type) || WidgetExpenseConstants.TYPE_INVESTMENTS.equals(type)) return palette.successSoft;
+        return palette.miscSoft;
+    }
+
+    private ImageView iconView(int drawableId, int tint) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawableId);
+        icon.setColorFilter(tint);
+        icon.setScaleType(ImageView.ScaleType.CENTER);
+        return icon;
+    }
+
+    private TextView chevronView() {
+        TextView chevron = new TextView(this);
+        chevron.setText("⌄");
+        chevron.setTextColor(palette.muted);
+        chevron.setTextSize(22);
+        chevron.setGravity(Gravity.CENTER);
+        chevron.setTypeface(Typeface.DEFAULT_BOLD);
+        return chevron;
+    }
+
+    private interface DropdownSelectionListener {
+        void onSelected(String value);
+    }
+
+    private final class ThemedDropdown {
+        private final ArrayList<DropdownOption> options;
+        private final DropdownSelectionListener listener;
+        private final LinearLayout trigger;
+        private final TextView selectedLabel;
+        private final ImageView selectedIcon;
+        private final TextView chevron;
+        private PopupWindow popup;
+        private String selectedValue;
+        private boolean enabled = true;
+
+        ThemedDropdown(ArrayList<DropdownOption> options, String selectedValue, DropdownSelectionListener listener) {
+            this.options = options;
+            this.selectedValue = selectedValue == null ? "" : selectedValue;
+            this.listener = listener;
+            trigger = new LinearLayout(ExpenseWidgetActivity.this);
+            trigger.setOrientation(LinearLayout.HORIZONTAL);
+            trigger.setGravity(Gravity.CENTER_VERTICAL);
+            trigger.setPadding(dp(14), dp(8), dp(12), dp(8));
+            trigger.setMinimumHeight(dp(54));
+            trigger.setBackground(selectBackground());
+            trigger.setClickable(true);
+            trigger.setFocusable(true);
+
+            FrameLayout badge = new FrameLayout(ExpenseWidgetActivity.this);
+            selectedIcon = iconView(R.drawable.ic_widget_misc, palette.primaryStart);
+            badge.setBackground(iconBadgeBackground(palette.primarySoft));
+            badge.addView(selectedIcon, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+            LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+            badgeParams.setMargins(0, 0, dp(12), 0);
+            trigger.addView(badge, badgeParams);
+
+            selectedLabel = new TextView(ExpenseWidgetActivity.this);
+            selectedLabel.setTextColor(palette.text);
+            selectedLabel.setTextSize(14);
+            selectedLabel.setTypeface(Typeface.DEFAULT_BOLD);
+            selectedLabel.setSingleLine(true);
+            selectedLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            trigger.addView(selectedLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+            chevron = chevronView();
+            trigger.addView(chevron, new LinearLayout.LayoutParams(dp(28), dp(32)));
+
+            trigger.setOnClickListener(v -> {
+                if (enabled) showPopup();
+            });
+            applySelectedOption();
+        }
+
+        View view() {
+            return trigger;
+        }
+
+        void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+            trigger.setEnabled(enabled);
+            trigger.setAlpha(enabled ? 1f : 0.58f);
+        }
+
+        void setSelectedValue(String value) {
+            this.selectedValue = value == null ? "" : value;
+            applySelectedOption();
+        }
+
+        private void applySelectedOption() {
+            DropdownOption option = selectedOption();
+            if (option == null && !options.isEmpty()) option = options.get(0);
+            if (option == null) return;
+            selectedLabel.setText(option.label);
+            selectedIcon.setImageResource(option.iconResId);
+            selectedIcon.setColorFilter(option.iconTint);
+            View badge = (View) selectedIcon.getParent();
+            badge.setBackground(iconBadgeBackground(option.iconBackground));
+        }
+
+        private DropdownOption selectedOption() {
+            for (DropdownOption option : options) {
+                if (option.value.equals(selectedValue)) return option;
+            }
+            return null;
+        }
+
+        private void showPopup() {
+            LinearLayout list = new LinearLayout(ExpenseWidgetActivity.this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            list.setPadding(dp(6), dp(6), dp(6), dp(6));
+            list.setBackground(dropdownPanelBackground());
+
+            for (DropdownOption option : options) {
+                list.addView(row(option), new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+            }
+
+            ScrollView popupScroll = new ScrollView(ExpenseWidgetActivity.this);
+            popupScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+            popupScroll.addView(list, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
+            int visibleRows = Math.min(options.size(), 5);
+            int popupHeight = dp((visibleRows * 48) + 12);
+            popup = new PopupWindow(popupScroll, trigger.getWidth(), popupHeight, true);
+            popup.setOutsideTouchable(true);
+            popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) popup.setElevation(dp(14));
+            chevron.animate().rotation(180f).setDuration(140).start();
+            popup.setOnDismissListener(() -> chevron.animate().rotation(0f).setDuration(140).start());
+            popup.showAsDropDown(trigger, 0, dp(8));
+        }
+
+        private View row(DropdownOption option) {
+            boolean selected = option.value.equals(selectedValue);
+            LinearLayout row = new LinearLayout(ExpenseWidgetActivity.this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8), 0, dp(8), 0);
+            row.setBackground(dropdownRowBackground(selected));
+            row.setClickable(true);
+
+            FrameLayout badge = new FrameLayout(ExpenseWidgetActivity.this);
+            ImageView icon = iconView(option.iconResId, selected ? Color.WHITE : option.iconTint);
+            badge.setBackground(iconBadgeBackground(selected ? 0x22FFFFFF : option.iconBackground));
+            badge.addView(icon, new FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER));
+            LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+            badgeParams.setMargins(0, 0, dp(12), 0);
+            row.addView(badge, badgeParams);
+
+            TextView label = new TextView(ExpenseWidgetActivity.this);
+            label.setText(option.label);
+            label.setTextSize(14);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setSingleLine(true);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            label.setTextColor(selected ? Color.WHITE : palette.text);
+            row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView check = new TextView(ExpenseWidgetActivity.this);
+            check.setText(selected ? "✓" : "");
+            check.setTextSize(16);
+            check.setTypeface(Typeface.DEFAULT_BOLD);
+            check.setTextColor(Color.WHITE);
+            check.setGravity(Gravity.CENTER);
+            row.addView(check, new LinearLayout.LayoutParams(dp(26), LinearLayout.LayoutParams.MATCH_PARENT));
+
+            row.setOnClickListener(v -> {
+                selectedValue = option.value;
+                applySelectedOption();
+                listener.onSelected(option.value);
+                if (popup != null) popup.dismiss();
+            });
+            return row;
+        }
+    }
+
+    private static final class DropdownOption {
+        final String value;
+        final String label;
+        final int iconResId;
+        final int iconBackground;
+        final int iconTint;
+
+        DropdownOption(String value, String label, int iconResId, int iconBackground, int iconTint) {
+            this.value = value == null ? "" : value;
+            this.label = label;
+            this.iconResId = iconResId;
+            this.iconBackground = iconBackground;
+            this.iconTint = iconTint;
+        }
+    }
+
     private static final class Palette {
         final int backgroundStart;
         final int backgroundEnd;
         final int surface;
+        final int popover;
+        final int control;
         final int input;
         final int secondary;
         final int text;
@@ -827,15 +1166,35 @@ public class ExpenseWidgetActivity extends Activity {
         final int stroke;
         final int primaryStart;
         final int primaryEnd;
+        final int primarySoft;
         final int ripple;
         final int chip;
         final int chipStroke;
         final int chipText;
+        final int food;
+        final int transport;
+        final int entertainment;
+        final int shopping;
+        final int misc;
+        final int success;
+        final int expense;
+        final int account;
+        final int foodSoft;
+        final int transportSoft;
+        final int entertainmentSoft;
+        final int shoppingSoft;
+        final int miscSoft;
+        final int successSoft;
+        final int expenseSoft;
+        final int accountSoft;
+        final int disabledSoft;
 
         private Palette(
             int backgroundStart,
             int backgroundEnd,
             int surface,
+            int popover,
+            int control,
             int input,
             int secondary,
             int text,
@@ -843,14 +1202,34 @@ public class ExpenseWidgetActivity extends Activity {
             int stroke,
             int primaryStart,
             int primaryEnd,
+            int primarySoft,
             int ripple,
             int chip,
             int chipStroke,
-            int chipText
+            int chipText,
+            int food,
+            int transport,
+            int entertainment,
+            int shopping,
+            int misc,
+            int success,
+            int expense,
+            int account,
+            int foodSoft,
+            int transportSoft,
+            int entertainmentSoft,
+            int shoppingSoft,
+            int miscSoft,
+            int successSoft,
+            int expenseSoft,
+            int accountSoft,
+            int disabledSoft
         ) {
             this.backgroundStart = backgroundStart;
             this.backgroundEnd = backgroundEnd;
             this.surface = surface;
+            this.popover = popover;
+            this.control = control;
             this.input = input;
             this.secondary = secondary;
             this.text = text;
@@ -858,10 +1237,28 @@ public class ExpenseWidgetActivity extends Activity {
             this.stroke = stroke;
             this.primaryStart = primaryStart;
             this.primaryEnd = primaryEnd;
+            this.primarySoft = primarySoft;
             this.ripple = ripple;
             this.chip = chip;
             this.chipStroke = chipStroke;
             this.chipText = chipText;
+            this.food = food;
+            this.transport = transport;
+            this.entertainment = entertainment;
+            this.shopping = shopping;
+            this.misc = misc;
+            this.success = success;
+            this.expense = expense;
+            this.account = account;
+            this.foodSoft = foodSoft;
+            this.transportSoft = transportSoft;
+            this.entertainmentSoft = entertainmentSoft;
+            this.shoppingSoft = shoppingSoft;
+            this.miscSoft = miscSoft;
+            this.successSoft = successSoft;
+            this.expenseSoft = expenseSoft;
+            this.accountSoft = accountSoft;
+            this.disabledSoft = disabledSoft;
         }
 
         static Palette from(boolean dark) {
@@ -870,22 +1267,44 @@ public class ExpenseWidgetActivity extends Activity {
                     Color.rgb(17, 24, 39),
                     Color.rgb(32, 19, 57),
                     Color.rgb(30, 41, 59),
-                    Color.argb(115, 255, 255, 255),
+                    Color.rgb(24, 32, 48),
+                    Color.argb(42, 255, 255, 255),
+                    Color.argb(32, 255, 255, 255),
                     Color.rgb(39, 50, 72),
                     Color.rgb(248, 250, 252),
                     Color.rgb(203, 213, 225),
                     Color.rgb(62, 51, 90),
                     Color.rgb(167, 139, 250),
                     Color.rgb(232, 121, 249),
+                    Color.argb(42, 167, 139, 250),
                     Color.argb(38, 255, 255, 255),
                     Color.rgb(32, 64, 76),
                     Color.rgb(65, 118, 136),
-                    Color.rgb(170, 230, 240)
+                    Color.rgb(170, 230, 240),
+                    Color.rgb(88, 217, 154),
+                    Color.rgb(103, 199, 255),
+                    Color.rgb(208, 120, 255),
+                    Color.rgb(249, 168, 212),
+                    Color.rgb(185, 192, 202),
+                    Color.rgb(99, 230, 160),
+                    Color.rgb(248, 113, 113),
+                    Color.rgb(103, 199, 255),
+                    Color.rgb(23, 70, 53),
+                    Color.rgb(23, 59, 94),
+                    Color.rgb(59, 33, 94),
+                    Color.rgb(88, 33, 63),
+                    Color.rgb(32, 58, 64),
+                    Color.rgb(20, 83, 45),
+                    Color.rgb(90, 39, 39),
+                    Color.rgb(23, 59, 94),
+                    Color.rgb(48, 55, 70)
                 );
             }
             return new Palette(
                 Color.rgb(250, 251, 255),
                 Color.rgb(242, 236, 255),
+                Color.rgb(255, 255, 255),
+                Color.rgb(255, 255, 255),
                 Color.rgb(255, 255, 255),
                 Color.rgb(248, 250, 255),
                 Color.rgb(240, 236, 255),
@@ -894,10 +1313,28 @@ public class ExpenseWidgetActivity extends Activity {
                 Color.rgb(229, 224, 245),
                 Color.rgb(109, 93, 251),
                 Color.rgb(178, 87, 246),
+                Color.argb(28, 109, 93, 251),
                 Color.argb(38, 109, 93, 251),
                 Color.rgb(226, 247, 252),
                 Color.rgb(181, 226, 235),
-                Color.rgb(13, 103, 123)
+                Color.rgb(13, 103, 123),
+                Color.rgb(50, 183, 123),
+                Color.rgb(65, 168, 245),
+                Color.rgb(168, 85, 247),
+                Color.rgb(244, 114, 182),
+                Color.rgb(123, 129, 144),
+                Color.rgb(34, 197, 94),
+                Color.rgb(239, 68, 68),
+                Color.rgb(65, 168, 245),
+                Color.rgb(221, 248, 233),
+                Color.rgb(220, 238, 255),
+                Color.rgb(238, 219, 255),
+                Color.rgb(255, 224, 240),
+                Color.rgb(238, 241, 246),
+                Color.rgb(220, 252, 231),
+                Color.rgb(254, 226, 226),
+                Color.rgb(220, 238, 255),
+                Color.rgb(241, 245, 249)
             );
         }
     }
