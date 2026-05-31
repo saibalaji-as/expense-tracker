@@ -86,9 +86,6 @@ export class AuthService {
         google: {
           // webClientId is required by the plugin on Android for token verification
           webClientId: '335358015393-9jek528175b4030m56oro1si8vknvlvu.apps.googleusercontent.com',
-          // Android OAuth Client ID created in Google Cloud Console
-          // Package: com.spenza.app | SHA-1: A9:87:C7:2A:58:35:B4:AA:AE:13:F7:84:99:EF:91:45:4D:9A:C4:9B
-          iOSServerClientId: '335358015393-vp8s227vqliul2vseqo7t6i1brgas95v.apps.googleusercontent.com',
         },
       }).catch((err) => console.error('SocialLogin.initialize failed:', err));
     }

@@ -339,5 +339,5 @@ describe('LocalNotificationService E2E Integration Tests', () => {
  * 5. Browser notification API fallback
  * 6. Permission dialog appearance and handling
  * 
- * Refer to LOCAL_NOTIFICATIONS_E2E_TEST.md for manual testing checklist.
+ * Refer to ../docs/README.md for manual notification testing guidance.
  */

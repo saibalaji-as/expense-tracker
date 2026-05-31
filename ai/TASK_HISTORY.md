@@ -1,5 +1,46 @@
 # Task History
 
+## 2026-05-31 - Documentation Consolidation And Workspace Cleanup
+- Consolidated useful human-facing setup, build, Android signing, Netlify environment, notification, family backup, logo, and generated-directory guidance into `docs/README.md`.
+- Removed stale feature-completion diaries, phase-status guides, duplicate troubleshooting notes, and the superseded app-root Angular CLI README.
+- Preserved required structural documentation: `AGENTS.md`, `.github/copilot-instructions.md`, `drive-ai.md`, and `ai/*.md`.
+- Updated `setup-android-fixes.sh` to point at the consolidated guide.
+- Decision:
+  - Keep runtime directories intact because Angular, Android, Netlify, Git, and AI workflow tooling depend on their structure.
+  - Workspace cleanup may delete ignored build caches and dependencies, which can be regenerated with `npm ci`, `npm run build`, and `npx cap sync android`.
+
+## 2026-05-31 - Android APK Signature Mismatch And Native Google Login Diagnosis
+- User reported that Android rejected an APK update with a package mismatch, then Google login failed with `Google sign-in cancelled by user` after uninstalling the old app and installing the new APK.
+- Diagnosis:
+  - Package ID is still `com.spenza.app`; the update rejection was a signing-certificate mismatch, not a package-name change.
+  - Gradle has no release signing configuration, so debug APKs use the machine-local `~/.android/debug.keystore`.
+  - The current debug APK signer SHA-1 is `D0:48:3A:CC:04:57:A2:24:0E:53:91:05:8B:15:31:04:02:15:0A:50`.
+  - The old expected SHA-1 documented in source was `A9:87:C7:2A:58:35:B4:AA:AE:13:F7:84:99:EF:91:45:4D:9A:C4:9B`, and that signing keystore is not present on this machine.
+  - Native Google login requires a Google Cloud Android OAuth client for package `com.spenza.app` whose SHA-1 matches the exact installed APK signer.
+- Fix:
+  - Removed the stale Android OAuth client ID incorrectly passed through the plugin's iOS-only `iOSServerClientId` field.
+  - Updated `capacitor.config.ts` comments to describe the real native Google OAuth requirement.
+  - Added APK signing, signer verification, stable-keystore, and Google OAuth SHA-1 guidance, now consolidated in `docs/README.md`.
+
+## 2026-05-31 - Native Widget Expense Finance-Account Deduction
+- User reported that native widget expenses logged correctly but did not reduce the finance account balance until the expense was edited later in the app.
+- Diagnosis:
+  - The widget dialog loaded the default finance account for received-money adjustments but omitted `accountId` from expense entries.
+  - Android WorkManager merged queued expense rows without applying linked-account balance deltas.
+  - Angular `ExpenseStore.flushPendingWidgetExpenses()` also added queued expense rows without applying linked-account deltas when the app consumed the queue first.
+  - Editing the expense later through Daily selected an account and ran the normal `updateEntry()` reversal/apply logic, making the missing deduction appear.
+- Fix:
+  - Expense mode now shows a `Pay from account` dropdown using the default active account initially.
+  - Native widget expense entries include the selected `accountId` when available.
+  - Android WorkManager deducts linked widget expenses atomically while merging them by ID.
+  - Angular widget queue flush applies the same linked-account deduction when it wins the queue race.
+  - Missing, archived, and insufficient-balance account cases remain queued rather than partially merging.
+- Verification:
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `./node_modules/.bin/tsc --noEmit -p tsconfig.app.json`.
+  - Ran `npx vitest run src/app/core/services/expense-store.service.spec.ts`.
+  - Ran `graphify update .`.
+
 ## 2026-05-31 - Graphify And Persistent AI Memory Integration
 - Added a two-layer AI context workflow:
   - `ai/*.md` remains the curated source for durable product rules, architecture decisions, current state, and historical reasoning.

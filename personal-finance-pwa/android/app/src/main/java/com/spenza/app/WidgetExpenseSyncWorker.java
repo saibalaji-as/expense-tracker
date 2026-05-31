@@ -133,6 +133,10 @@ public class WidgetExpenseSyncWorker extends Worker {
                     if (entry == null) entry = queuedItem;
                     String id = entry.optString("id", "");
                     if (!id.isEmpty() && !existingIds.contains(id)) {
+                        if (!applyLinkedExpense(accounts, entry)) {
+                            remaining.add(queuedItem);
+                            continue;
+                        }
                         mergedExpenses.put(entry);
                         existingIds.add(id);
                     }
@@ -162,6 +166,30 @@ public class WidgetExpenseSyncWorker extends Worker {
             Log.e(TAG, "Widget expense sync failed.", error);
             return Result.retry();
         }
+    }
+
+    private static boolean applyLinkedExpense(JSONArray accounts, JSONObject entry) throws JSONException {
+        String accountId = entry.optString("accountId", "");
+        if (accountId.isEmpty()) return true;
+
+        double amount = WidgetExpenseUtils.roundMoney(entry.optDouble("amount", 0));
+        if (amount <= 0) return false;
+
+        for (int i = 0; i < accounts.length(); i++) {
+            JSONObject account = accounts.optJSONObject(i);
+            if (account == null || !accountId.equals(account.optString("id", "")) || account.optBoolean("archived", false)) {
+                continue;
+            }
+            double nextBalance = WidgetExpenseUtils.roundMoney(account.optDouble("balance", 0) - amount);
+            if (!account.optBoolean("allowOverdraft", false) && nextBalance < 0) return false;
+
+            account.put("balance", nextBalance);
+            account.put("updatedAt", WidgetExpenseUtils.isoNow());
+            if (entry.has("createdByEmail")) account.put("updatedByEmail", entry.optString("createdByEmail"));
+            if (entry.has("createdByRole")) account.put("updatedByRole", entry.optString("createdByRole"));
+            return true;
+        }
+        return false;
     }
 
     private static boolean applyAccountAdjustment(JSONArray accounts, JSONObject adjustment) throws JSONException {

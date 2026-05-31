@@ -29,6 +29,16 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Android APK signing and native Google-login diagnosis:
+  - Current debug APKs use the machine-local `~/.android/debug.keystore`; no release signing configuration is present in Gradle.
+  - The current machine debug signer SHA-1 is `D0:48:3A:CC:04:57:A2:24:0E:53:91:05:8B:15:31:04:02:15:0A:50`.
+  - Native Google sign-in requires a Google Cloud Android OAuth client for `com.spenza.app` with the exact installed APK signer SHA-1.
+  - Removed a stale Android OAuth client ID incorrectly passed through the iOS-only `iOSServerClientId` option and documented signer checks in `docs/README.md`.
+- Native widget finance-account deduction:
+  - Expense mode now shows a `Pay from account` dropdown, preselected to the default active finance account when available.
+  - Native widget expense queue entries carry the selected `accountId`.
+  - Both Android WorkManager sync and Angular `ExpenseStore.flushPendingWidgetExpenses()` deduct linked widget expenses exactly once when consuming the queue.
+  - Linked widget expenses that cannot be applied because the account is missing, archived, or lacks sufficient balance remain queued instead of being partially merged.
 - Native widget insight refresh after app-side finance changes:
   - Added `ExpenseWidgetPlugin` with a `refresh()` bridge method that calls `ExpenseWidgetProvider.updateAll()`.
   - Registered the plugin in `MainActivity`.
@@ -574,6 +584,9 @@
   - `npm run build` passed.
 
 ## Immediate Next Steps
+- Human-facing project documentation has been consolidated into `docs/README.md`.
+  - Historical feature-completion, phase-status, and duplicate troubleshooting Markdown files were removed.
+  - Required AI workflow files remain in their structural locations: `AGENTS.md`, `.github/copilot-instructions.md`, `drive-ai.md`, and `ai/*.md`.
 - Commit or otherwise preserve the new `ai/*.md` memory files.
 - For future feature work:
   - Start by reading `ai/AI_RULES.md` and `ai/PROJECT_CONTEXT.md`.

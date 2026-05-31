@@ -59,7 +59,7 @@
 
 ## Runtime Configuration
 - Web OAuth client ID is currently injected in `src/index.html` through `window.__GOOGLE_CLIENT_ID__`.
-- Native Google OAuth client IDs are hardcoded in `AuthService`/`capacitor.config.ts` comments.
+- Native Google sign-in initializes the plugin with the Web OAuth client ID from `AuthService`. Google Cloud must also contain an Android OAuth client for package `com.spenza.app` whose SHA-1 matches the exact APK signer.
 - Firebase web config and VAPID key are in `src/app/core/config/firebase.config.ts`.
 - Netlify required environment variables:
   - `FIREBASE_PROJECT_ID`
@@ -151,10 +151,11 @@
   - If Gemini is unavailable/missing, typed or spoken comment remains and amount can be entered manually.
 - Widget sync behavior:
   - Saves confirmed widget expenses and received-money account adjustments to local queue first.
+  - Widget expense entries include the selected payment account when active finance accounts exist; the native dialog preselects the default account and lets the user change it.
   - Queue items carry `kind: 'expense'` with an `entry` or `kind: 'adjustment'` with an account-balance `adjustment`.
   - Sync reads active backup mode/config from Capacitor Preferences.
   - Family mode writes to cached `spenza_shared_file_id`; single mode uses local backup snapshot file ID or discovers `spenza-backup.json` in `appDataFolder`.
-  - Merges queued expenses into Drive backup JSON by `id`; queued adjustments increase the selected account balance and append to `accountAdjustments` by `id`.
+  - Merges queued expenses into Drive backup JSON by `id`; linked widget expenses deduct the selected account balance exactly once, while queued adjustments increase the selected account balance and append to `accountAdjustments` by `id`.
   - Updates `lastUpdated` and refreshes `spenza_drive_backup_snapshot_v1` after successful Drive write.
   - Queue items are tagged with the Google email active at queue time and are not synced into a different active account.
   - Android WorkManager background sync is best-effort and may be delayed by the OS.

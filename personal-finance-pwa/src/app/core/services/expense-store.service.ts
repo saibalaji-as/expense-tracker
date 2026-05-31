@@ -542,20 +542,37 @@ export const ExpenseStore = signalStore(
       if (activeItems.length === 0) return false;
 
       const existingIds = new Set(store.entries().map((entry) => entry.id));
-      const newEntries = activeItems
-        .filter((item): item is WidgetExpenseEntryQueueItem => item.kind === 'expense')
-        .map((item) => item.entry)
-        .filter((entry) => {
-          if (existingIds.has(entry.id)) return false;
-          existingIds.add(entry.id);
-          return true;
-        });
+      const newEntries: ExpenseEntry[] = [];
       const existingAdjustmentIds = new Set(store.accountAdjustments().map((adjustment) => adjustment.id));
-      const nextAccounts = [...store.accounts()];
+      let nextAccounts = [...store.accounts()];
       const newAdjustments: AccountBalanceAdjustment[] = [];
 
       for (const item of activeItems) {
-        if (item.kind !== 'adjustment') continue;
+        if (item.kind === 'expense') {
+          const entry = item.entry;
+          if (existingIds.has(entry.id)) continue;
+
+          if (entry.accountId) {
+            const account = nextAccounts.find(
+              (candidate) => candidate.id === entry.accountId && !candidate.archived
+            );
+            if (!account) {
+              remainingRawItems.push(item.raw);
+              continue;
+            }
+            const nextBalance = roundMoney(account.balance - entry.amount);
+            if (!account.allowOverdraft && nextBalance < 0) {
+              remainingRawItems.push(item.raw);
+              continue;
+            }
+          }
+
+          nextAccounts = applyAccountDeltas(nextAccounts, accountDeltasForAddedEntries([entry]));
+          newEntries.push(entry);
+          existingIds.add(entry.id);
+          continue;
+        }
+
         const adjustment = item.adjustment;
         if (existingAdjustmentIds.has(adjustment.id)) continue;
         const accountIndex = nextAccounts.findIndex(

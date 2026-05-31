@@ -30,7 +30,14 @@ final class WidgetExpenseUtils {
         return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.getTime());
     }
 
-    static JSONObject buildExpenseEntry(SharedPreferences prefs, String type, double amount, String comment, String date) throws JSONException {
+    static JSONObject buildExpenseEntry(
+        SharedPreferences prefs,
+        String type,
+        double amount,
+        String comment,
+        String date,
+        String accountId
+    ) throws JSONException {
         JSONObject entry = new JSONObject();
         double limit = calculateDailyLimit(prefs, type, date);
         String email = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
@@ -44,6 +51,7 @@ final class WidgetExpenseUtils {
         entry.put("savings", roundMoney(limit - amount));
         entry.put("timestamp", isoNow());
         if (comment != null && !comment.trim().isEmpty()) entry.put("comment", comment.trim());
+        if (accountId != null && !accountId.trim().isEmpty()) entry.put("accountId", accountId.trim());
         if (email != null && !email.trim().isEmpty()) entry.put("createdByEmail", email);
         if (role != null && !role.trim().isEmpty()) entry.put("createdByRole", role);
         return entry;

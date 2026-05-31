@@ -65,6 +65,7 @@
 - Preserve full Drive scope unless a deliberate auth redesign is made:
   - Family partner access depends on shared-file/folder access.
 - Preserve `SCOPE_VERSION` behavior when changing scopes.
+- Keep one stable Android signing keystore for distributed APK updates. Before testing native Google sign-in, register the exact final APK signer SHA-1 with the Google Cloud Android OAuth client for `com.spenza.app`; do not rely on machine-specific debug keystores for production updates.
 - Drive errors should include operation context and flow through `driveError$` when user-visible.
 - Returning users with a valid local backup snapshot should not be blocked on Drive bootstrap before entering the app.
 - Keep Drive JSON as authoritative, but maintain the local backup snapshot (`spenza_drive_backup_snapshot_v1`) for fast startup and offline read access.
@@ -262,6 +263,7 @@
   - The widget should be hideable by disabling/removing `ExpenseWidgetProvider` and `ExpenseWidgetActivity` manifest entries.
 - Widget expenses must queue locally first under `spenza_widget_expense_queue_v1`; never block user confirmation on Drive/network.
 - Widget sync must merge into the same Drive backup JSON schema as `ExpenseStore` and dedupe by expense `id`.
+- When active finance accounts exist, native widget expenses must carry the selected/default `accountId`; both Android WorkManager sync and the Angular queue flush must apply the linked expense deduction exactly once and keep rejected items queued.
 - Because Android WorkManager can delay background jobs, the Angular `ExpenseStore` must also flush current-account pending widget queue entries during cached startup, Drive bootstrap, and Drive refresh.
 - Widget queue entries must be tagged with the active Google email and must not sync into a different active account after account switching.
 - Widget sync may use cached native access tokens written by `AuthService`, but if the token is missing/expired/rejected it must keep the queue rather than prompting login or launching the full app.

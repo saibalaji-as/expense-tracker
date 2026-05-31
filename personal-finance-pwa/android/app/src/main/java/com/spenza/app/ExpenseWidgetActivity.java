@@ -78,6 +78,7 @@ public class ExpenseWidgetActivity extends Activity {
     private TextView statusText;
     private LinearLayout typeSelectorContainer;
     private LinearLayout accountSelectorContainer;
+    private TextView accountLabel;
     private ProgressBar progressBar;
     private ImageButton micButton;
     private ThemedDropdown typeDropdown;
@@ -342,12 +343,12 @@ public class ExpenseWidgetActivity extends Activity {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
 
-        TextView label = new TextView(this);
-        label.setText("Receive into account");
-        label.setTextColor(palette.muted);
-        label.setTextSize(13);
-        label.setTypeface(Typeface.DEFAULT_BOLD);
-        container.addView(label, matchWrap());
+        accountLabel = new TextView(this);
+        accountLabel.setText("Pay from account");
+        accountLabel.setTextColor(palette.muted);
+        accountLabel.setTextSize(13);
+        accountLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        container.addView(accountLabel, matchWrap());
 
         ArrayList<DropdownOption> options = new ArrayList<>();
         for (JSONObject account : activeAccounts) {
@@ -401,7 +402,8 @@ public class ExpenseWidgetActivity extends Activity {
         }
         if (typeLabel != null) typeLabel.setVisibility(credit ? View.GONE : View.VISIBLE);
         if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
-        if (accountSelectorContainer != null) accountSelectorContainer.setVisibility(credit ? View.VISIBLE : View.GONE);
+        if (accountLabel != null) accountLabel.setText(credit ? "Receive into account" : "Pay from account");
+        if (accountSelectorContainer != null) accountSelectorContainer.setVisibility(View.VISIBLE);
         if (micButton != null) {
             micButton.setContentDescription(credit ? "Record voice note" : "Record voice expense");
         }
@@ -774,7 +776,8 @@ public class ExpenseWidgetActivity extends Activity {
                 selectedType,
                 amount,
                 commentInput.getText().toString(),
-                parsedDate
+                parsedDate,
+                selectedAccountId
             );
             WidgetExpenseQueue.enqueue(this, entry);
             ExpenseWidgetProvider.updateAll(this);

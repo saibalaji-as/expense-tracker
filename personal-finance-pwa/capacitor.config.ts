@@ -34,8 +34,8 @@ const config: CapacitorConfig = {
   },
 };
 
-// Google OAuth Client IDs (for reference — used in auth.service.ts initialize call)
-// Web Client ID:     335358015393-9jek528175b4030m56oro1si8vknvlvu.apps.googleusercontent.com
-// Android Client ID: 335358015393-vp8s227vqliul2vseqo7t6i1brgas95v.apps.googleusercontent.com
+// Native Google sign-in uses the Web OAuth client ID from AuthService.
+// Google Cloud must also have an Android OAuth client for com.spenza.app
+// whose SHA-1 matches the exact APK signing certificate.
 
 export default config;
