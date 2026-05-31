@@ -44,16 +44,17 @@
   - Registered the plugin in `MainActivity`.
   - `ExpenseStore.writeLocalBackupSnapshot()` now refreshes the native Android widget after writing `spenza_drive_backup_snapshot_v1`, so app-created entries such as debt payments appear in widget insight immediately instead of waiting for a later widget expense/update.
 - Native widget dialog app-theme polish:
-  - `ExpenseWidgetActivity` no longer uses stock Android `Spinner` controls for Amount kind, Expense type, or Receive into account.
+  - `ExpenseWidgetActivity` no longer uses stock Android `Spinner` controls for Expense type or account selection.
   - Added a custom native themed dropdown matching the Angular `ThemedSelectComponent` pattern: rounded trigger, icon badge, chevron rotation, themed floating menu, selected-row highlight, check mark, and capped scrolling list height.
   - Tuned widget dialog typography, helper text, amount/comment input sizing, input radius, and action button radius to better match Spenza's app text and control styles.
 - Native widget credit/received adjustment flow:
-  - `ExpenseWidgetActivity` now has an Amount kind dropdown with `Expense` and `Received`.
+  - The widget now exposes a dedicated `Credit` action alongside the expense actions.
+  - Expense actions open the expense dialog directly; `Credit` opens the account-adjustment dialog directly, so the native sheet no longer asks users to choose an amount kind after opening.
   - Expense mode keeps the existing amount, comment, mic, and Save behavior, with expense type now selected from a compact dropdown instead of the previous chip grid.
-  - Received mode hides expense categories, shows an account dropdown from active cached finance accounts, and saves the amount as a Finance account-balance increase adjustment.
+  - Credit mode hides expense categories and expense quick-comment chips, shows an account dropdown from active cached finance accounts, and saves the amount as a Finance account-balance increase adjustment.
   - Widget queue items now carry a `kind` of `expense` or `adjustment`; Android WorkManager sync and Angular `ExpenseStore.flushPendingWidgetExpenses()` both understand the new adjustment item shape.
   - Queued credit adjustments update the selected account balance and append an `accountAdjustments` audit record, matching the Finance screen Adjust flow.
-  - Credit/received SMS notifications now preselect `Received` when opening the native widget dialog.
+  - Credit/received SMS notifications now open the account-adjustment dialog directly.
 - Native spend notification listener tightening:
   - Spend prompts now only classify SMS/messaging-source notifications; payment apps, wallet apps, bank apps, and other non-SMS notifications are ignored even when they contain money-like text.
   - The native classifier now requires an amount to include the currently selected app currency marker before prompting.
@@ -360,7 +361,7 @@
 ## Files Actively Touched In This Session
 - `personal-finance-pwa/android/app/src/main/AndroidManifest.xml`: registered standalone `ExpenseWidgetActivity` and `ExpenseWidgetProvider`.
 - `personal-finance-pwa/android/app/build.gradle`: added WorkManager runtime for network-constrained widget sync.
-- `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added 4-button home screen widget provider.
+- `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added the home screen widget provider with quick expense actions and a direct credit action.
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetActivity.java`: added native amount/comment/mic input and Gemini voice smart-fill call.
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/WidgetExpenseQueue.java`: added local widget expense queue in Capacitor Preferences.
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/WidgetExpenseSyncWorker.java`: added Drive sync worker that merges queued expenses into active backup JSON and refreshes local backup snapshot.

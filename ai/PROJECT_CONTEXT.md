@@ -135,7 +135,7 @@
 ## Native Android Home Screen Widget
 - Android-only standalone quick expense widget is implemented under `android/app/src/main/java/com/spenza/app/` and Android resources.
 - Widget entry points:
-  - `ExpenseWidgetProvider`: home screen `AppWidgetProvider` with 4 buttons.
+  - `ExpenseWidgetProvider`: home screen `AppWidgetProvider` with quick expense actions plus a dedicated credit action.
   - `ExpenseWidgetActivity`: lightweight native Activity for amount/comment/mic input; does not launch the Capacitor WebView app.
   - `WidgetExpenseQueue`: local queue stored in Capacitor Preferences under `spenza_widget_expense_queue_v1`.
   - `WidgetExpenseSyncWorker`: WorkManager one-shot network-constrained sync to Google Drive.
@@ -145,6 +145,7 @@
   - Entertainment -> `Entertainment`
   - Shopping -> `Shopping/Clothing` when the launcher reports enough width for a fifth action.
   - More -> opens the native quick-expense form with all predefined app categories available in-form, including `Miscellaneous`.
+  - Credit -> opens the native account-adjustment form directly so users can increase a selected finance-account balance.
 - Voice smart-fill:
   - Uses Android `SpeechRecognizer` for transcript capture.
   - If local AI settings contain a user Gemini key, calls production `parse-voice-expense` Netlify function with the same allowed categories.
@@ -165,7 +166,7 @@
   - Daily budget is derived from configured limits and monthly income when available; otherwise it falls back to monthly income divided by days in month.
   - Angular app-side backup snapshot writes call native `ExpenseWidgetPlugin.refresh()`, which redraws `ExpenseWidgetProvider` after Drive-backed changes such as debt-payment expenses update the local snapshot.
   - Current widget sizing uses two height modes: a 1-row quick-actions-only layout when launcher-reported height is short, and a 3-row daily insight + actions layout when height is increased.
-  - Width is horizontal-resizable from 4 action spaces to a wider 5 action space; the optional `Shopping/Clothing` action is shown only when launcher-reported width is wide enough, and the last slot remains `More`.
+  - Width is horizontal-resizable; the optional `Shopping/Clothing` action is shown only when launcher-reported width is wide enough. `More` and `Credit` remain visible.
 - Easy removal/hide path:
   - Disable/remove `ExpenseWidgetProvider` receiver and `ExpenseWidgetActivity` from `AndroidManifest.xml`.
   - Remove the `expense_widget*` resources and `WidgetExpense*` Java classes if deleting fully.
@@ -190,7 +191,7 @@
   - The Android listener requests rebind after disconnect on Android N+; Settings listener status detection accepts both long and short flattened component names.
   - Shows a private `spend-prompts` channel notification asking the user to review/log the detected amount.
   - Tapping an expense prompt opens `ExpenseWidgetActivity` with amount/comment prefilled, Expense selected, and `Miscellaneous` as the default category.
-  - Tapping a credit/received prompt opens `ExpenseWidgetActivity` with amount/comment prefilled and Received selected so the user can choose the target account.
+  - Tapping a credit/received prompt opens `ExpenseWidgetActivity` in the account-adjustment mode directly with amount/comment prefilled so the user can choose the target account.
   - No expense or account adjustment is saved until the user taps Save in the native sheet.
   - The notification body is not uploaded or passed to Gemini; only a local dedupe fingerprint is stored.
 

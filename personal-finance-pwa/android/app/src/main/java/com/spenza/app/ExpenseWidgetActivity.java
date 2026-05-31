@@ -190,15 +190,6 @@ public class ExpenseWidgetActivity extends Activity {
         helperText.setLineSpacing(dp(2), 1f);
         root.addView(helperText, marginTop(matchWrap(), 6));
 
-        TextView amountKindLabel = new TextView(this);
-        amountKindLabel.setText("Amount kind");
-        amountKindLabel.setTextColor(palette.muted);
-        amountKindLabel.setTextSize(13);
-        amountKindLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(amountKindLabel, marginTop(matchWrap(), 22));
-
-        root.addView(buildAmountKindSelector(), marginTop(matchWrap(), 10));
-
         typeLabel = new TextView(this);
         typeLabel.setText("Expense type");
         typeLabel.setTextColor(palette.muted);
@@ -271,7 +262,9 @@ public class ExpenseWidgetActivity extends Activity {
         actions.addView(saveButton, actionParams());
         root.addView(actions, marginTop(matchWrap(), 22));
 
-        root.addView(buildQuickChips(), marginTop(matchWrap(), 18));
+        if (!WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
+            root.addView(buildQuickChips(), marginTop(matchWrap(), 18));
+        }
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
@@ -318,30 +311,6 @@ public class ExpenseWidgetActivity extends Activity {
             updateSelectedTypeUi();
         });
         return typeDropdown.view();
-    }
-
-    private View buildAmountKindSelector() {
-        ArrayList<DropdownOption> options = new ArrayList<>();
-        options.add(new DropdownOption(
-            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE,
-            "Expense",
-            R.drawable.ic_widget_food,
-            palette.expenseSoft,
-            palette.expense
-        ));
-        options.add(new DropdownOption(
-            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT,
-            "Received",
-            R.drawable.ic_widget_misc,
-            palette.successSoft,
-            palette.success
-        ));
-        return new ThemedDropdown(options, selectedAmountKind, value -> {
-            selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(value)
-                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
-                : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
-            updateAmountKindUi();
-        }).view();
     }
 
     private View buildAccountSelector() {

@@ -1,5 +1,18 @@
 # Task History
 
+## 2026-05-31 - Native Widget Direct Credit Action
+- User requested a visible widget action for credited amounts and removal of the in-dialog Expense/Received choice.
+- Changed `ExpenseWidgetProvider` and both active widget layouts:
+  - Added an always-visible `Credit` action with a dedicated icon.
+  - Credit taps launch `ExpenseWidgetActivity` with the credit mode extra, while category and More taps keep launching expense mode.
+- Changed `ExpenseWidgetActivity`:
+  - Removed the Amount kind dropdown.
+  - Expense launches open the expense dialog directly.
+  - Credit launches open the account-adjustment dialog directly, hiding expense categories and expense quick-comment chips while keeping target-account selection.
+- Kept notification-listener behavior aligned:
+  - Expense notifications continue opening the expense dialog.
+  - Credit/refund notifications continue passing credit mode and now open the account-adjustment dialog without a second mode-selection step.
+
 ## 2026-05-31 - Documentation Consolidation And Workspace Cleanup
 - Consolidated useful human-facing setup, build, Android signing, Netlify environment, notification, family backup, logo, and generated-directory guidance into `docs/README.md`.
 - Removed stale feature-completion diaries, phase-status guides, duplicate troubleshooting notes, and the superseded app-root Angular CLI README.

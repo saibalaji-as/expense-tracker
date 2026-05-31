@@ -23,11 +23,13 @@
     <color name="spenza_entertainment">#A855F7</color>
     <color name="spenza_shopping">#F472B6</color>
     <color name="spenza_misc">#7B8190</color>
+    <color name="spenza_credit">#0F9F88</color>
     <color name="spenza_food_soft">#DDF8E9</color>
     <color name="spenza_transport_soft">#DCEEFF</color>
     <color name="spenza_entertainment_soft">#EEDBFF</color>
     <color name="spenza_shopping_soft">#FFE0F0</color>
     <color name="spenza_misc_soft">#DDF7F2</color>
+    <color name="spenza_credit_soft">#D6F7F0</color>
     <color name="spenza_trend_bg">#DDF7EE</color>
     <color name="spenza_progress_track">#D8E4EA</color>
 </resources>

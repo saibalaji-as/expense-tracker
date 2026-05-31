@@ -65,6 +65,7 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         bindButton(context, views, R.id.widget_entertainment, WidgetExpenseConstants.TYPE_ENTERTAINMENT, 103);
         bindButton(context, views, R.id.widget_shopping, WidgetExpenseConstants.TYPE_SHOPPING, 104);
         bindButton(context, views, R.id.widget_more, WidgetExpenseConstants.TYPE_MORE, 105);
+        bindCreditButton(context, views, R.id.widget_credit, 106);
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
@@ -72,6 +73,19 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         Intent intent = new Intent(context, ExpenseWidgetActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra(WidgetExpenseConstants.WIDGET_CATEGORY_EXTRA, category);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        views.setOnClickPendingIntent(viewId, pendingIntent);
+    }
+
+    private static void bindCreditButton(Context context, RemoteViews views, int viewId, int requestCode) {
+        Intent intent = new Intent(context, ExpenseWidgetActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.putExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA, WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT);
         PendingIntent pendingIntent = PendingIntent.getActivity(
             context,
             requestCode,
