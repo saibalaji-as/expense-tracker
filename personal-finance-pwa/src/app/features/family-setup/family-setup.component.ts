@@ -8,6 +8,7 @@ import {
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, DriveApiError, DriveParseError } from '../../core/services/google-drive.service';
 import { TranslatePipe } from '../../shared/pipes';
+import { ClearableInputDirective } from '../../shared/components';
 
 type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
 
@@ -15,7 +16,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
   selector: 'app-family-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, ClearableInputDirective, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -122,7 +123,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
               </div>
             }
 
-            <input
+            <input appClearable
               type="text"
               [(ngModel)]="partnerFileIdInput"
               [placeholder]="'family.fileIdPlaceholder' | translate"

@@ -152,6 +152,8 @@
   "finances.adjust.reason": "Reason",
   "finances.adjust.reasonPlaceholder": "ATM withdrawal, refund, correction...",
   "finances.adjust.save": "Save",
+  "finances.adjust.history": "Adjustment history",
+  "finances.adjust.noReason": "No reason added",
   "finances.feedback.reviewAccount": "Review account details.",
   "finances.feedback.reviewAccountDetail": "Add a name, choose a type, and enter a valid balance.",
   "finances.feedback.reviewAdjustment": "Review adjustment.",

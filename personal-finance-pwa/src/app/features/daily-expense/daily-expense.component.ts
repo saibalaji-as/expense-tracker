@@ -60,6 +60,7 @@ import {
   ProgressRingComponent,
   ThemedSelectComponent,
   ThemedSelectOption,
+  ClearableInputDirective,
 } from '../../shared/components';
 import {
   CATEGORY_DEFS,
@@ -111,6 +112,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     CategoryIconComponent,
     ProgressRingComponent,
     ThemedSelectComponent,
+    ClearableInputDirective,
     LucideAngularModule,
   ],
   providers: [
@@ -293,7 +295,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 	                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}</label>
                 <div class="mt-1 flex items-center gap-1.5 rounded-xl border border-border bg-card/60 px-3 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <span class="text-base font-semibold text-muted-foreground shrink-0">{{ currencyService.symbol() }}</span>
-                  <input
+                  <input appClearable
                     id="amount-input"
                     type="number"
                     inputmode="decimal"
@@ -308,7 +310,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 	                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.date' | translate }}</label>
                 <div class="mt-1 flex items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-card/60 px-2.5 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <lucide-icon name="calendar" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <input
+                  <input appClearable
                     id="date-input"
                     type="date"
                     formControlName="date"
@@ -664,7 +666,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           </label>
                           <label>
                             <span class="mb-1 block pl-1 text-[10px] font-semibold uppercase text-muted-foreground">{{ 'daily.receipt.split.amount' | translate }}</span>
-                            <input
+                            <input appClearable
                               type="number"
                               inputmode="decimal"
                               [value]="row.amount ?? ''"
@@ -682,7 +684,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           >
                             <lucide-icon name="x" class="h-4 w-4" />
                           </button>
-                          <input
+                          <input appClearable
                             type="text"
                             [value]="row.comment"
                             (input)="updateSplitRowFromEvent(row.id, 'comment', $event)"
@@ -807,7 +809,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                   </div>
                 </div>
                 <!-- Action buttons: only show for single entries -->
-                @if (group.count === 1) {
+                @if (group.count === 1 && canManageEntry(group.entries[0])) {
                   <div class="shrink-0 flex flex-col gap-1 opacity-100">
                     <!-- Edit button -->
                     <button
@@ -953,6 +955,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
             </div>
 
             <!-- Action Buttons (fixed at bottom) -->
+            @if (canManageEntry(entry)) {
             <div class="shrink-0 flex gap-2 p-4 border-t border-border">
               <button
                 type="button"
@@ -971,6 +974,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 	                {{ 'common.delete' | translate }}
               </button>
             </div>
+            }
           }
 
           <!-- Grouped Entries View -->
@@ -1047,6 +1051,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                         </p>
                       </div>
                       <!-- Action buttons -->
+                      @if (canManageEntry(entry)) {
                       <div class="flex gap-1">
                         <button
                           type="button"
@@ -1065,6 +1070,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           <lucide-icon name="trash-2" class="h-3.5 w-3.5" />
                         </button>
                       </div>
+                      }
                     </div>
                     <!-- Comment -->
                     @if (entry.comment) {
@@ -2777,6 +2783,10 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Edit entry ───────────────────────────────────────────────────────────
+  canManageEntry(entry: ExpenseEntry): boolean {
+    return entry.source !== 'debt-payment' && !entry.debtId;
+  }
+
   editEntry(entry: ExpenseEntry): void {
     console.log('[DailyExpense] Editing entry:', entry.id);
     

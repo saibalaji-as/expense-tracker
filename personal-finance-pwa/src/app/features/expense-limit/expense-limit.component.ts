@@ -32,7 +32,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
-import { ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
+import { ClearableInputDirective, ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
@@ -67,6 +67,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
     ReactiveFormsModule,
     ModalComponent,
     ThemedSelectComponent,
+    ClearableInputDirective,
     CurrencyFormatPipe,
     TranslatePipe,
     SectionCardComponent,
@@ -116,7 +117,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
           <div class="flex items-center gap-3 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
             <span class="text-2xl font-semibold text-muted-foreground">{{ currencyService.symbol() }}</span>
             <label for="monthlyIncome" class="sr-only">{{ 'limits.income.title' | translate }}</label>
-            <input
+            <input appClearable
               type="number"
               id="monthlyIncome"
               formControlName="monthlyIncome"
@@ -163,7 +164,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                       <span class="truncate text-sm font-medium">{{ getDisplayType(i) }}</span>
                     } @else {
                       <div class="min-w-0 flex-1">
-                        <input
+                        <input appClearable
                           type="text"
                           formControlName="type"
                           [placeholder]="'limits.custom.namePlaceholder' | translate"
@@ -191,7 +192,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                   <!-- Your % input -->
                   <div class="flex justify-end">
                     <label [for]="'pct-desktop-' + i" class="sr-only">{{ getDisplayType(i) }} percentage</label>
-                    <input
+                    <input appClearable
                       [id]="'pct-desktop-' + i"
                       type="number"
                       formControlName="userPercentage"
@@ -233,7 +234,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                         [style.color]="'var(' + getCatColorVar(i) + ')'"
                       >{{ getGroupName(group.get('category')?.value) }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
                     } @else {
-                      <input
+                      <input appClearable
                         type="text"
                         formControlName="type"
                         [placeholder]="'limits.custom.namePlaceholder' | translate"
@@ -249,7 +250,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                   </div>
                   <div class="flex items-center gap-1">
                     <label [for]="'pct-mobile-' + i" class="sr-only">{{ getDisplayType(i) }} percentage</label>
-                    <input
+                    <input appClearable
                       [id]="'pct-mobile-' + i"
                       type="number"
                       formControlName="userPercentage"

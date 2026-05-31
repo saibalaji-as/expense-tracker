@@ -27,7 +27,7 @@ import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
-import { SectionCardComponent, ModalComponent } from '../../shared/components';
+import { ClearableInputDirective, SectionCardComponent, ModalComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
 import {
   LucideAngularModule,
@@ -61,7 +61,7 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, ClearableInputDirective, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -308,7 +308,7 @@ interface BeforeInstallPromptEvent extends Event {
                     <label for="gemini-api-key" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       {{ 'settings.ai.apiKey' | translate }}
                     </label>
-                    <input
+                    <input appClearable
                       id="gemini-api-key"
                       type="password"
                       autocomplete="off"
@@ -568,7 +568,7 @@ interface BeforeInstallPromptEvent extends Event {
         </p>
 
         <div class="flex flex-col gap-2 sm:flex-row">
-          <input
+          <input appClearable
             type="text"
             [(ngModel)]="importSheetId"
             [placeholder]="'settings.import.placeholder' | translate"
@@ -759,7 +759,7 @@ interface BeforeInstallPromptEvent extends Event {
           @if (notificationPrefs().dailyReminderEnabled) {
             <div class="mt-3">
               <label class="text-xs font-medium text-muted-foreground">Reminder Time</label>
-              <input
+              <input appClearable
                 type="time"
                 [value]="formatTime(notificationPrefs().reminderHour, notificationPrefs().reminderMinute)"
                 (change)="onReminderTimeChange($event)"

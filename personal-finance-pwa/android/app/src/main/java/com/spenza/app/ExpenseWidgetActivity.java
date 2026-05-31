@@ -9,6 +9,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
@@ -17,6 +18,8 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -227,6 +230,7 @@ public class ExpenseWidgetActivity extends Activity {
         if (prefillAmount > 0) {
             amountInput.setText(String.valueOf(WidgetExpenseUtils.roundMoney(prefillAmount)));
         }
+        enableClearButton(amountInput);
         root.addView(amountInput, marginTop(matchWrap(), 18));
 
         commentInput = new EditText(this);
@@ -243,6 +247,7 @@ public class ExpenseWidgetActivity extends Activity {
         if (prefillComment != null && !prefillComment.trim().isEmpty()) {
             commentInput.setText(prefillComment.trim());
         }
+        enableClearButton(commentInput);
         root.addView(commentInput, marginTop(matchWrap(), 12));
 
         LinearLayout actions = new LinearLayout(this);
@@ -497,6 +502,40 @@ public class ExpenseWidgetActivity extends Activity {
         drawable.setCornerRadius(dp(18));
         drawable.setStroke(dp(1), palette.stroke);
         return drawable;
+    }
+
+    private void enableClearButton(EditText input) {
+        Drawable clearIcon = ContextCompat.getDrawable(this, R.drawable.ic_widget_clear);
+        if (clearIcon == null) return;
+        clearIcon.setBounds(0, 0, dp(18), dp(18));
+        clearIcon.setTint(palette.muted);
+
+        Runnable refreshIcon = () -> input.setCompoundDrawables(
+            null,
+            null,
+            input.getText().length() > 0 ? clearIcon : null,
+            null
+        );
+        input.setCompoundDrawablePadding(dp(12));
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {
+                refreshIcon.run();
+            }
+            @Override public void afterTextChanged(Editable editable) {}
+        });
+        input.setOnTouchListener((view, event) -> {
+            if (event.getAction() != android.view.MotionEvent.ACTION_UP || input.getText().length() == 0) {
+                return false;
+            }
+            Drawable endIcon = input.getCompoundDrawables()[2];
+            if (endIcon == null || event.getX() < input.getWidth() - input.getPaddingEnd() - endIcon.getBounds().width()) {
+                return false;
+            }
+            input.setText("");
+            return true;
+        });
+        refreshIcon.run();
     }
 
     private GradientDrawable selectBackground() {

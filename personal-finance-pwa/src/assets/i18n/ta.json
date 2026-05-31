@@ -152,6 +152,8 @@
   "finances.adjust.reason": "காரணம்",
   "finances.adjust.reasonPlaceholder": "ATM withdrawal, refund, correction...",
   "finances.adjust.save": "சேமி",
+  "finances.adjust.history": "சரிசெய்தல் வரலாறு",
+  "finances.adjust.noReason": "காரணம் சேர்க்கப்படவில்லை",
   "finances.feedback.reviewAccount": "கணக்கு விவரங்களை சரிபார்க்கவும்.",
   "finances.feedback.reviewAccountDetail": "பெயரை சேர்த்து, வகையைத் தேர்வு செய்து, சரியான இருப்பை உள்ளிடவும்.",
   "finances.feedback.reviewAdjustment": "சரிசெய்தலை சரிபார்க்கவும்.",

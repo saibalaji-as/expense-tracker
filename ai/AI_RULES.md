@@ -99,6 +99,7 @@
 - When changing balance-affecting expense mutations, preserve reverse/apply behavior for create, split-create, edit, and delete so account balances stay consistent.
 - Keep debt/EMI payment side effects centralized in `ExpenseStore.recordDebtPayment`, `updateDebtPayment`, and `deleteDebtPayment`; components must not independently create/delete debt-payment expenses, mutate debt balances, or deduct/restore accounts.
 - Keep generic Daily edit/delete blocked for `source: 'debt-payment'` or `debtId` entries; debt-payment history must be managed from Finances through the dedicated reversal/edit store methods.
+- Hide generic Daily edit/delete controls for debt-payment entries so the UI does not advertise operations that are intentionally rejected by the store.
 
 ## Budget And Category Rules
 - Use `category-definitions.ts` as the only source of truth for predefined categories.

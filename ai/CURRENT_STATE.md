@@ -86,6 +86,15 @@
   - Shared `ModalComponent` now supports hiding its built-in action footer for custom form actions and has max-height scrolling for longer dialogs.
   - Debt-payment edit/delete reversal is now implemented through dedicated Finances payment-history controls.
   - `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md` includes Phase 5 notes for the reversal flow.
+- Finance account adjustment history:
+  - Each account card now shows its saved balance-adjustment history below the adjustment form.
+  - History rows show increase/decrease, signed amount, saved date, and the user-entered reason with a fallback when no reason was provided.
+  - Added English, Tamil, and Hindi labels for the new account adjustment history UI.
+- Input clear controls and debt-payment log actions:
+  - Daily expense-log rows and detail views keep showing debt-payment entries but hide generic edit/delete buttons for them; debt-payment changes remain managed from Finances.
+  - Added a shared Angular `appClearable` directive for editable app inputs, including date/time picker-aware positioning and Escape-key clearing.
+  - Daily, Limits, Finances, Settings, and family join inputs now expose inline clear affordances; special controls such as checkboxes, files, ranges, and read-only IDs retain their existing behavior.
+  - Native Android widget amount/comment inputs now show a matching clear icon when populated.
 - Old-app finance backup overwrite guard:
   - If an older Spenza build writes a backup document without finance arrays, the new app can otherwise interpret missing `accounts`, `accountAdjustments`, `debts`, and `debtPayments` as empty arrays.
   - `ExpenseStore.applyBackupDocument` now preserves cached in-memory finance arrays when the remote Drive backup is missing those arrays, then immediately upgrades/persists the backup with the restored arrays.

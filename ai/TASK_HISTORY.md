@@ -1741,3 +1741,28 @@
   - Receipt extraction fallback.
   - AI cache/usage gates.
   - Scheduler timezone slots.
+
+## 2026-05-31 - Finance Account Adjustment History UI
+- Problem:
+  - Finance account balance adjustments already persisted a user-entered `reason`, but users could not see saved adjustment comments anywhere in the Finance screen.
+- Implemented:
+  - Added per-account adjustment history below each account card.
+  - Each history row shows increase/decrease, signed amount, saved date, and the saved reason with an explicit fallback when no reason exists.
+  - Added English, Tamil, and Hindi translations for the history heading and missing-reason fallback.
+- Verification:
+  - Parsed all edited i18n JSON dictionaries successfully.
+  - Angular build could not run in this checkout because `personal-finance-pwa/node_modules` is absent and `ng` is unavailable.
+
+## 2026-05-31 - Debt-Payment Log Actions And Input Clear Controls
+- Problem:
+  - Daily expense logs showed edit/delete controls for debt-payment entries even though generic store mutations correctly reject them.
+  - Editable fields across the app and native widget dialog did not consistently expose a quick clear affordance.
+- Implemented:
+  - Added one Daily `canManageEntry()` rule and applied it to list-row, single-detail, and grouped-detail action buttons.
+  - Added shared Angular `appClearable` behavior for populated editable inputs, with picker-aware date/time positioning and Escape-key support.
+  - Applied clear controls across Daily, Limits, Finances, Settings, and family join entry fields while leaving special/read-only controls unchanged.
+  - Added native Android amount/comment clear icons in `ExpenseWidgetActivity`.
+- Verification:
+  - `git diff --check`, i18n JSON parsing, and Android clear-icon XML parsing passed.
+  - Angular build remains unavailable because `personal-finance-pwa/node_modules` is absent.
+  - Android Gradle build cannot resolve Capacitor plugin variants for the same missing dependency checkout state.
