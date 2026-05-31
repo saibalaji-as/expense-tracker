@@ -1,5 +1,26 @@
 # Task History
 
+## 2026-05-31 - Graphify And Persistent AI Memory Integration
+- Added a two-layer AI context workflow:
+  - `ai/*.md` remains the curated source for durable product rules, architecture decisions, current state, and historical reasoning.
+  - `graphify-out/graph.json` provides generated live code structure for symbol, relationship, and impact queries.
+- Updated `drive-ai.md` with:
+  - A reusable Graphify-aware startup prompt.
+  - A session-end graph refresh step.
+  - Practical `query`, `explain`, `path`, and `affected` command examples.
+  - Fresh-clone guidance.
+- Updated `AGENTS.md` and `.github/copilot-instructions.md` so Codex and VS Code Copilot read curated memory before architecture-affecting work and use Graphify before broad code searches.
+- Updated `ai/AI_RULES.md` to require `graphify update .` after code changes and prevent generated graph output from bloating curated memory.
+- Added `scripts/setup-ai-context.sh` and `scripts/refresh-ai-context.sh` for second-machine bootstrap:
+  - Installs `uv` through Homebrew when needed.
+  - Installs Graphify when needed.
+  - Configures Codex and VS Code Copilot Chat integrations.
+  - Builds the local graph.
+  - Installs a machine-local Git `post-merge` hook so future `git pull` merges refresh Graphify automatically.
+- Decision:
+  - Keep `graphify-out/` local and gitignored because it is generated output.
+  - Commit portable AI guidance files so future chats inherit the workflow.
+
 ## 2026-05-29 - Widget Insight Refresh After Debt Payment
 - User observed that a recorded debt payment appeared in expense history but did not appear in the home-screen widget insight until logging another expense.
 - Diagnosis:

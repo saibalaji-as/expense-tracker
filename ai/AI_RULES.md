@@ -7,6 +7,13 @@
   - `ai/AI_RULES.md`
   - `ai/TASK_HISTORY.md`
 - Verify code before changing it; do not assume current behavior from old docs.
+- Treat `/ai` files as curated decision memory and `graphify-out/graph.json` as generated live code intelligence.
+- When `graphify-out/graph.json` exists, query Graphify before broad code searches:
+  - `graphify query "<question>"` for codebase questions.
+  - `graphify explain "<concept>"` for focused symbol/concept questions.
+  - `graphify path "<A>" "<B>"` for relationship questions.
+- After code changes, run `graphify update .` to keep the local AST graph current.
+- Do not paste generated Graphify output into `/ai` memory unless it captures a durable decision, risk, or completed task.
 - Treat `personal-finance-pwa/` as the application root.
 - Treat Google Drive JSON backup as the active source of truth unless the task explicitly says Google Sheets migration/legacy.
 - Do not create duplicate implementations when a service/helper/model already exists.

@@ -1,5 +1,15 @@
 # Current State
 
+## AI Context Workflow
+- Project AI context now uses two complementary layers:
+  - Curated persistent memory in `ai/*.md` for product rules, decisions, current state, and engineering history.
+  - Local generated Graphify output in `graphify-out/` for live code symbols and relationships.
+- `AGENTS.md` configures Codex to read curated memory and query Graphify for codebase questions.
+- `.github/copilot-instructions.md` configures VS Code Copilot Chat with the same workflow.
+- `graphify-out/` and `.codex/` are intentionally local-only and gitignored.
+- On a fresh clone or second machine, run `./scripts/setup-ai-context.sh`.
+- The setup script installs Graphify when needed, configures Codex and VS Code Copilot Chat, builds the local graph, and installs a machine-local Git `post-merge` hook for automatic refresh after future `git pull` merges.
+
 ## Last Memory Refresh
 - Date: 2026-05-29.
 - Scope analyzed:
