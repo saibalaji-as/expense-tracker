@@ -6,6 +6,7 @@ build/
 !.env.example
 .DS_Store
 .angular/
+.*
 
 # Android local build state
 android/.gradle/
