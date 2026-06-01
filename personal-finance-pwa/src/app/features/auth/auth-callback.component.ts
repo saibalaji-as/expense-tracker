@@ -15,6 +15,7 @@ import {
 import { AuthService } from '../../core/services/auth.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 import { TranslatePipe } from '../../shared/pipes';
 
 @Component({
@@ -135,6 +136,7 @@ export class AuthCallbackComponent {
   private readonly authService = inject(AuthService);
   private readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
+  private readonly subscriptionService = inject(SubscriptionService);
   private readonly router = inject(Router);
 
   readonly errorMessage = signal<string | null>(null);
@@ -172,6 +174,11 @@ export class AuthCallbackComponent {
       if (signInResult.accountChanged) {
         await this.resetAccountScopedLocalState();
       }
+
+      // Start Firestore subscription listener once Firebase UID is available
+      const uid = this.authService.firebaseUid();
+      if (uid) this.subscriptionService.startListening(uid);
+
       await this.backupModeService.loadFromDrive(true);
 
       // Check if a backup mode has been selected yet.

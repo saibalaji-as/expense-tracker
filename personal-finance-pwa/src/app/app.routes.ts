@@ -52,11 +52,32 @@ export const routes: Routes = [
     canActivate: [authGuard, setupGuard],
   },
   {
-    // Public route — no AuthGuard
+    // Public routes — no AuthGuard
     path: 'auth/callback',
     loadComponent: () =>
       import('./features/auth/auth-callback.component').then(
         (m) => m.AuthCallbackComponent
+      ),
+  },
+  {
+    path: 'privacy',
+    loadComponent: () =>
+      import('./features/privacy/privacy.component').then(
+        (m) => m.PrivacyComponent
+      ),
+  },
+  {
+    path: 'terms',
+    loadComponent: () =>
+      import('./features/terms/terms.component').then(
+        (m) => m.TermsComponent
+      ),
+  },
+  {
+    path: 'subscribe',
+    loadComponent: () =>
+      import('./features/subscribe/subscribe.component').then(
+        (m) => m.SubscribeComponent
       ),
   },
   {

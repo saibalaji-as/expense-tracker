@@ -7,8 +7,10 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { DatePipe } from '@angular/common';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { LocalNotificationService } from '../../core/services/local-notification.service';
 import { FcmService } from '../../core/services/fcm.service';
@@ -61,7 +63,7 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, ClearableInputDirective, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -78,8 +80,48 @@ interface BeforeInstallPromptEvent extends Event {
         <p class="mt-1 text-sm text-muted-foreground">{{ 'settings.description' | translate }}</p>
       </div>
 
+      <!-- Spenza Pro -->
+      @if (subscriptionService.isPro()) {
+        <div class="flex items-center gap-3 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
+          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
+            @if (subscriptionService.status().expiresAt) {
+              <p class="text-xs text-muted-foreground">
+                Renews {{ subscriptionService.status().expiresAt | date:'mediumDate' }}
+              </p>
+            }
+          </div>
+          <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Pro</span>
+        </div>
+      } @else {
+        <div class="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-5 dark:border-indigo-800 dark:from-indigo-950/50 dark:to-purple-950/50">
+          <div class="flex items-start gap-4">
+            <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white text-xl shadow-lg">💸</span>
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-900 dark:text-white">Upgrade to Spenza Pro</p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Advanced insights · Family sync · Receipt scanner · Priority support</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <a
+                  routerLink="/subscribe"
+                  class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                >
+                  ✨ Upgrade — ₹499/month
+                </a>
+                <a
+                  routerLink="/subscribe"
+                  class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
+                >
+                  ₹3,999/year — Save 33%
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
       <!-- Appearance -->
-      <app-section-card 
+      <app-section-card
         [title]="'settings.appearance.title' | translate"
         [description]="'settings.appearance.description' | translate"
       >
@@ -1024,6 +1066,7 @@ interface BeforeInstallPromptEvent extends Event {
 })
 export class SettingsComponent implements OnInit, OnDestroy {
   readonly authService = inject(AuthService);
+  readonly subscriptionService = inject(SubscriptionService);
   readonly notificationService = inject(NotificationService);
   readonly localNotificationService = inject(LocalNotificationService);
   readonly fcmService = inject(FcmService);
