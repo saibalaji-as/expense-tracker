@@ -3,6 +3,9 @@ import { Capacitor } from '@capacitor/core';
 import { SocialLogin } from '@capgo/capacitor-social-login';
 import { StorageService } from './storage.service';
 import { BackupMode } from './backup-mode.service';
+import { getApps, initializeApp } from 'firebase/app';
+import { getAuth, signInWithCredential, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
+import { firebaseConfig } from '../config/firebase.config';
 
 declare const google: any;
 
@@ -54,8 +57,12 @@ function waitForGsiScript(): Promise<void> {
 export class AuthService {
   readonly isAuthenticated = signal<boolean>(false);
   readonly userEmail = signal<string | null>(null);
+  readonly firebaseUid = signal<string | null>(null);
 
   #accessToken: string | null = null;
+  readonly #firebaseAuth = getAuth(
+    getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig)
+  );
 
   /**
    * Shared promise for an in-flight token request (web only).
@@ -85,7 +92,7 @@ export class AuthService {
       this.#nativeInitPromise = SocialLogin.initialize({
         google: {
           // webClientId is required by the plugin on Android for token verification
-          webClientId: '335358015393-9jek528175b4030m56oro1si8vknvlvu.apps.googleusercontent.com',
+          webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
         },
       }).catch((err) => console.error('SocialLogin.initialize failed:', err));
     }
@@ -114,6 +121,8 @@ export class AuthService {
     this.isAuthenticated.set(true);
     const email = await this.storageService.get('gapi_user_email');
     if (email) this.userEmail.set(email);
+    const uid = await this.storageService.get('firebase_uid');
+    if (uid) this.firebaseUid.set(uid);
   }
 
   // ---------------------------------------------------------------------------
@@ -189,6 +198,34 @@ export class AuthService {
     return !this.#isNative && this.isAuthenticated() && !this.#accessToken;
   }
 
+  /**
+   * Returns a stable user ID, fetching one silently if not yet available.
+   * Handles existing sessions where firebase_uid was never stored.
+   */
+  async ensureUserId(): Promise<string | null> {
+    const existing = this.firebaseUid();
+    if (existing) return existing;
+    if (!this.isAuthenticated()) return null;
+    try {
+      const accessToken = await this.ensureToken();
+      const res = await fetch(
+        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
+      );
+      if (res.ok) {
+        const info = await res.json();
+        if (info.sub) {
+          const sub = String(info.sub);
+          this.firebaseUid.set(sub);
+          await this.storageService.set('firebase_uid', sub);
+        }
+      }
+      await this.#signIntoFirebase(null, accessToken);
+    } catch {
+      // Non-critical
+    }
+    return this.firebaseUid();
+  }
+
   // ---------------------------------------------------------------------------
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
@@ -225,6 +262,10 @@ export class AuthService {
       this.userEmail.set(email);
       await this.storageService.set('gapi_user_email', email);
     }
+
+    // Sign into Firebase Auth using the Google access token (native idToken preferred)
+    const idToken = (googleResult as any).idToken ?? null;
+    await this.#signIntoFirebase(idToken, token);
 
     return {
       email,
@@ -275,10 +316,19 @@ export class AuthService {
                     this.userEmail.set(signedInEmail);
                     await this.storageService.set('gapi_user_email', signedInEmail);
                   }
+                  // Use Google sub as stable UID fallback — overwritten by Firebase UID if auth succeeds
+                  if (info.sub) {
+                    const googleSub = String(info.sub);
+                    this.firebaseUid.set(googleSub);
+                    await this.storageService.set('firebase_uid', googleSub);
+                  }
                 }
               } catch {
                 // Non-critical — email display is optional
               }
+              // Sign into Firebase Auth with the Google access token (overwrites sub if successful)
+              await this.#signIntoFirebase(null, response.access_token);
+
               resolve({
                 email: signedInEmail,
                 accountChanged: !!previousEmail && !!signedInEmail && previousEmail !== signedInEmail,
@@ -312,15 +362,31 @@ export class AuthService {
   // Shared helpers
   // ---------------------------------------------------------------------------
 
+  async #signIntoFirebase(idToken: string | null, accessToken: string): Promise<void> {
+    try {
+      const credential = GoogleAuthProvider.credential(idToken, accessToken);
+      const userCred = await signInWithCredential(this.#firebaseAuth, credential);
+      const uid = userCred.user.uid;
+      this.firebaseUid.set(uid);
+      await this.storageService.set('firebase_uid', uid);
+    } catch (err) {
+      // Non-critical — Firebase Auth failure does not block Drive-based features
+      console.warn('[AuthService] Firebase sign-in failed:', err);
+    }
+  }
+
   #clearAuthState(): void {
     this.#accessToken = null;
     this.isAuthenticated.set(false);
     this.userEmail.set(null);
+    this.firebaseUid.set(null);
     void this.storageService.remove('gapi_auth_state');
     void this.storageService.remove('gapi_user_email');
     void this.storageService.remove('gapi_scope_version');
+    void this.storageService.remove('firebase_uid');
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
+    void firebaseSignOut(this.#firebaseAuth).catch(() => {});
   }
 
   #nativeTokenExpiresAt(accessToken: { expires?: string } | null): string {
