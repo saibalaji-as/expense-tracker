@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 import { setupGuard } from './core/guards/setup.guard';
+import { subscriptionGuard } from './core/guards/subscription.guard';
 
 export const routes: Routes = [
   {
@@ -79,6 +80,7 @@ export const routes: Routes = [
       import('./features/subscribe/subscribe.component').then(
         (m) => m.SubscribeComponent
       ),
+    canActivate: [authGuard],
   },
   {
     path: 'mode-select',
@@ -94,7 +96,7 @@ export const routes: Routes = [
       import('./features/family-setup/family-setup.component').then(
         (m) => m.FamilySetupComponent
       ),
-    canActivate: [authGuard, setupGuard],
+    canActivate: [authGuard, setupGuard, subscriptionGuard],
   },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },

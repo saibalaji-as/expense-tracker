@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ChartData, ChartOptions } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
@@ -20,6 +20,7 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { AiInsightPayload, AiInsightSection, AiInsightService } from '../../core/services/ai-insight.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
@@ -227,6 +228,9 @@ interface ActivityItem {
                     {{ 'dashboard.insights.aiButton' | translate }}
                   }
                 </span>
+                @if (!subscriptionService.isPro()) {
+                  <span class="relative rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Pro</span>
+                }
               </button>
             </div>
           </div>
@@ -549,6 +553,8 @@ export class DashboardComponent implements OnInit {
   private readonly i18n = inject(I18nService);
   private readonly currencyService = inject(CurrencyService);
   private readonly aiInsightService = inject(AiInsightService);
+  private readonly router = inject(Router);
+  readonly subscriptionService = inject(SubscriptionService);
   @ViewChild('geminiInsightsBlock') private geminiInsightsBlock?: ElementRef<HTMLElement>;
 
   // Chart data signals
@@ -1194,6 +1200,10 @@ export class DashboardComponent implements OnInit {
 
   async onGenerateAiInsights(event?: Event): Promise<void> {
     this.releaseAiButton(event);
+    if (!this.subscriptionService.isPro()) {
+      await this.router.navigate(['/subscribe']);
+      return;
+    }
     const payload = this.aiInsightPayload();
     const payloadKey = payload ? JSON.stringify(payload) : '';
     if (this.aiInsightLoading()) return;
