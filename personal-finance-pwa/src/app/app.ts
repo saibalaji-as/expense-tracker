@@ -7,6 +7,7 @@ import { AppShellComponent } from './shared/components/app-shell/app-shell.compo
 import { ExpenseStore, driveError$ } from './core/services/expense-store.service';
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
+import { SubscriptionService } from './core/services/subscription.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
 import { shouldRedirectToIncomeSetup } from './core/guards/setup-income-gate';
 
@@ -26,6 +27,7 @@ export class App implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
+  private readonly subscriptionService = inject(SubscriptionService);
   private readonly router = inject(Router);
 
   readonly isLoading = signal(true);
@@ -84,6 +86,12 @@ export class App implements OnInit, OnDestroy {
     ]);
 
     console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
+
+    // Start Firestore subscription listener if Firebase UID is already restored from storage
+    const restoredUid = this.authService.firebaseUid();
+    if (restoredUid) {
+      this.subscriptionService.startListening(restoredUid);
+    }
 
     if (!this.authService.isAuthenticated()) {
       this.clearLoadingTimeout();

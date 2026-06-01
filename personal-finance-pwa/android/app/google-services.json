@@ -12,7 +12,20 @@
           "package_name": "com.spenza.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "663004583066-hnhd7s4sncvi80cvht2lpq7227nd90qa.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.spenza.app",
+            "certificate_hash": "a987c72a5835b4aaae13f78499ef91454d9ac49b"
+          }
+        },
+        {
+          "client_id": "663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBAB3cmv2B1dn5AqGWYaNIqLWsX2zRoV0E"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
