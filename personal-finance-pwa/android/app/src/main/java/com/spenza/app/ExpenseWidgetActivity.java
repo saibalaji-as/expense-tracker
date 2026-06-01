@@ -61,6 +61,8 @@ import java.util.concurrent.Executors;
 
 public class ExpenseWidgetActivity extends Activity {
     private static final int REQUEST_RECORD_AUDIO = 40_010;
+    private static final String VOICE_MODE_EXPENSE = "expense";
+    private static final String VOICE_MODE_COMMENT = "comment";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
@@ -83,7 +85,10 @@ public class ExpenseWidgetActivity extends Activity {
     private LinearLayout accountSelectorContainer;
     private TextView accountLabel;
     private ProgressBar progressBar;
-    private ImageButton micButton;
+    private LinearLayout smartFillContainer;
+    private Button smartFillButton;
+    private ImageButton commentMicButton;
+    private String activeVoiceMode;
     private ThemedDropdown typeDropdown;
     private Palette palette;
     private final ArrayList<JSONObject> activeAccounts = new ArrayList<>();
@@ -190,6 +195,9 @@ public class ExpenseWidgetActivity extends Activity {
         helperText.setLineSpacing(dp(2), 1f);
         root.addView(helperText, marginTop(matchWrap(), 6));
 
+        smartFillContainer = buildVoiceExpenseSmartFill();
+        root.addView(smartFillContainer, marginTop(matchWrap(), 18));
+
         typeLabel = new TextView(this);
         typeLabel.setText("Expense type");
         typeLabel.setTextColor(palette.muted);
@@ -224,8 +232,12 @@ public class ExpenseWidgetActivity extends Activity {
         enableClearButton(amountInput);
         root.addView(amountInput, marginTop(matchWrap(), 18));
 
+        LinearLayout commentRow = new LinearLayout(this);
+        commentRow.setOrientation(LinearLayout.HORIZONTAL);
+        commentRow.setGravity(Gravity.CENTER_VERTICAL);
+
         commentInput = new EditText(this);
-        commentInput.setHint("Comment or tap mic");
+        commentInput.setHint("Comment (optional)");
         commentInput.setMinLines(1);
         commentInput.setMaxLines(3);
         commentInput.setTextColor(palette.text);
@@ -239,17 +251,18 @@ public class ExpenseWidgetActivity extends Activity {
             commentInput.setText(prefillComment.trim());
         }
         enableClearButton(commentInput);
-        root.addView(commentInput, marginTop(matchWrap(), 12));
+        commentRow.addView(commentInput, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        commentMicButton = micButton("Dictate comment");
+        commentMicButton.setOnClickListener(v -> startVoiceCapture(VOICE_MODE_COMMENT));
+        LinearLayout.LayoutParams commentMicParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        commentMicParams.setMargins(dp(10), 0, 0, 0);
+        commentRow.addView(commentMicButton, commentMicParams);
+        root.addView(commentRow, marginTop(matchWrap(), 12));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
-
-        micButton = micButton();
-        micButton.setOnClickListener(v -> startVoiceCapture());
-        LinearLayout.LayoutParams micParams = new LinearLayout.LayoutParams(dp(52), dp(52));
-        micParams.setMargins(0, 0, dp(12), 0);
-        actions.addView(micButton, micParams);
 
         Button cancelButton = actionButton("Cancel");
         styleButton(cancelButton, ButtonTone.SECONDARY);
@@ -378,9 +391,7 @@ public class ExpenseWidgetActivity extends Activity {
         if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
         if (accountLabel != null) accountLabel.setText(credit ? "Receive into account" : "Pay from account");
         if (accountSelectorContainer != null) accountSelectorContainer.setVisibility(View.VISIBLE);
-        if (micButton != null) {
-            micButton.setContentDescription(credit ? "Record voice note" : "Record voice expense");
-        }
+        if (smartFillContainer != null) smartFillContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
     }
 
     private Button actionButton(String label) {
@@ -395,13 +406,13 @@ public class ExpenseWidgetActivity extends Activity {
         return button;
     }
 
-    private ImageButton micButton() {
+    private ImageButton micButton(String contentDescription) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(R.drawable.ic_widget_mic);
         button.setColorFilter(Color.WHITE);
         button.setScaleType(android.widget.ImageView.ScaleType.CENTER);
         button.setPadding(dp(15), dp(15), dp(15), dp(15));
-        button.setContentDescription("Record voice expense");
+        button.setContentDescription(contentDescription);
         button.setBackground(micButtonBackground());
         button.setStateListAnimator(null);
         button.setOnTouchListener((view, event) -> {
@@ -582,6 +593,51 @@ public class ExpenseWidgetActivity extends Activity {
         );
     }
 
+    private LinearLayout buildVoiceExpenseSmartFill() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(14), dp(12), dp(14), dp(12));
+        container.setBackground(smartFillBackground());
+
+        TextView title = new TextView(this);
+        title.setText("Log with your voice  -  GEMINI SMART FILL");
+        title.setTextColor(palette.primaryStart);
+        title.setTextSize(13);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        container.addView(title, matchWrap());
+
+        TextView hint = new TextView(this);
+        hint.setText("Say the full expense, such as \"Spent 450 on groceries yesterday.\"");
+        hint.setTextColor(palette.muted);
+        hint.setTextSize(12);
+        hint.setLineSpacing(dp(2), 1f);
+        container.addView(hint, marginTop(matchWrap(), 5));
+
+        smartFillButton = actionButton("Speak expense");
+        styleButton(smartFillButton, ButtonTone.PRIMARY);
+        smartFillButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_widget_mic, 0, 0, 0);
+        smartFillButton.setCompoundDrawablePadding(dp(8));
+        smartFillButton.setContentDescription("Speak expense for Gemini smart fill");
+        smartFillButton.setOnClickListener(v -> startVoiceCapture(VOICE_MODE_EXPENSE));
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(44)
+        );
+        buttonParams.setMargins(0, dp(10), 0, 0);
+        container.addView(smartFillButton, buttonParams);
+        return container;
+    }
+
+    private GradientDrawable smartFillBackground() {
+        GradientDrawable drawable = new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            new int[] { palette.primarySoft, palette.surface }
+        );
+        drawable.setCornerRadius(dp(18));
+        drawable.setStroke(dp(1), palette.primaryStart);
+        return drawable;
+    }
+
     private View buildQuickChips() {
         HorizontalScrollView scrollView = new HorizontalScrollView(this);
         scrollView.setHorizontalScrollBarEnabled(false);
@@ -629,9 +685,11 @@ public class ExpenseWidgetActivity extends Activity {
             .start();
     }
 
-    private void startVoiceCapture() {
+    private void startVoiceCapture(String mode) {
+        activeVoiceMode = mode;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             toast("Voice input is not available on this device.");
+            activeVoiceMode = null;
             return;
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -646,11 +704,14 @@ public class ExpenseWidgetActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_RECORD_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             listenForComment();
+        } else if (requestCode == REQUEST_RECORD_AUDIO) {
+            activeVoiceMode = null;
         }
     }
 
     private void listenForComment() {
-        setBusy(true, "Listening...");
+        boolean expenseMode = VOICE_MODE_EXPENSE.equals(activeVoiceMode);
+        setBusy(true, expenseMode ? "Listening for expense details..." : "Listening for your comment...");
         pulseMic(true);
         if (speechRecognizer == null) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
@@ -666,6 +727,7 @@ public class ExpenseWidgetActivity extends Activity {
                 @Override
                 public void onError(int error) {
                     pulseMic(false);
+                    activeVoiceMode = null;
                     setBusy(false, "Voice input failed. You can type the comment.");
                 }
 
@@ -673,9 +735,16 @@ public class ExpenseWidgetActivity extends Activity {
                 public void onResults(Bundle results) {
                     ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     String transcript = matches == null || matches.isEmpty() ? "" : matches.get(0);
-                    commentInput.setText(transcript);
+                    String completedMode = activeVoiceMode;
+                    activeVoiceMode = null;
                     pulseMic(false);
-                    parseVoiceExpense(transcript);
+                    if (VOICE_MODE_EXPENSE.equals(completedMode)) {
+                        commentInput.setText(transcript);
+                        parseVoiceExpense(transcript);
+                    } else {
+                        appendCommentTranscript(transcript);
+                        setBusy(false, transcript.trim().isEmpty() ? "" : "Comment added.");
+                    }
                 }
             });
         }
@@ -685,6 +754,15 @@ public class ExpenseWidgetActivity extends Activity {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         speechRecognizer.startListening(intent);
+    }
+
+    private void appendCommentTranscript(String transcript) {
+        String cleanTranscript = transcript == null ? "" : transcript.trim();
+        if (cleanTranscript.isEmpty()) return;
+        String currentComment = commentInput.getText().toString().trim();
+        commentInput.setText(currentComment.isEmpty() ? cleanTranscript : currentComment + " " + cleanTranscript);
+        commentInput.setSelection(commentInput.getText().length());
+        popView(commentInput);
     }
 
     private void parseVoiceExpense(String transcript) {
@@ -887,26 +965,37 @@ public class ExpenseWidgetActivity extends Activity {
 
     private void setBusy(boolean busy, String message) {
         progressBar.setVisibility(busy ? View.VISIBLE : View.GONE);
-        micButton.setEnabled(!busy);
+        if (smartFillButton != null) smartFillButton.setEnabled(!busy);
+        if (commentMicButton != null) commentMicButton.setEnabled(!busy);
         statusText.setText(message == null ? "" : message);
     }
 
     private void pulseMic(boolean enabled) {
-        if (micButton == null) return;
-        micButton.animate().cancel();
         if (!enabled) {
-            micButton.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(140).start();
+            resetMicPulse(commentMicButton);
+            resetMicPulse(smartFillButton);
             return;
         }
-        micButton.animate()
+        View activeMic = VOICE_MODE_EXPENSE.equals(activeVoiceMode) ? smartFillButton : commentMicButton;
+        if (activeMic == null) return;
+        activeMic.animate().cancel();
+        activeMic.animate()
             .scaleX(1.06f)
             .scaleY(1.06f)
             .alpha(0.86f)
             .setDuration(420)
             .withEndAction(() -> {
-                if (progressBar != null && progressBar.getVisibility() == View.VISIBLE) pulseMic(true);
+                if (progressBar != null && progressBar.getVisibility() == View.VISIBLE && activeVoiceMode != null) {
+                    pulseMic(true);
+                }
             })
             .start();
+    }
+
+    private void resetMicPulse(View micButton) {
+        if (micButton == null) return;
+        micButton.animate().cancel();
+        micButton.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(140).start();
     }
 
     private void popView(View view) {

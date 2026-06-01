@@ -288,13 +288,15 @@ final class SpendNotificationClassifier {
             boolean hasCurrency = isCurrencyMarkerForApp(currencyMarker, appCurrency);
             if (!hasCurrency) continue;
             boolean hasExpenseContext = containsAny(window, EXPENSE_ACTION_TERMS);
+            boolean hasIncomeContext = containsAny(window, INCOME_TERMS);
             boolean hasPaymentContext = containsAny(window, PAYMENT_RAIL_TERMS);
             boolean hasBalanceContext = containsAny(window, BALANCE_TERMS);
+            boolean hasTransactionContext = hasExpenseContext || hasIncomeContext;
 
             double score = 0.34;
-            if (hasExpenseContext) score += 0.34;
+            if (hasTransactionContext) score += 0.34;
             if (hasPaymentContext) score += 0.12;
-            if (hasBalanceContext && !hasExpenseContext) score -= 0.35;
+            if (hasBalanceContext && !hasTransactionContext) score -= 0.35;
 
             if (score > bestScore) {
                 bestScore = score;

@@ -1779,3 +1779,47 @@
   - `git diff --check`, i18n JSON parsing, and Android clear-icon XML parsing passed.
   - Angular build remains unavailable because `personal-finance-pwa/node_modules` is absent.
   - Android Gradle build cannot resolve Capacitor plugin variants for the same missing dependency checkout state.
+
+## 2026-05-31 - Daily Voice Expense And Comment Dictation Separation
+- Problem:
+  - Daily showed one mic beside the optional comment field, but that control also invoked Gemini smart-fill for amount, date, and category.
+  - The field-level placement made the advanced expense-log behavior undiscoverable and made the comment behavior misleading.
+- Product decision:
+  - Place whole-expense voice capture near the start of the form as an explicit Gemini smart-fill action.
+  - Keep comment dictation attached to the comment input because it only edits that field.
+- Implemented:
+  - Added a compact top-of-form `Speak expense` card with a Gemini badge, example utterance, recording state, parsing state, and stop action.
+  - Converted the comment-field mic into comment-only dictation.
+  - Added mutually exclusive `expense` and `comment` recording modes so the two actions cannot run at the same time.
+  - Preserved the existing smart-fill fallback that saves the full-expense transcript into comments when Gemini cannot fill the form.
+  - Added English, Tamil, and Hindi labels for both voice intents.
+- Verification:
+  - Parsed all edited i18n JSON dictionaries successfully.
+  - Ran `git diff --check`.
+  - Ran `./node_modules/.bin/tsc --noEmit -p tsconfig.app.json`.
+  - Full `ng build` terminated silently in the local execution environment before reporting a compiler diagnostic.
+
+## 2026-05-31 - Native Widget Voice Expense And Comment Dictation Separation
+- Problem:
+  - The native Android widget sheet still exposed one mic in the bottom action row for both comment capture and Gemini expense smart-fill.
+- Implemented:
+  - Added an expense-only `Log with your voice` card near the top of the native sheet with a Gemini smart-fill label, example utterance, and mic-led `Speak expense` action.
+  - Attached a separate compact `Dictate comment` mic directly beside the optional comment input.
+  - Removed the ambiguous mic from the Save/Cancel action row.
+  - Added explicit native voice modes: expense mode stores the transcript as fallback and invokes Gemini; comment mode appends dictated text and never modifies amount, date, or category.
+  - Kept the smart-fill card hidden in credit mode, where comment dictation remains available.
+- Verification:
+  - Ran `git diff --check`.
+  - Ran `./gradlew :app:compileDebugJavaWithJavac`.
+
+## 2026-05-31 - Remove Custom Date-Picker Clear Affordance
+- Problem:
+  - Angular date inputs showed a custom clear icon alongside the browser's native date-picker controls, adding unnecessary visual clutter.
+- Implemented:
+  - Updated shared `appClearable` behavior to skip `type="date"` inputs entirely.
+  - Date inputs no longer receive the custom icon, extra right padding, click-to-clear zone, or Escape-key clearing.
+  - Other clearable inputs retain their existing behavior.
+- Verification:
+  - Ran `git diff --check`.
+  - Ran `./node_modules/.bin/tsc --noEmit -p tsconfig.app.json`.
+  - Ran `./node_modules/.bin/ngc -p tsconfig.app.json`.

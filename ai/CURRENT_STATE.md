@@ -29,6 +29,12 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Daily expense voice-input separation:
+  - Daily now exposes a dedicated top-of-form `Speak expense` Gemini smart-fill action with an example utterance and explicit AI badge.
+  - The mic attached to the optional comment input is comment-only dictation and no longer invokes Gemini or changes expense fields.
+  - Smart-fill voice capture still preserves its transcript in comments when Gemini is disabled, missing a key, unavailable, or unable to parse the expense.
+  - English, Tamil, and Hindi labels distinguish smart expense capture from comment dictation.
+  - The native Android widget expense dialog mirrors the same interaction: an expense-only `Speak expense` Gemini card near the top and a comment-only mic beside the comment field. Credit mode shows comment dictation only.
 - Android APK signing and native Google-login diagnosis:
   - Current debug APKs use the machine-local `~/.android/debug.keystore`; no release signing configuration is present in Gradle.
   - The current machine debug signer SHA-1 is `D0:48:3A:CC:04:57:A2:24:0E:53:91:05:8B:15:31:04:02:15:0A:50`.
@@ -93,7 +99,7 @@
   - Added English, Tamil, and Hindi labels for the new account adjustment history UI.
 - Input clear controls and debt-payment log actions:
   - Daily expense-log rows and detail views keep showing debt-payment entries but hide generic edit/delete buttons for them; debt-payment changes remain managed from Finances.
-  - Added a shared Angular `appClearable` directive for editable app inputs, including date/time picker-aware positioning and Escape-key clearing.
+  - Added a shared Angular `appClearable` directive for editable app inputs, including time-picker-aware positioning and Escape-key clearing. Date inputs deliberately use only their native picker affordance.
   - Daily, Limits, Finances, Settings, and family join inputs now expose inline clear affordances; special controls such as checkboxes, files, ranges, and read-only IDs retain their existing behavior.
   - Native Android widget amount/comment inputs now show a matching clear icon when populated.
 - Old-app finance backup overwrite guard:

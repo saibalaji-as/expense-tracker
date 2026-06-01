@@ -236,6 +236,51 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 
           <form [formGroup]="form" (ngSubmit)="onSubmit()">
 
+            <!-- Voice expense smart-fill -->
+            <div class="mb-4 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/10 via-primary-glow/5 to-success/10 p-3">
+              <div class="flex items-center gap-3">
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
+                  <lucide-icon name="sparkles" class="h-4 w-4" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-sm font-semibold text-foreground">{{ 'daily.voiceExpense.title' | translate }}</p>
+                    <span class="rounded-full border border-primary/25 bg-background/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+                      {{ 'daily.voiceExpense.geminiBadge' | translate }}
+                    </span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{{ 'daily.voiceExpense.hint' | translate }}</p>
+                </div>
+                <button
+                  type="button"
+                  [attr.aria-label]="'daily.voiceExpense.action' | translate"
+                  [disabled]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                  (click)="recordingMode() === 'expense' ? stopVoiceRecording() : startVoiceExpenseRecording()"
+                  class="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  [class.border-destructive]="recordingMode() === 'expense'"
+                  [class.bg-destructive\/10]="recordingMode() === 'expense'"
+                  [class.text-destructive]="recordingMode() === 'expense'"
+                  [class.border-primary\/30]="recordingMode() !== 'expense'"
+                  [class.bg-primary\/10]="recordingMode() !== 'expense'"
+                  [class.text-primary]="recordingMode() !== 'expense'"
+                  [class.opacity-60]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                  [class.cursor-not-allowed]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                >
+                  @if (isParsingVoiceExpense()) {
+                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                  } @else {
+                    <lucide-icon name="mic" class="h-4 w-4" />
+                  }
+                  <span class="hidden sm:inline">{{ (recordingMode() === 'expense' ? 'daily.voice.stop' : 'daily.voiceExpense.action') | translate }}</span>
+                </button>
+              </div>
+              @if (recordingMode() === 'expense') {
+                <p class="mt-2 text-xs font-medium text-destructive">{{ 'daily.voiceExpense.listening' | translate }}</p>
+              } @else if (isParsingVoiceExpense()) {
+                <p class="mt-2 text-xs font-medium text-primary">{{ 'daily.voiceParsing' | translate }}</p>
+              }
+            </div>
+
             <!-- Category chips -->
             <div>
               <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.expenseType' | translate }}</p>
@@ -377,7 +422,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
               </div>
             </div>
 
-            <!-- Comment + mic -->
+            <!-- Comment + dictation mic -->
             <div class="mt-2.5">
 	              <label for="comment-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.commentOptional' | translate }}</label>
               <div class="mt-1 flex items-center gap-2">
@@ -402,30 +447,26 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                 </div>
                 <button
                   type="button"
-	                  [attr.aria-label]="'daily.recordVoice' | translate"
-                  [disabled]="isParsingVoiceExpense()"
-                  (click)="isRecording() ? stopVoiceRecording() : startVoiceRecording()"
+	                  [attr.aria-label]="'daily.commentVoice.action' | translate"
+                  [disabled]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'comment')"
+                  (click)="recordingMode() === 'comment' ? stopVoiceRecording() : startCommentRecording()"
                   class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  [class.border-destructive]="isRecording()"
-                  [class.bg-destructive\/10]="isRecording()"
-                  [class.text-destructive]="isRecording()"
-                  [class.opacity-60]="isParsingVoiceExpense()"
-                  [class.cursor-not-allowed]="isParsingVoiceExpense()"
-                  [class.border-border]="!isRecording()"
-                  [class.bg-card\/60]="!isRecording()"
-                  [class.text-muted-foreground]="!isRecording()"
-                  [class.hover\:text-primary]="!isRecording()"
-                  [class.hover\:shadow-glow]="!isRecording()"
+                  [class.border-destructive]="recordingMode() === 'comment'"
+                  [class.bg-destructive\/10]="recordingMode() === 'comment'"
+                  [class.text-destructive]="recordingMode() === 'comment'"
+                  [class.opacity-60]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'comment')"
+                  [class.cursor-not-allowed]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'comment')"
+                  [class.border-border]="recordingMode() !== 'comment'"
+                  [class.bg-card\/60]="recordingMode() !== 'comment'"
+                  [class.text-muted-foreground]="recordingMode() !== 'comment'"
+                  [class.hover\:text-primary]="recordingMode() !== 'comment'"
+                  [class.hover\:shadow-glow]="recordingMode() !== 'comment'"
                 >
-                  @if (isParsingVoiceExpense()) {
-                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                  } @else {
-                    <lucide-icon name="mic" class="h-4 w-4" />
-                  }
+                  <lucide-icon name="mic" class="h-4 w-4" />
                 </button>
               </div>
-              @if (isParsingVoiceExpense()) {
-                <p class="mt-1 text-xs text-primary">{{ 'daily.voiceParsing' | translate }}</p>
+              @if (recordingMode() === 'comment') {
+                <p class="mt-1 text-xs text-destructive">{{ 'daily.commentVoice.listening' | translate }}</p>
               }
             </div>
 
@@ -1476,7 +1517,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly hasMoreCategories = computed(() => this.availableCategories().length > 4);
 
   // ─── Voice recognition ────────────────────────────────────────────────────
-  readonly isRecording = signal(false);
+  readonly recordingMode = signal<'expense' | 'comment' | null>(null);
+  readonly isRecording = computed(() => this.recordingMode() !== null);
   readonly isParsingVoiceExpense = signal(false);
   private recognition: any = null;
 
@@ -1692,6 +1734,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     }
     this.revokeReceiptPreviewUrl();
     this.revokeReceiptEditorUrl();
+    this.recognition?.stop();
   }
 
   private restoreDraft(): void {
@@ -2902,7 +2945,15 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Voice recording ──────────────────────────────────────────────────────
-  startVoiceRecording(): void {
+  startVoiceExpenseRecording(): void {
+    this.startVoiceRecording('expense');
+  }
+
+  startCommentRecording(): void {
+    this.startVoiceRecording('comment');
+  }
+
+  private startVoiceRecording(mode: 'expense' | 'comment'): void {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       this.feedback.warning(
         this.i18n.t('daily.voiceUnsupportedTitle'),
@@ -2918,7 +2969,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.recognition.lang = this.i18n.speechRecognitionLang();
 
     this.recognition.onstart = () => {
-      this.isRecording.set(true);
+      this.recordingMode.set(mode);
     };
 
     this.recognition.onresult = (event: any) => {
@@ -2927,16 +2978,18 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
       const currentComment = this.form.get('comment')?.value || '';
       this.form.get('comment')?.setValue(currentComment + (currentComment ? ' ' : '') + transcript);
-      void this.applyVoiceExpenseTranscript(transcript);
+      if (mode === 'expense') {
+        void this.applyVoiceExpenseTranscript(transcript);
+      }
     };
 
     this.recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
-      this.isRecording.set(false);
+      this.recordingMode.set(null);
     };
 
     this.recognition.onend = () => {
-      this.isRecording.set(false);
+      this.recordingMode.set(null);
     };
 
     this.recognition.start();

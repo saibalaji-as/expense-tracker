@@ -54,6 +54,21 @@ public class SpendNotificationClassifierTest {
     }
 
     @Test
+    public void classifiesSalaryCreditBeforeNearbyBalanceAsPromptableIncome() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Salary Credited!\n"
+                + "INR 82,566.00 to HDFC Bank A/c XX5655\n"
+                + "Bal: INR 1,90,254.52\n"
+                + "Get statement and more on WhatsApp: https://1.hdfc.bank.in/HDFCBK/s/a/o7kMxp7q",
+            "com.google.android.apps.messaging"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.INCOME_OR_REFUND, result.type);
+        assertTrue(result.shouldPrompt());
+        assertEquals(82566.0, result.amount, 0.001);
+    }
+
+    @Test
     public void ignoresFailedTransaction() {
         SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
             "Payment of Rs 1200 failed due to insufficient balance.",

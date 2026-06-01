@@ -12,6 +12,7 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
   private lastValue = '';
 
   ngAfterViewInit(): void {
+    if (!this.supportsClear) return;
     this.element.style.paddingRight = `${this.clearIconRightOffset + 28}px`;
     this.refreshIcon();
   }
@@ -24,6 +25,7 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
   @HostListener('change')
   @HostListener('focus')
   refreshIcon(): void {
+    if (!this.supportsClear) return;
     const hasValue = this.element.value.length > 0;
     this.lastValue = this.element.value;
     this.element.style.backgroundImage = hasValue ? CLEAR_ICON : '';
@@ -35,6 +37,7 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
 
   @HostListener('click', ['$event'])
   clearFromIcon(event: MouseEvent): void {
+    if (!this.supportsClear) return;
     const clearZoneStart = this.element.clientWidth - this.clearIconRightOffset - 26;
     const clearZoneEnd = this.element.clientWidth - this.clearIconRightOffset + 8;
     if (!this.element.value || event.offsetX < clearZoneStart || event.offsetX > clearZoneEnd) return;
@@ -45,6 +48,7 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
 
   @HostListener('keydown.escape')
   clear(): void {
+    if (!this.supportsClear) return;
     if (!this.element.value) return;
     this.element.value = '';
     this.element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -54,12 +58,16 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
   }
 
   private get hasNativePicker(): boolean {
-    return this.element.type === 'date' || this.element.type === 'time';
+    return this.element.type === 'time';
+  }
+
+  private get supportsClear(): boolean {
+    return this.element.type !== 'date';
   }
 
   private get clearIconRightOffset(): number {
     if (this.hasNativePicker) return 40;
-    if (this.element.type === 'number' || this.element.type === 'password') return 32;
+    if (this.element.type === 'password') return 32;
     return 12;
   }
 }
