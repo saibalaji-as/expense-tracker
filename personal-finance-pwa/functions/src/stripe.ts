@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions/v2/https';
 import Stripe from 'stripe';
 import { Timestamp } from 'firebase-admin/firestore';
+import { requireFirebaseUid } from './auth';
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -18,13 +19,14 @@ export const createStripeSession = functions.onRequest(
       return;
     }
 
-    const { priceId, uid } = req.body as { priceId?: string; uid?: string };
-    if (!priceId || !uid) {
-      res.status(400).json({ error: 'priceId and uid are required' });
+    const { priceId } = req.body as { priceId?: string };
+    if (!priceId) {
+      res.status(400).json({ error: 'priceId is required' });
       return;
     }
 
     try {
+      const uid = await requireFirebaseUid(req);
       const stripe = getStripe();
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',

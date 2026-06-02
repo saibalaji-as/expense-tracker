@@ -3,6 +3,7 @@ import { createRazorpaySubscription, verifyRazorpayPayment } from './razorpay';
 import { createStripeSession, stripeWebhook } from './stripe';
 import { razorpayWebhook } from './razorpay-webhook';
 import { sendReminders } from './send-reminders';
+import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
 
 admin.initializeApp();
 
@@ -13,4 +14,6 @@ export {
   createStripeSession,
   stripeWebhook,
   sendReminders,
+  createSubscriptionHandoff,
+  redeemSubscriptionHandoff,
 };

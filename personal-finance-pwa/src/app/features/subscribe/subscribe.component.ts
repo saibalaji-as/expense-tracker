@@ -5,7 +5,7 @@ import {
   signal,
   inject,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { PaymentService, PRICING_PLANS, PricingPlan } from '../../core/services/payment.service';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -66,11 +66,13 @@ import { AuthService } from '../../core/services/auth.service';
 
         <button
           (click)="pay()"
-          [disabled]="!selectedPlan() || loading() || payService.detecting()"
+          [disabled]="!selectedPlan() || loading() || authorizing() || payService.detecting()"
           class="w-full py-4 rounded-2xl text-white font-semibold text-base transition-all
                  bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          @if (loading()) {
+          @if (authorizing()) {
+            Connecting your Spenza account...
+          } @else if (loading()) {
             Processing...
           } @else if (payService.detecting()) {
             Detecting your region...
@@ -98,10 +100,12 @@ import { AuthService } from '../../core/services/auth.service';
 export class SubscribeComponent implements OnInit {
   protected readonly payService = inject(PaymentService);
   private readonly authService = inject(AuthService);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly plans = PRICING_PLANS;
   protected readonly selectedPlan = signal<PricingPlan | null>(PRICING_PLANS[0]);
   protected readonly loading = signal(false);
+  protected readonly authorizing = signal(false);
   protected readonly errorMsg = signal<string | null>(null);
 
   protected readonly features = [
@@ -113,8 +117,20 @@ export class SubscribeComponent implements OnInit {
     'Priority support',
   ];
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
     this.payService.detectProvider();
+    const handoff = this.route.snapshot.queryParamMap.get('handoff');
+    if (!handoff) return;
+
+    this.authorizing.set(true);
+    try {
+      await this.authService.redeemSubscriptionHandoff(handoff);
+      window.history.replaceState({}, '', `${window.location.pathname}#/subscribe`);
+    } catch (err) {
+      this.errorMsg.set(err instanceof Error ? err.message : 'Could not authorize this subscription link.');
+    } finally {
+      this.authorizing.set(false);
+    }
   }
 
   protected selectPlan(plan: PricingPlan): void {
@@ -126,27 +142,16 @@ export class SubscribeComponent implements OnInit {
     const plan = this.selectedPlan();
     if (!plan || this.loading()) return;
 
-    if (!this.authService.isAuthenticated()) {
-      this.errorMsg.set('Please sign in before subscribing.');
-      return;
-    }
-
     this.loading.set(true);
     this.errorMsg.set(null);
 
-    const uid = await this.authService.ensureUserId();
-    if (!uid) {
-      this.errorMsg.set('Could not identify your account. Please sign out and sign in again.');
-      this.loading.set(false);
-      return;
-    }
-
     try {
+      const idToken = await this.authService.ensureFirebaseIdToken();
       const provider = this.payService.provider() ?? await this.payService.detectProvider();
       if (provider === 'razorpay') {
-        await this.payService.openRazorpay(plan, uid, this.authService.userEmail());
+        await this.payService.openRazorpay(plan, idToken, this.authService.userEmail());
       } else {
-        await this.payService.redirectToStripe(plan, uid);
+        await this.payService.redirectToStripe(plan, idToken);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Payment failed. Please try again.';

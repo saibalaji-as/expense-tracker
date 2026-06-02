@@ -73,14 +73,17 @@ export class PaymentService {
   // Razorpay
   // ---------------------------------------------------------------------------
 
-  async openRazorpay(plan: PricingPlan, uid: string, email: string | null): Promise<void> {
+  async openRazorpay(plan: PricingPlan, idToken: string, email: string | null): Promise<void> {
     await this.#loadRazorpayScript();
 
     // Step 1 — create subscription on backend (backend resolves real plan ID)
     const createRes = await fetch(FN_CREATE_SUBSCRIPTION, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ planType: plan.planType, uid }),
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ planType: plan.planType }),
     });
 
     if (!createRes.ok) {
@@ -106,7 +109,7 @@ export class PaymentService {
         }) => {
           try {
             // Step 3 — verify signature on backend, write Firestore
-            await this.#verifyPayment(response, uid, plan.planType);
+            await this.#verifyPayment(response, idToken, plan.planType);
             resolve();
           } catch (err) {
             reject(err);
@@ -131,13 +134,16 @@ export class PaymentService {
       razorpay_subscription_id: string;
       razorpay_signature: string;
     },
-    uid: string,
+    idToken: string,
     planType: PlanType
   ): Promise<void> {
     const verifyRes = await fetch(FN_VERIFY_PAYMENT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...response, uid, planType }),
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ...response, planType }),
     });
 
     if (!verifyRes.ok) {
@@ -150,11 +156,14 @@ export class PaymentService {
   // Stripe (configure after Stripe setup)
   // ---------------------------------------------------------------------------
 
-  async redirectToStripe(plan: PricingPlan, uid: string): Promise<void> {
+  async redirectToStripe(plan: PricingPlan, idToken: string): Promise<void> {
     const res = await fetch(FN_CREATE_STRIPE_SESSION, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ priceId: STRIPE_PRICE_IDS[plan.id], uid }),
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ priceId: STRIPE_PRICE_IDS[plan.id] }),
     });
 
     if (!res.ok) throw new Error('Failed to create Stripe session');

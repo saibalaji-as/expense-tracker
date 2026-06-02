@@ -16,8 +16,8 @@
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
   - Netlify functions under `personal-finance-pwa/netlify/functions`.
-  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
-- Existing memory files were present but empty before this refresh.
+  - Firebase functions under `personal-finance-pwa/functions`.
+  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `firebase.json`, `.firebaserc`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
 
 ## Active Project Shape
 - App is a Drive-backed Angular 21 PWA/Capacitor app named Spenza.
@@ -29,6 +29,18 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Firebase Hosting and subscription/payment phase:
+  - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting plus the two subscription-handoff Functions from `main`.
+  - Added Firebase Functions under `personal-finance-pwa/functions` for Razorpay subscription creation, signature verification, Razorpay webhook handling, Stripe Checkout session creation, Stripe webhook handling, and reminder export.
+  - Added Firebase Auth bridging in `AuthService`: Google credentials sign into Firebase when possible, `firebase_uid` is cached, and Drive-backed features remain usable when Firebase sign-in fails.
+  - Added Firestore-backed `SubscriptionService`, read-only per-user subscription rules, `/subscribe`, Terms, Privacy, Settings plan UI, Family-mode gating, and Dashboard Gemini-insight gating.
+  - Native Android does not render `/subscribe` in the Capacitor WebView. Settings and Pro redirects request a five-minute, one-time Firebase handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - The external browser redeems the one-time code into Firebase Auth silently, avoiding a second user sign-in before checkout.
+  - Razorpay and Stripe client calls now send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
+  - Netlify app URLs remain only for legacy API calls such as AI and FCM endpoints; they are not app-page destinations.
+- Drive OAuth recovery hardening:
+  - Drive config bootstrap 403 now stops retries, clears the in-memory Google token, and routes returning users to `/auth/callback` for fresh consent instead of new-user setup.
+  - When single-user Drive discovery finds no backup file but the account-scoped local snapshot contains real data, `ExpenseStore` restores that snapshot into the newly created Drive file before initializing state.
 - Bill extraction modern drag-to-crop UI:
   - Replaced legacy 4 range-sliders (Crop Left / Top / Width / Height) with an interactive drag overlay on the image itself.
   - Overlay shows dark masks outside the crop region, rule-of-thirds grid inside, 4 corner handles (large touch targets), 4 pill-shaped edge handles, and a draggable crop box interior.
@@ -606,12 +618,21 @@
 - Latest save acknowledgment verification on 2026-05-21:
   - `npx vitest run src/app/features/expense-limit/expense-limit.component.spec.ts src/app/features/daily-expense/daily-expense.component.spec.ts src/app/features/settings/settings.component.spec.ts` passed.
   - `npm run build` passed.
+- Latest Firebase-hosted native subscription redirect verification on 2026-06-02:
+  - `npm run build -- --configuration production` passed with the existing initial-bundle budget warning.
+  - `./gradlew :app:assembleDebug` passed with the Capacitor Browser module wired into Android.
+  - `git diff --check` passed.
+  - `./scripts/refresh-ai-context.sh` rebuilt the local Graphify AST index.
+- Latest native-to-web subscription handoff verification on 2026-06-02:
+  - `npm run build -- --configuration production` passed with the existing initial-bundle budget warning.
+  - `npm run build` passed from `personal-finance-pwa/functions`.
+  - `./gradlew :app:assembleDebug` passed.
+  - `git diff --check` passed.
 
 ## Immediate Next Steps
 - Human-facing project documentation has been consolidated into `docs/README.md`.
   - Historical feature-completion, phase-status, and duplicate troubleshooting Markdown files were removed.
   - Required AI workflow files remain in their structural locations: `AGENTS.md`, `.github/copilot-instructions.md`, `drive-ai.md`, and `ai/*.md`.
-- Commit or otherwise preserve the new `ai/*.md` memory files.
 - For future feature work:
   - Start by reading `ai/AI_RULES.md` and `ai/PROJECT_CONTEXT.md`.
   - Verify whether a feature should touch Drive-backed store or legacy Sheets migration paths.

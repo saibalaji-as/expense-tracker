@@ -67,6 +67,11 @@
 - Preserve `SCOPE_VERSION` behavior when changing scopes.
 - Keep one stable Android signing keystore for distributed APK updates. Before testing native Google sign-in, register the exact final APK signer SHA-1 with the Google Cloud Android OAuth client for `com.spenza.app`; do not rely on machine-specific debug keystores for production updates.
 - Drive errors should include operation context and flow through `driveError$` when user-visible.
+- Treat Drive config bootstrap 403 as an auth/scope failure:
+  - Re-throw it from `BackupModeService.loadFromDrive()`.
+  - Clear the in-memory Google token and route to `/auth/callback` for fresh consent.
+  - Do not fall through to new-user mode selection.
+- If single-user Drive discovery returns no backup file but the account-scoped local backup snapshot contains real data, restore that snapshot into the newly created Drive backup before initializing empty state.
 - Returning users with a valid local backup snapshot should not be blocked on Drive bootstrap before entering the app.
 - Keep Drive JSON as authoritative, but maintain the local backup snapshot (`spenza_drive_backup_snapshot_v1`) for fast startup and offline read access.
 - Scope local backup snapshots and backup-mode/config caches to the signed-in Google account; when explicit sign-in returns a different email, clear account-scoped local state before loading that account's Drive config.
@@ -255,8 +260,19 @@
 - FCM token registration must go through Netlify functions.
 - Native function URLs must use `environment.netlifyFunctionsUrl`.
 - Web function URLs should use `/.netlify/functions`.
-- Firestore private credentials must stay in Netlify env vars, not client code.
+- Firestore Admin and payment-provider private credentials must stay in backend environment variables for Netlify or Firebase Functions as appropriate, never in client code.
 - Scheduler utilities must remain pure and unit-testable.
+
+## Hosting And Subscription Rules
+- Treat Firebase Hosting as the canonical web-app host: `https://spenza-finance.web.app`.
+- Use `https://spenza-finance.web.app/#/subscribe` for subscription-page navigation from Android and external redirects.
+- Do not use `https://spenzaio.netlify.app` as an app-page destination. Netlify remains valid only for legacy serverless API calls under `/.netlify/functions`.
+- Keep `/subscribe` web-only inside the Angular router. Native Android should request a short-lived, one-time Firebase handoff code and open the Firebase-hosted subscription page through `@capacitor/browser`.
+- Keep subscription handoff codes short-lived and single-use. Redeem them transactionally, delete them after redemption, and exchange them for Firebase custom tokens only in Firebase Functions.
+- Payment API identity must come from a verified Firebase ID token. Never trust a client-supplied UID for subscription creation, verification, or Stripe session creation.
+- Keep payment-provider secrets, signature verification, and Firestore subscription writes in Firebase Functions; never move them into Angular client code.
+- Keep Firestore subscription rules read-only for clients and scoped to the authenticated user's own `users/{uid}/subscription/status` path.
+- Firebase Auth failure must not block Drive-backed expense features; it may prevent subscription-state lookup until identity is available.
 
 ## Native Android Widget Rules
 - Keep the home screen widget standalone and removable:

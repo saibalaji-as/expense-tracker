@@ -4,8 +4,15 @@ import { SocialLogin } from '@capgo/capacitor-social-login';
 import { StorageService } from './storage.service';
 import { BackupMode } from './backup-mode.service';
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, signInWithCredential, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
+import {
+  getAuth,
+  signInWithCredential,
+  signInWithCustomToken,
+  GoogleAuthProvider,
+  signOut as firebaseSignOut,
+} from 'firebase/auth';
 import { firebaseConfig } from '../config/firebase.config';
+import { environment } from '../../../environments/environment';
 
 declare const google: any;
 
@@ -24,6 +31,7 @@ const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
 const SCOPE_VERSION = '6'; // v6 = full drive scope instead of drive.file
 const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
 const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
 
 export interface SignInResult {
   email: string | null;
@@ -230,6 +238,65 @@ export class AuthService {
       // Non-critical
     }
     return this.firebaseUid();
+  }
+
+  async ensureFirebaseIdToken(): Promise<string> {
+    if (!this.#firebaseAuth.currentUser && this.isAuthenticated()) {
+      const accessToken = await this.ensureToken();
+      await this.#signIntoFirebase(null, accessToken);
+    }
+
+    const user = this.#firebaseAuth.currentUser;
+    if (!user) {
+      throw new Error('Could not verify your subscription account. Open this page from the Spenza app and try again.');
+    }
+    return user.getIdToken();
+  }
+
+  async createSubscriptionPageUrl(): Promise<string> {
+    const idToken = await this.ensureFirebaseIdToken();
+    const response = await fetch(`${environment.firebaseFunctionsUrl}/createSubscriptionHandoff`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Subscription management is not deployed yet. Please try again after the app update finishes.');
+      }
+      throw new Error('Could not open subscription management. Please try again.');
+    }
+
+    const body = await response.json() as { code?: string };
+    if (!body.code) {
+      throw new Error('Subscription handoff did not return a code.');
+    }
+    return `${SUBSCRIBE_URL}?handoff=${encodeURIComponent(body.code)}`;
+  }
+
+  async redeemSubscriptionHandoff(code: string): Promise<void> {
+    const response = await fetch(`${environment.firebaseFunctionsUrl}/redeemSubscriptionHandoff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Subscription management is not deployed yet. Open it again after the app update finishes.');
+      }
+      throw new Error('This subscription link has expired. Open it again from the Spenza app.');
+    }
+
+    const body = await response.json() as { customToken?: string };
+    if (!body.customToken) {
+      throw new Error('Subscription handoff did not return a token.');
+    }
+
+    const credential = await signInWithCustomToken(this.#firebaseAuth, body.customToken);
+    this.firebaseUid.set(credential.user.uid);
+    await this.storageService.set('firebase_uid', credential.user.uid);
   }
 
   // ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { AuthService } from '../../core/services/auth.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -102,18 +104,28 @@ interface BeforeInstallPromptEvent extends Event {
               <p class="font-semibold text-gray-900 dark:text-white">Upgrade to Spenza Pro</p>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Advanced insights · Family sync · Receipt scanner · Priority support</p>
               <div class="mt-3 flex flex-wrap gap-2">
-                <a
-                  routerLink="/subscribe"
-                  class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
-                >
-                  ✨ Upgrade — ₹499/month
-                </a>
-                <a
-                  routerLink="/subscribe"
-                  class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
-                >
-                  ₹3,999/year — Save 33%
-                </a>
+                @if (isNativePlatform) {
+                  <button
+                    type="button"
+                    (click)="openSubscribePage()"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                  >
+                    ✨ Manage Subscription
+                  </button>
+                } @else {
+                  <a
+                    routerLink="/subscribe"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                  >
+                    ✨ Upgrade — ₹499/month
+                  </a>
+                  <a
+                    routerLink="/subscribe"
+                    class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
+                  >
+                    ₹3,999/year — Save 33%
+                  </a>
+                }
               </div>
             </div>
           </div>
@@ -1085,6 +1097,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly feedback = inject(UserFeedbackService);
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
 
+  readonly isNativePlatform = Capacitor.isNativePlatform();
+
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
     { value: 'light' as const, label: 'Light', icon: Sun, desc: 'Playful & colorful' },
@@ -1352,6 +1366,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
     window.removeEventListener('beforeinstallprompt', this.beforeInstallHandler);
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     this.stopDeleteAccountCountdown();
+  }
+
+  // ─── Subscription upgrade (Android Reader App exemption) ─────────────────────
+
+  async openSubscribePage(): Promise<void> {
+    try {
+      const url = await this.authService.createSubscriptionPageUrl();
+      await Browser.open({ url });
+    } catch (err) {
+      this.feedback.error(
+        'Subscription page could not be opened.',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+    }
   }
 
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────

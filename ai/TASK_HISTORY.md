@@ -1851,3 +1851,35 @@
   - Ran `git diff --check`.
   - Ran `./node_modules/.bin/tsc --noEmit -p tsconfig.app.json`.
   - Ran `./node_modules/.bin/ngc -p tsconfig.app.json`.
+
+## 2026-06-02 - Firebase Hosting, Subscription Payments, And Drive Recovery Sync
+- Stable architecture synchronized from current code:
+  - Firebase Hosting is now the canonical PWA host at `https://spenza-finance.web.app`; the `main` branch workflow deploys `hosting:spenza-site`.
+  - Netlify remains in use for legacy AI and FCM serverless API endpoints only. It is no longer an app-page host.
+  - Added Firebase Functions for Razorpay subscription creation/verification/webhooks and Stripe Checkout/webhooks.
+  - Added Firebase-auth-backed `firebase_uid`, Firestore per-user subscription status, read-only client subscription rules, `/subscribe`, legal pages, Settings plan UI, Family-mode Pro gating, and Dashboard Gemini-insight Pro gating.
+  - Native Android subscription navigation uses `@capacitor/browser` and always opens `https://spenza-finance.web.app/#/subscribe`; `/subscribe` remains web-only inside the Capacitor router.
+- Drive recovery decisions:
+  - A Drive config bootstrap 403 is treated as an OAuth consent/scope problem, not as missing setup: clear the in-memory token and route to `/auth/callback`.
+  - If single-user Drive discovery cannot find a backup but the account-scoped local snapshot contains real data, restore the snapshot into the newly created Drive file before initializing empty state.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.
+  - Ran `./scripts/refresh-ai-context.sh`.
+
+## 2026-06-02 - Native Subscription Browser Handoff
+- Problem:
+  - Android opens the Firebase-hosted subscription page in a separate browser context, so the PWA could not see the Capacitor WebView's signed-in session and asked existing users to sign in again.
+- Implemented:
+  - Added Firebase Functions endpoints to create and redeem five-minute, one-time subscription handoff codes.
+  - Native Settings and Pro redirects request a handoff URL before opening `@capacitor/browser`.
+  - `/subscribe` silently redeems the code into Firebase Auth and removes it from browser history before checkout.
+  - Removed the Google-session route guard from `/subscribe`; the page must be reachable briefly before external-browser Firebase handoff redemption.
+  - Hardened Razorpay and Stripe calls to send Firebase ID tokens. Firebase Functions now verify the token and derive UID server-side instead of trusting a client-controlled UID.
+  - Updated the Firebase deployment workflow to build Functions and deploy Hosting plus the two handoff Functions together, without automatically revising payment/webhook Functions.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.

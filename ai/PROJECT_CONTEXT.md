@@ -3,9 +3,10 @@
 ## Scope
 - Product: Spenza personal/household expense tracker.
 - Primary app root: `personal-finance-pwa/`.
-- Deployment root config: repository-level `netlify.toml`.
+- Hosting config: `personal-finance-pwa/firebase.json` and `.firebaserc`.
+- Legacy Netlify functions config: repository-level `netlify.toml`.
 - App targets:
-  - Web PWA deployed to Netlify.
+  - Web PWA deployed to Firebase Hosting at `https://spenza-finance.web.app`.
   - Android shell through Capacitor.
 - Current source of truth for user data: Google Drive JSON backup, not Google Sheets.
 - Returning users also keep a local cached copy of the active Drive backup for fast startup; Drive remains authoritative and syncs after launch when a Google access token is available.
@@ -21,9 +22,10 @@
   - Capacitor Preferences local backup snapshot for fast returning-user startup.
   - Google Drive API JSON files for authoritative app data/config.
   - IndexedDB via `idb` for legacy/offline Sheets queue.
-  - Firestore only for FCM token registry.
+  - Firestore for FCM token registry and per-user subscription status.
 - Native/mobile:
   - Capacitor `^8.3.x`.
+  - `@capacitor/browser` for opening the Firebase-hosted subscription page from native Android.
   - `@capgo/capacitor-social-login` for native Google sign-in.
   - Capacitor local and push notifications.
 - AI/OCR:
@@ -36,7 +38,18 @@
   - Netlify function utility tests under `netlify/functions-tests/`.
 
 ## Build And Deployment
+- Firebase Hosting:
+  - GitHub Actions workflow: `.github/workflows/deploy-firebase.yml`.
+  - Firebase project: `spenza-notifications`.
+  - Hosting target/site: `spenza-site` / `spenza-finance`.
+  - Public directory: `dist/personal-finance-pwa/browser`.
+  - Deploy workflow ships Hosting plus the two subscription-handoff Functions together.
+- Firebase Functions:
+  - Source: `personal-finance-pwa/functions`.
+  - Runtime: Node.js 20.
+  - Subscription endpoints cover Razorpay creation/verification/webhooks and Stripe Checkout/webhooks.
 - Netlify build:
+  - Retained for legacy serverless endpoints such as AI helpers and FCM reminder registration/sending.
   - Base: `personal-finance-pwa`.
   - Command: `npm ci && npm run build`.
   - Publish: `dist/personal-finance-pwa/browser`.
@@ -66,8 +79,18 @@
   - `FIREBASE_CLIENT_EMAIL`
   - `FIREBASE_PRIVATE_KEY`
   - Optional `GEMINI_MODEL` for Netlify Gemini function model override.
+- Firebase Functions subscription environment variables:
+  - `RAZORPAY_KEY_ID`
+  - `RAZORPAY_KEY_SECRET`
+  - `RAZORPAY_PLAN_MONTHLY_ID`
+  - `RAZORPAY_PLAN_YEARLY_ID`
+  - `RAZORPAY_WEBHOOK_SECRET`
+  - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET`
 - Production Netlify functions URL: `https://spenzaio.netlify.app/.netlify/functions`.
 - Development native functions URL: `http://localhost:8888/.netlify/functions`.
+- Production web host and subscription page: `https://spenza-finance.web.app/#/subscribe`.
+- Firebase Functions base URL: `https://us-central1-spenza-notifications.cloudfunctions.net`.
 
 ## Folder Structure
 - `src/app/app.ts`: root bootstrap orchestration, Drive bootstrap, polling, loading/error state.
@@ -93,6 +116,7 @@
 - `/finances`: account balance management; guarded.
 - `/dashboard`: analytics, activity, AI/local insights; guarded.
 - `/settings`: backup, AI, notifications, import/export, account reset; guarded.
+- `/subscribe`: web-only Spenza Pro purchase page; native attempts redirect back to Settings.
 - `/auth/callback`: public Google sign-in/re-consent page.
 - `/mode-select`: backup mode selection; guarded.
 - `/family-setup`: family owner/partner setup; guarded.
@@ -126,11 +150,29 @@
   - `gapi_auth_state`
   - `gapi_user_email`
   - `gapi_scope_version`
+  - `firebase_uid`
 - Cached active backup key:
   - `spenza_drive_backup_snapshot_v1`
 - `authGuard` waits for `AuthService.sessionRestored` before deciding.
 - `setupGuard` waits for auth/session and backup-mode cache, then routes users to mode/family setup when required.
 - `authInterceptor` only intercepts URLs containing `googleapis.com`; on 401 it calls `ensureToken()` and retries once.
+- `AuthService` signs into Firebase Auth with the Google credential when possible and caches `firebase_uid`; Firebase-auth failure remains non-blocking for Drive-backed features.
+- On Drive config bootstrap 403, the app clears the in-memory Google token and routes to `/auth/callback` for fresh consent instead of treating the user as new.
+
+## Subscription And Payments
+- `SubscriptionService` reads `users/{uid}/subscription/status` from Firestore and exposes active Pro state.
+- Firestore rules allow authenticated users to read only their own subscription status; client writes are denied.
+- Pro access gates Family mode and user-triggered Dashboard Gemini insights.
+- Web purchase flow:
+  - `/subscribe` offers monthly and yearly Pro plans.
+  - `PaymentService` selects Razorpay for India and Stripe elsewhere, falling back to Razorpay when country detection fails.
+  - Firebase Functions own provider secrets, payment verification, webhook handling, and Firestore subscription-status writes.
+- Native Android purchase flow:
+  - Native Settings shows a `Manage Subscription` action instead of rendering the purchase route inside the Capacitor WebView.
+  - Native Pro redirects request a five-minute, one-time Firebase subscription handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - The external browser silently redeems the handoff for a Firebase custom token, so an already signed-in mobile user does not have to sign in again before checkout.
+  - Payment API calls send a Firebase ID token; Firebase Functions verify the token and derive the UID server-side rather than accepting a client-controlled UID.
+  - Do not use the Netlify app URL for subscription-page navigation; Netlify URLs remain valid only for legacy serverless API endpoints.
 
 ## Native Android Home Screen Widget
 - Android-only standalone quick expense widget is implemented under `android/app/src/main/java/com/spenza/app/` and Android resources.

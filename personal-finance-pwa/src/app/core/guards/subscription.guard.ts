@@ -1,10 +1,9 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { AuthService } from '../services/auth.service';
 import { SubscriptionService } from '../services/subscription.service';
-
-const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
 
 export const subscriptionGuard: CanActivateFn = async () => {
   const authService = inject(AuthService);
@@ -26,9 +25,12 @@ export const subscriptionGuard: CanActivateFn = async () => {
 
   if (!sub.isActive) {
     if (Capacitor.isNativePlatform()) {
-      // On Android: open the web subscribe page.
-      // Install @capacitor/browser and replace this with Browser.open() for in-app browser.
-      window.open(SUBSCRIBE_URL, '_system');
+      try {
+        const url = await authService.createSubscriptionPageUrl();
+        await Browser.open({ url });
+      } catch (err) {
+        console.error('[subscriptionGuard] Could not open subscription page:', err);
+      }
       return false;
     }
     return router.createUrlTree(['/subscribe']);

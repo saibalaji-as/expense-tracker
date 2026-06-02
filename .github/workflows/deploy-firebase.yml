@@ -42,11 +42,19 @@ jobs:
         working-directory: personal-finance-pwa
         run: npm run build -- --configuration production
 
+      - name: Install Firebase Functions dependencies
+        working-directory: personal-finance-pwa/functions
+        run: npm ci
+
+      - name: Build Firebase Functions
+        working-directory: personal-finance-pwa/functions
+        run: npm run build
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
-      - name: Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting and subscription handoff Functions
         working-directory: personal-finance-pwa
-        run: npx firebase-tools@latest deploy --only hosting:spenza-site --project spenza-notifications --non-interactive
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff --project spenza-notifications --non-interactive

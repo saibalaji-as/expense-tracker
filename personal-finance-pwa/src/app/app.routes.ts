@@ -1,7 +1,16 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Routes, Router, CanActivateFn } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
 import { authGuard } from './core/guards/auth.guard';
 import { setupGuard } from './core/guards/setup.guard';
 import { subscriptionGuard } from './core/guards/subscription.guard';
+
+const webOnlyGuard: CanActivateFn = () => {
+  if (Capacitor.isNativePlatform()) {
+    return inject(Router).createUrlTree(['/settings']);
+  }
+  return true;
+};
 
 export const routes: Routes = [
   {
@@ -80,7 +89,9 @@ export const routes: Routes = [
       import('./features/subscribe/subscribe.component').then(
         (m) => m.SubscribeComponent
       ),
-    canActivate: [authGuard],
+    // Public so an external browser opened by Android can redeem its one-time
+    // Firebase handoff before checkout. Payment APIs still require Firebase Auth.
+    canActivate: [webOnlyGuard],
   },
   {
     path: 'mode-select',

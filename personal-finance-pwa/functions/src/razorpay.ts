@@ -3,6 +3,7 @@ import * as functions from 'firebase-functions/v2/https';
 import Razorpay from 'razorpay';
 import * as crypto from 'crypto';
 import { Timestamp } from 'firebase-admin/firestore';
+import { requireFirebaseUid } from './auth';
 
 type PlanType = 'monthly' | 'yearly';
 
@@ -26,7 +27,7 @@ const CORS_ORIGINS = ['https://spenza-finance.web.app', 'http://localhost:4200']
 
 /**
  * Creates a Razorpay subscription.
- * Accepts { planType: 'monthly' | 'yearly', uid } — resolves the actual plan ID
+ * Accepts { planType: 'monthly' | 'yearly' } — resolves the actual plan ID
  * on the backend so the frontend never controls which plan gets created.
  */
 export const createRazorpaySubscription = functions.onRequest(
@@ -37,18 +38,14 @@ export const createRazorpaySubscription = functions.onRequest(
       return;
     }
 
-    const { planType, uid } = req.body as { planType?: string; uid?: string };
-
-    if (!uid) {
-      res.status(400).json({ error: 'uid is required' });
-      return;
-    }
+    const { planType } = req.body as { planType?: string };
     if (planType !== 'monthly' && planType !== 'yearly') {
       res.status(400).json({ error: 'planType must be monthly or yearly' });
       return;
     }
 
     try {
+      const uid = await requireFirebaseUid(req);
       const planId = resolvePlanId(planType as PlanType);
       const rzp = getRazorpay();
 
@@ -80,16 +77,15 @@ export const verifyRazorpayPayment = functions.onRequest(
       return;
     }
 
-    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, uid, planType } =
+    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, planType } =
       req.body as {
         razorpay_payment_id?: string;
         razorpay_subscription_id?: string;
         razorpay_signature?: string;
-        uid?: string;
         planType?: string;
       };
 
-    if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature || !uid) {
+    if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
       res.status(400).json({ error: 'Missing required fields' });
       return;
     }
@@ -97,6 +93,14 @@ export const verifyRazorpayPayment = functions.onRequest(
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     if (!keySecret) {
       res.status(500).json({ error: 'Server misconfiguration' });
+      return;
+    }
+
+    let uid: string;
+    try {
+      uid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Authentication required' });
       return;
     }
 
