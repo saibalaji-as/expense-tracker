@@ -190,6 +190,12 @@ export class AuthService {
     return this.#isNative ? this.#nativeSignOut() : this.#webSignOut();
   }
 
+  /** Discards the in-memory access token so the next ensureToken() call fetches a fresh one. */
+  clearToken(): void {
+    this.#accessToken = null;
+    this.#tokenRequestPromise = null;
+  }
+
   getAccessToken(): string | null {
     return this.#accessToken;
   }

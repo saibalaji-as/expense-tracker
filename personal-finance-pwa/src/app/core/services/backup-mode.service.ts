@@ -132,8 +132,14 @@ export class BackupModeService {
         await this.storageService.remove(CACHE_KEY_OWNER_ROLE);
       }
     } catch (err) {
+      const status = (err as DriveApiError)?.status;
+      if (status === 403) {
+        // Auth failure — re-throw so the caller can redirect to re-auth instead of treating the
+        // user as a new user (which mode=null would do).
+        throw err;
+      }
       console.error('[BackupModeService] loadFromDrive failed:', err);
-      // Fall back to cached values — don't throw, app can still work
+      // Non-auth errors: fall back to cached values so the app can still work offline.
     }
   }
 

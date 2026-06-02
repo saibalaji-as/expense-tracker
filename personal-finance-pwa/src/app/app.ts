@@ -126,7 +126,22 @@ export class App implements OnInit, OnDestroy {
     }
 
     // Load config from Drive to get cross-device mode/sharedFileId.
-    await this.withBootstrapRetries(() => this.backupModeService.loadFromDrive(), 'backup config');
+    try {
+      await this.withBootstrapRetries(() => this.backupModeService.loadFromDrive(), 'backup config');
+    } catch (err: unknown) {
+      if ((err as any)?.status === 403) {
+        // The token is invalid or missing the required scopes. Discard it so
+        // the next ensureToken() call forces a fresh interactive consent, then
+        // send the user to the re-auth page rather than the new-user flow.
+        this.authService.clearToken();
+        this.clearLoadingTimeout();
+        this.isLoading.set(false);
+        console.warn('[App] Drive config returned 403 — redirecting to re-auth:', err);
+        await this.router.navigate(['/auth/callback']);
+        return;
+      }
+      throw err;
+    }
 
     const mode = this.backupModeService.getMode();
     if (mode === null) {
@@ -218,6 +233,8 @@ export class App implements OnInit, OnDestroy {
         return await operation();
       } catch (err) {
         lastError = err;
+        // 403 is an auth failure — retrying won't help, bail immediately.
+        if ((err as any)?.status === 403) break;
         const delay = BOOTSTRAP_RETRY_DELAYS_MS[attempt];
         if (delay === undefined) break;
         console.warn(`[App] ${label} load failed, retrying in ${delay}ms:`, err);
