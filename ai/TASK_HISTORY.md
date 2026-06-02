@@ -1883,3 +1883,7 @@
   - Ran `npm run build` from `personal-finance-pwa/functions`.
   - Ran `./gradlew :app:assembleDebug`.
   - Ran `git diff --check`.
+
+## 2026-06-02 - Firebase Functions Node.js 22 Runtime
+- Firebase CLI reported that Node.js 20 is deprecated and scheduled for decommissioning.
+- Updated Firebase Functions runtime configuration and the Functions package engine to Node.js 22.

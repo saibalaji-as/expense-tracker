@@ -31,6 +31,7 @@
 ## Recently Completed / Present Features
 - Firebase Hosting and subscription/payment phase:
   - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting plus the two subscription-handoff Functions from `main`.
+  - Firebase Functions runtime is Node.js 22; Node.js 20 was removed after Firebase CLI reported its deprecation.
   - Added Firebase Functions under `personal-finance-pwa/functions` for Razorpay subscription creation, signature verification, Razorpay webhook handling, Stripe Checkout session creation, Stripe webhook handling, and reminder export.
   - Added Firebase Auth bridging in `AuthService`: Google credentials sign into Firebase when possible, `firebase_uid` is cached, and Drive-backed features remain usable when Firebase sign-in fails.
   - Added Firestore-backed `SubscriptionService`, read-only per-user subscription rules, `/subscribe`, Terms, Privacy, Settings plan UI, Family-mode gating, and Dashboard Gemini-insight gating.

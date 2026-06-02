@@ -46,7 +46,7 @@
   - Deploy workflow ships Hosting plus the two subscription-handoff Functions together.
 - Firebase Functions:
   - Source: `personal-finance-pwa/functions`.
-  - Runtime: Node.js 20.
+  - Runtime: Node.js 22.
   - Subscription endpoints cover Razorpay creation/verification/webhooks and Stripe Checkout/webhooks.
 - Netlify build:
   - Retained for legacy serverless endpoints such as AI helpers and FCM reminder registration/sending.
