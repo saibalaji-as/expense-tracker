@@ -7,6 +7,7 @@ build/
 .DS_Store
 .angular/
 .*
+!.firebaserc
 
 # Android local build state
 android/.gradle/

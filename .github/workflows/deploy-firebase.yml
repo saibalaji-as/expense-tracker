@@ -49,4 +49,4 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         working-directory: personal-finance-pwa
-        run: npx firebase-tools@latest deploy --only hosting:spenza-finance --project spenza-notifications --non-interactive
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site --project spenza-notifications --non-interactive
