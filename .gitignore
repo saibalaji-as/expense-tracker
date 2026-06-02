@@ -4,6 +4,7 @@
 .vscode/
 *.iml
 .*
+!.github
 UI-design/
 node_modules/
 # Local environment and logs
