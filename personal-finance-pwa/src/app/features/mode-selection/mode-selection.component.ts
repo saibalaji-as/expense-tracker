@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { LucideAngularModule, LucideIconProvider, LUCIDE_ICONS, User, Users, Lock } from 'lucide-angular';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
@@ -9,7 +9,7 @@ import { TranslatePipe } from '../../shared/pipes';
   selector: 'app-mode-selection',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule, RouterLink, TranslatePipe],
+  imports: [LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,

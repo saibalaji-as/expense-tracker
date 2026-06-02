@@ -11,7 +11,7 @@
 - The setup script installs Graphify when needed, configures Codex and VS Code Copilot Chat, builds the local graph, and installs a machine-local Git `post-merge` hook for automatic refresh after future `git pull` merges.
 
 ## Last Memory Refresh
-- Date: 2026-05-29.
+- Date: 2026-06-02.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
@@ -29,6 +29,12 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Bill extraction modern drag-to-crop UI:
+  - Replaced legacy 4 range-sliders (Crop Left / Top / Width / Height) with an interactive drag overlay on the image itself.
+  - Overlay shows dark masks outside the crop region, rule-of-thirds grid inside, 4 corner handles (large touch targets), 4 pill-shaped edge handles, and a draggable crop box interior.
+  - Crop state is driven by pointer events with document-level capture for reliable drag outside the element.
+  - `rotateReceiptEditor()` is now async and pre-renders the rotated image to a canvas blob URL so the overlay always aligns with the visual orientation (no CSS transform on the preview image).
+  - Hint text "Drag corners or edges to crop · Drag inside to move" replaces the slider labels.
 - Daily expense voice-input separation:
   - Daily now exposes a dedicated top-of-form `Speak expense` Gemini smart-fill action with an example utterance and explicit AI badge.
   - The mic attached to the optional comment input is comment-only dictation and no longer invokes Gemini or changes expense fields.
@@ -365,6 +371,8 @@
   - Delete Spenza account data.
 
 ## Files Actively Touched In This Session
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: replaced 4-slider crop UI with interactive drag-to-crop overlay; added `cropDragState`, `startCropDrag`, `onCropPointerMove`, `stopCropDrag`, `renderRotatedPreview`; made `rotateReceiptEditor` async with canvas pre-render; removed `receiptEditorClipPath` and `updateReceiptEditorCrop`; added `Image` icon; added crop hint text.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`: removed legacy crop slider i18n keys; added `daily.receipt.editor.cropHint`.
 - `personal-finance-pwa/android/app/src/main/AndroidManifest.xml`: registered standalone `ExpenseWidgetActivity` and `ExpenseWidgetProvider`.
 - `personal-finance-pwa/android/app/build.gradle`: added WorkManager runtime for network-constrained widget sync.
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added the home screen widget provider with quick expense actions and a direct credit action.

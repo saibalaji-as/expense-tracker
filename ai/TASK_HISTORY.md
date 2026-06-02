@@ -1,5 +1,33 @@
 # Task History
 
+## 2026-06-02 - Bill Extraction Modern Drag-To-Crop UI
+
+- User reported the legacy 4-slider crop tool in the bill image editor was hard to use.
+- Replaced the range-slider crop controls with a fully interactive drag-to-crop overlay directly on the image.
+- Changed `daily-expense.component.ts`:
+  - Removed `receiptEditorClipPath()` and `updateReceiptEditorCrop()` methods and their range-slider template.
+  - Removed CSS `clip-path` from the preview `<img>`; image now renders unclipped.
+  - Added an `inline-block` wrapper (`#cropRef`) sized to the image, containing an absolute-positioned overlay.
+  - Overlay renders four dark mask quadrants outside the active crop box and a draggable crop box with rule-of-thirds grid lines.
+  - Crop box has 4 large corner handles (40×40 px touch targets) and 4 pill-shaped edge handles for resize; interior is draggable to move.
+  - Added private `cropDragState` field tracking pointer ID, start position, container rect, and initial crop percentages.
+  - Added `startCropDrag(type, event, container)` — stores drag context, attaches document-level `pointermove`/`pointerup`/`pointercancel` listeners.
+  - Added `onCropPointerMove(event)` — maps clientX/clientY to percentage deltas via stored `containerRect`; handles move, n/s/e/w/nw/ne/sw/se resize modes with minimum 8% crop size enforcement.
+  - Added `stopCropDrag(event)` — clears state and removes document-level listeners.
+  - Document-level listeners are also removed in `ngOnDestroy` for safety.
+  - Made `rotateReceiptEditor()` async: when a non-zero rotation is selected, `renderRotatedPreview()` draws the rotated image to a canvas blob, creates a new object URL, and updates `editor.url` so the crop overlay always aligns with the visually correct orientation.
+  - Added `renderRotatedPreview(file, rotation)` private method using `createImageBitmap` → `drawRotatedBitmap` → `canvasToJpegBlob` → `createObjectURL`; rotation 0° fast-paths to a direct `createObjectURL(file)`.
+  - Crop resets to full (0, 0, 100, 100) on rotate so the overlay starts fresh in the new orientation.
+  - Added `Image` lucide icon import for the Use Original button.
+  - Added hint text at the bottom of the editor: "Drag corners or edges to crop · Drag inside to move".
+- Changed `i18n.service.ts`:
+  - Removed `daily.receipt.editor.cropLeft/Top/Width/Height` keys.
+  - Added `daily.receipt.editor.cropHint`.
+- Decision: crop percentages are always in the visual (post-rotation) coordinate space; `getBoundingClientRect()` on the unrotated container gives correct viewport bounds at rotation 0°; `renderRotatedPreview` bakes rotation into the preview URL so no CSS transform is active on the image in the editor, eliminating coordinate ambiguity.
+- `createEditedReceiptImage()` is unchanged — it still applies rotation to the original file bitmap before cropping, consistent with the stored percentages.
+- Verification:
+  - `npx tsc --noEmit` passed (zero errors).
+
 ## 2026-05-31 - Native Widget Direct Credit Action
 - User requested a visible widget action for credited amounts and removal of the in-dialog Expense/Received choice.
 - Changed `ExpenseWidgetProvider` and both active widget layouts:

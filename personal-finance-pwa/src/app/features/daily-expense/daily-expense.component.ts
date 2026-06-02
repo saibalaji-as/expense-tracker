@@ -38,6 +38,7 @@ import {
   Crop,
   Users,
   WalletCards,
+  Image,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -119,7 +120,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, Image }),
     },
   ],
   template: `
@@ -1178,20 +1179,108 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
             </button>
           </div>
 
-          <div class="min-h-0 flex-1 overflow-auto bg-black/90 p-3">
-            <div class="mx-auto flex min-h-[46vh] max-w-2xl items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black">
-              <img
-                [src]="editor.url"
-                [alt]="editor.file.name"
-                class="max-h-[58vh] max-w-full object-contain transition-all"
-                [style.transform]="'rotate(' + editor.rotation + 'deg)'"
-                [style.filter]="editor.enhance ? 'grayscale(1) contrast(1.45) brightness(1.08)' : 'none'"
-                [style.clip-path]="receiptEditorClipPath(editor)"
-              />
+          <!-- Image area with interactive crop overlay -->
+          <div class="min-h-0 flex-1 overflow-hidden bg-black/95">
+            <div class="flex min-h-[46vh] items-center justify-center p-3">
+              <div class="relative select-none" style="display:inline-block" #cropRef>
+                <img
+                  [src]="editor.url"
+                  [alt]="editor.file.name"
+                  class="block max-h-[55vh] max-w-full rounded-xl"
+                  [style.filter]="editor.enhance ? 'grayscale(1) contrast(1.45) brightness(1.08)' : 'none'"
+                  draggable="false"
+                />
+                <!-- Crop overlay (covers exactly the image) -->
+                <div
+                  class="absolute inset-0 touch-none overflow-visible"
+                  (pointermove)="onCropPointerMove($event)"
+                  (pointerup)="stopCropDrag($event)"
+                  (pointercancel)="stopCropDrag($event)"
+                >
+                  <!-- Dark mask: top -->
+                  <div class="pointer-events-none absolute left-0 right-0 bg-black/60 rounded-tl-xl rounded-tr-xl"
+                       [style.height.%]="editor.crop.top"></div>
+                  <!-- Dark mask: bottom -->
+                  <div class="pointer-events-none absolute left-0 right-0 bg-black/60 rounded-bl-xl rounded-br-xl"
+                       [style.top.%]="editor.crop.top + editor.crop.height"
+                       [style.bottom.%]="0"></div>
+                  <!-- Dark mask: left -->
+                  <div class="pointer-events-none absolute bg-black/60"
+                       [style.top.%]="editor.crop.top"
+                       [style.height.%]="editor.crop.height"
+                       [style.width.%]="editor.crop.left"></div>
+                  <!-- Dark mask: right -->
+                  <div class="pointer-events-none absolute bg-black/60"
+                       [style.top.%]="editor.crop.top"
+                       [style.height.%]="editor.crop.height"
+                       [style.right.%]="0"
+                       [style.width.%]="100 - editor.crop.left - editor.crop.width"></div>
+
+                  <!-- Crop box -->
+                  <div
+                    class="absolute cursor-move border border-white/70"
+                    [style.left.%]="editor.crop.left"
+                    [style.top.%]="editor.crop.top"
+                    [style.width.%]="editor.crop.width"
+                    [style.height.%]="editor.crop.height"
+                    (pointerdown)="startCropDrag('move', $event, cropRef)"
+                  >
+                    <!-- Rule-of-thirds grid -->
+                    <div class="pointer-events-none absolute left-0 right-0 top-1/3 h-px bg-white/20"></div>
+                    <div class="pointer-events-none absolute left-0 right-0 top-2/3 h-px bg-white/20"></div>
+                    <div class="pointer-events-none absolute bottom-0 left-1/3 top-0 w-px bg-white/20"></div>
+                    <div class="pointer-events-none absolute bottom-0 left-2/3 top-0 w-px bg-white/20"></div>
+
+                    <!-- Corner handles (large touch targets) -->
+                    <!-- NW -->
+                    <div class="absolute -left-5 -top-5 flex h-10 w-10 cursor-nw-resize items-end justify-end"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('nw', $event, cropRef)">
+                      <div class="pointer-events-none h-5 w-5 rounded-sm bg-white shadow-lg"></div>
+                    </div>
+                    <!-- NE -->
+                    <div class="absolute -right-5 -top-5 flex h-10 w-10 cursor-ne-resize items-end justify-start"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('ne', $event, cropRef)">
+                      <div class="pointer-events-none h-5 w-5 rounded-sm bg-white shadow-lg"></div>
+                    </div>
+                    <!-- SW -->
+                    <div class="absolute -bottom-5 -left-5 flex h-10 w-10 cursor-sw-resize items-start justify-end"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('sw', $event, cropRef)">
+                      <div class="pointer-events-none h-5 w-5 rounded-sm bg-white shadow-lg"></div>
+                    </div>
+                    <!-- SE -->
+                    <div class="absolute -bottom-5 -right-5 flex h-10 w-10 cursor-se-resize items-start justify-start"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('se', $event, cropRef)">
+                      <div class="pointer-events-none h-5 w-5 rounded-sm bg-white shadow-lg"></div>
+                    </div>
+
+                    <!-- Edge handles (pill-shaped, touch-friendly) -->
+                    <!-- N -->
+                    <div class="absolute left-1/2 top-0 flex h-7 w-14 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize items-center justify-center"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('n', $event, cropRef)">
+                      <div class="pointer-events-none h-1.5 w-9 rounded-full bg-white/80 shadow"></div>
+                    </div>
+                    <!-- S -->
+                    <div class="absolute bottom-0 left-1/2 flex h-7 w-14 -translate-x-1/2 translate-y-1/2 cursor-ns-resize items-center justify-center"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('s', $event, cropRef)">
+                      <div class="pointer-events-none h-1.5 w-9 rounded-full bg-white/80 shadow"></div>
+                    </div>
+                    <!-- W -->
+                    <div class="absolute left-0 top-1/2 flex h-14 w-7 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize items-center justify-center"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('w', $event, cropRef)">
+                      <div class="pointer-events-none h-9 w-1.5 rounded-full bg-white/80 shadow"></div>
+                    </div>
+                    <!-- E -->
+                    <div class="absolute right-0 top-1/2 flex h-14 w-7 translate-x-1/2 -translate-y-1/2 cursor-ew-resize items-center justify-center"
+                         (pointerdown)="$event.stopPropagation(); startCropDrag('e', $event, cropRef)">
+                      <div class="pointer-events-none h-9 w-1.5 rounded-full bg-white/80 shadow"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="shrink-0 space-y-3 border-t border-border p-4">
+          <div class="shrink-0 space-y-2 border-t border-border p-4">
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <button
                 type="button"
@@ -1220,7 +1309,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                 (click)="useOriginalReceiptImage()"
                 class="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
               >
-                <lucide-icon name="crop" class="h-4 w-4" />
+                <lucide-icon name="image" class="h-4 w-4" />
                 {{ 'daily.receipt.editor.useOriginal' | translate }}
               </button>
               <button
@@ -1233,25 +1322,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                 {{ 'daily.receipt.editor.useEdited' | translate }}
               </button>
             </div>
-
-            <div class="grid gap-2 sm:grid-cols-2">
-              <label class="text-[11px] font-medium text-muted-foreground">
-                {{ 'daily.receipt.editor.cropLeft' | translate }}
-                <input type="range" min="0" max="45" [value]="editor.crop.left" (input)="updateReceiptEditorCrop('left', $event)" class="mt-1 w-full accent-primary" />
-              </label>
-              <label class="text-[11px] font-medium text-muted-foreground">
-                {{ 'daily.receipt.editor.cropTop' | translate }}
-                <input type="range" min="0" max="45" [value]="editor.crop.top" (input)="updateReceiptEditorCrop('top', $event)" class="mt-1 w-full accent-primary" />
-              </label>
-              <label class="text-[11px] font-medium text-muted-foreground">
-                {{ 'daily.receipt.editor.cropWidth' | translate }}
-                <input type="range" min="35" max="100" [value]="editor.crop.width" (input)="updateReceiptEditorCrop('width', $event)" class="mt-1 w-full accent-primary" />
-              </label>
-              <label class="text-[11px] font-medium text-muted-foreground">
-                {{ 'daily.receipt.editor.cropHeight' | translate }}
-                <input type="range" min="35" max="100" [value]="editor.crop.height" (input)="updateReceiptEditorCrop('height', $event)" class="mt-1 w-full accent-primary" />
-              </label>
-            </div>
+            <p class="text-center text-[11px] text-muted-foreground">{{ 'daily.receipt.editor.cropHint' | translate }}</p>
           </div>
         </div>
       </div>
@@ -1404,6 +1475,16 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   readonly applyingReceiptEditor = signal(false);
   private receiptPreviewObjectUrl: string | null = null;
   private receiptEditorObjectUrl: string | null = null;
+  private cropDragState: {
+    type: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w';
+    pointerId: number;
+    containerRect: DOMRect;
+    startPx: number;
+    startPy: number;
+    startCrop: { left: number; top: number; width: number; height: number };
+  } | null = null;
+  private readonly onCropPointerMoveDoc = (e: PointerEvent) => this.onCropPointerMove(e);
+  private readonly onCropPointerUpDoc = (e: PointerEvent) => this.stopCropDrag(e);
   private readonly receiptAutoFilledFields = new Set<'amount' | 'date' | 'type' | 'comment'>();
   readonly splitBillMode = signal(false);
   readonly splitRows = signal<SplitBillRow[]>([]);
@@ -1735,6 +1816,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.revokeReceiptPreviewUrl();
     this.revokeReceiptEditorUrl();
     this.recognition?.stop();
+    document.removeEventListener('pointermove', this.onCropPointerMoveDoc);
+    document.removeEventListener('pointerup', this.onCropPointerUpDoc);
+    document.removeEventListener('pointercancel', this.onCropPointerUpDoc);
   }
 
   private restoreDraft(): void {
@@ -2114,37 +2198,86 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.setReceiptPreview(url, file.name);
   }
 
-  receiptEditorClipPath(editor: ReceiptEditorState): string {
-    const right = Math.max(0, 100 - editor.crop.left - editor.crop.width);
-    const bottom = Math.max(0, 100 - editor.crop.top - editor.crop.height);
-    return `inset(${editor.crop.top}% ${right}% ${bottom}% ${editor.crop.left}%)`;
-  }
-
-  rotateReceiptEditor(): void {
-    this.receiptEditor.update((editor) => {
-      if (!editor) return editor;
-      return { ...editor, rotation: ((editor.rotation + 90) % 360) as ReceiptEditorState['rotation'] };
-    });
+  async rotateReceiptEditor(): Promise<void> {
+    const editor = this.receiptEditor();
+    if (!editor) return;
+    const newRotation = ((editor.rotation + 90) % 360) as ReceiptEditorState['rotation'];
+    const newUrl = newRotation === 0
+      ? URL.createObjectURL(editor.file)
+      : await this.renderRotatedPreview(editor.file, newRotation);
+    this.revokeReceiptEditorUrl();
+    this.receiptEditorObjectUrl = newUrl;
+    this.receiptEditor.update(e => e ? {
+      ...e,
+      rotation: newRotation,
+      url: newUrl,
+      crop: { left: 0, top: 0, width: 100, height: 100 },
+    } : e);
   }
 
   toggleReceiptEditorEnhance(): void {
     this.receiptEditor.update((editor) => editor ? { ...editor, enhance: !editor.enhance } : editor);
   }
 
-  updateReceiptEditorCrop(field: keyof ReceiptEditorState['crop'], event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const value = Number(input.value);
-    if (!Number.isFinite(value)) return;
+  startCropDrag(
+    type: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w',
+    event: PointerEvent,
+    container: HTMLElement,
+  ): void {
+    event.preventDefault();
+    const editor = this.receiptEditor();
+    if (!editor) return;
+    this.cropDragState = {
+      type,
+      pointerId: event.pointerId,
+      containerRect: container.getBoundingClientRect(),
+      startPx: event.clientX,
+      startPy: event.clientY,
+      startCrop: { ...editor.crop },
+    };
+    document.addEventListener('pointermove', this.onCropPointerMoveDoc);
+    document.addEventListener('pointerup', this.onCropPointerUpDoc);
+    document.addEventListener('pointercancel', this.onCropPointerUpDoc);
+  }
 
-    this.receiptEditor.update((editor) => {
-      if (!editor) return editor;
-      const crop = { ...editor.crop, [field]: value };
-      crop.left = Math.min(crop.left, 100 - crop.width);
-      crop.top = Math.min(crop.top, 100 - crop.height);
-      crop.width = Math.min(crop.width, 100 - crop.left);
-      crop.height = Math.min(crop.height, 100 - crop.top);
-      return { ...editor, crop };
-    });
+  onCropPointerMove(event: PointerEvent): void {
+    const drag = this.cropDragState;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const { containerRect: r, startPx, startPy, startCrop: s, type } = drag;
+    const dx = (event.clientX - startPx) / r.width * 100;
+    const dy = (event.clientY - startPy) / r.height * 100;
+    const MIN = 8;
+    let { left, top, width, height } = s;
+    if (type === 'move') {
+      left = Math.max(0, Math.min(100 - width, left + dx));
+      top = Math.max(0, Math.min(100 - height, top + dy));
+    } else {
+      if (type.includes('n')) {
+        const newTop = Math.max(0, Math.min(top + height - MIN, top + dy));
+        height += top - newTop;
+        top = newTop;
+      }
+      if (type.includes('s')) {
+        height = Math.max(MIN, Math.min(100 - top, height + dy));
+      }
+      if (type.includes('w')) {
+        const newLeft = Math.max(0, Math.min(left + width - MIN, left + dx));
+        width += left - newLeft;
+        left = newLeft;
+      }
+      if (type.includes('e')) {
+        width = Math.max(MIN, Math.min(100 - left, width + dx));
+      }
+    }
+    this.receiptEditor.update(e => e ? { ...e, crop: { left, top, width, height } } : e);
+  }
+
+  stopCropDrag(event: PointerEvent): void {
+    if (this.cropDragState?.pointerId !== event.pointerId) return;
+    this.cropDragState = null;
+    document.removeEventListener('pointermove', this.onCropPointerMoveDoc);
+    document.removeEventListener('pointerup', this.onCropPointerUpDoc);
+    document.removeEventListener('pointercancel', this.onCropPointerUpDoc);
   }
 
   cancelReceiptEditor(): void {
@@ -2268,13 +2401,19 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       url: this.receiptEditorObjectUrl,
       rotation: 0,
       enhance: true,
-      crop: {
-        left: 0,
-        top: 0,
-        width: 100,
-        height: 100,
-      },
+      crop: { left: 0, top: 0, width: 100, height: 100 },
     });
+  }
+
+  private async renderRotatedPreview(file: File, rotation: ReceiptEditorState['rotation']): Promise<string> {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const canvas = this.drawRotatedBitmap(bitmap, rotation);
+      const blob = await this.canvasToJpegBlob(canvas, 0.88);
+      return URL.createObjectURL(blob);
+    } finally {
+      bitmap.close();
+    }
   }
 
   private async createEditedReceiptImage(editor: ReceiptEditorState): Promise<File> {
