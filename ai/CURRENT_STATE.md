@@ -39,6 +39,7 @@
   - Native Android does not render `/subscribe` in the Capacitor WebView. Settings and Pro redirects request a five-minute Firebase handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
   - The subscription page removes the handoff query parameter from browser history before redeeming it. The backend allows same-code redemption retries for 60 seconds after the first redemption so mobile-browser route re-entry cannot consume the handoff before Firebase Auth completes.
   - The external browser redeems the handoff code into Firebase Auth silently, avoiding a second user sign-in before checkout.
+  - The Functions runtime service account has `roles/iam.serviceAccountTokenCreator` on itself so Firebase Admin can sign handoff custom tokens. Redemption records `redeemedAt` only after custom-token creation succeeds.
   - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
   - Checkout is Razorpay-only. Stripe provider detection, client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented.
   - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.

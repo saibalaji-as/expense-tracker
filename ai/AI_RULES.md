@@ -269,6 +269,7 @@
 - Do not use `https://spenzaio.netlify.app` as an app-page destination. Netlify remains valid only for legacy serverless API calls under `/.netlify/functions`.
 - Keep `/subscribe` web-only inside the Angular router. Native Android should request a short-lived Firebase handoff code and open the Firebase-hosted subscription page through `@capacitor/browser`.
 - Keep subscription handoff codes short-lived. Redeem them transactionally, allow only a brief same-code retry window for mobile-browser route re-entry, and exchange them for Firebase custom tokens only in Firebase Functions.
+- Keep `roles/iam.serviceAccountTokenCreator` granted to the Firebase Functions runtime service account on itself. Mark a subscription handoff as redeemed only after custom-token creation succeeds.
 - Payment API identity must come from a verified Firebase ID token. Never trust a client-supplied UID for subscription creation or verification.
 - Keep checkout Razorpay-only until another provider is fully implemented end to end. Do not add country-based provider selection or expose placeholder payment routes.
 - Keep payment-provider secrets, signature verification, and Firestore subscription writes in Firebase Functions; never move them into Angular client code.

@@ -1929,3 +1929,18 @@
   - Verified production Hosting returns `200`.
   - Verified removed Stripe endpoints return `404`.
   - Verified the production handoff endpoint still returns the expected `401` for an invalid probe code.
+
+## 2026-06-02 - Subscription Handoff Custom-Token IAM Fix
+- Problem:
+  - Android Manage Subscription still showed an expired-link message before Razorpay checkout.
+  - Production logs showed Firebase Admin custom-token creation failing with missing `iam.serviceAccounts.signBlob`.
+- Implemented:
+  - Granted `roles/iam.serviceAccountTokenCreator` to the Firebase Functions runtime service account on itself.
+  - Updated redemption to write `redeemedAt` only after custom-token creation succeeds so infrastructure failures do not consume the browser handoff.
+  - Redeployed `redeemSubscriptionHandoff`.
+- Verification:
+  - Ran the Firebase Functions TypeScript build.
+  - Ran `git diff --check`.
+  - Verified a temporary production handoff redeems successfully with HTTP `200`.
+  - Verified an immediate same-link retry also redeems successfully with HTTP `200`.
+  - Removed temporary production probe documents.

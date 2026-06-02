@@ -170,6 +170,8 @@
   - Native Pro redirects request a five-minute Firebase subscription handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
   - The external subscription page removes the handoff code from browser history before redemption. The backend permits same-code redemption retries for 60 seconds after the first redemption so mobile-browser route re-entry cannot strand checkout without Firebase Auth.
   - The external browser silently redeems the handoff for a Firebase custom token, so an already signed-in mobile user does not have to sign in again before checkout.
+  - The Firebase Functions runtime service account must have `roles/iam.serviceAccountTokenCreator` on itself so Firebase Admin can sign handoff custom tokens.
+  - Redemption marks a handoff as redeemed only after custom-token creation succeeds, so infrastructure failures do not consume the browser link.
   - Payment API calls send a Firebase ID token; Firebase Functions verify the token and derive the UID server-side rather than accepting a client-controlled UID.
   - Do not use the Netlify app URL for subscription-page navigation; Netlify URLs remain valid only for legacy serverless API endpoints.
 

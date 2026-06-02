@@ -86,13 +86,11 @@ export const redeemSubscriptionHandoff = functions.onRequest(
         if (redeemedAt && redeemedAt.toMillis() + HANDOFF_REDEEM_RETRY_MS <= Date.now()) {
           throw new Error('Subscription handoff was already redeemed');
         }
-        if (!redeemedAt) {
-          transaction.update(handoff, { redeemedAt: FieldValue.serverTimestamp() });
-        }
         return String(data.uid);
       });
 
       const customToken = await admin.auth().createCustomToken(uid);
+      await handoff.update({ redeemedAt: Timestamp.now() });
       res.json({ customToken });
     } catch (err) {
       console.warn('Subscription handoff redemption failed:', err);
