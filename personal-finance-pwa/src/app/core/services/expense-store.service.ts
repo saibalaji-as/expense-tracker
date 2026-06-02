@@ -1669,9 +1669,33 @@ export const ExpenseStore = signalStore(
             console.log('[ExpenseStore] loadFromDrive — findBackupFile result:', fileId);
 
             if (fileId === null) {
+              // Before treating this as a new user, check the local cache.
+              // If it has data, the appDataFolder is likely inaccessible due to an OAuth
+              // client ID change — restore the cached data into the new Drive file
+              // rather than wiping everything with an empty backup.
+              const cachedSnapshot = await readLocalBackupSnapshot();
+              const snapshotHasData = !!(
+                cachedSnapshot?.doc &&
+                (cachedSnapshot.doc.expenses.length > 0 ||
+                  (cachedSnapshot.doc.accounts?.length ?? 0) > 0 ||
+                  cachedSnapshot.doc.limits.length > 0 ||
+                  cachedSnapshot.doc.metadata.monthlyIncome > 0)
+              );
+
               console.log('[ExpenseStore] loadFromDrive — no backup found, creating new file...');
               fileId = await googleDriveService.createBackupFile();
               console.log('[ExpenseStore] loadFromDrive — created backup file, id:', fileId);
+
+              if (snapshotHasData) {
+                console.warn('[ExpenseStore] loadFromDrive — appDataFolder was empty but local cache has data; restoring cache into new Drive file.');
+                const docToRestore = cachedSnapshot!.doc;
+                const modifiedTime = await googleDriveService.writeBackupFile(fileId, docToRestore);
+                applyBackupDocument(fileId, docToRestore, modifiedTime);
+                await flushPendingWidgetExpenses();
+                console.log('[ExpenseStore] loadFromDrive — done (cache restored to new Drive file)');
+                return;
+              }
+
               patchState(store, {
                 entries: [],
                 limits: [],
