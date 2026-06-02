@@ -47,7 +47,7 @@
 - Firebase Functions:
   - Source: `personal-finance-pwa/functions`.
   - Runtime: Node.js 22.
-  - Subscription endpoints cover Razorpay creation/verification/webhooks and Stripe Checkout/webhooks.
+  - Subscription endpoints cover Razorpay creation, verification, and webhooks.
 - Netlify build:
   - Retained for legacy serverless endpoints such as AI helpers and FCM reminder registration/sending.
   - Base: `personal-finance-pwa`.
@@ -85,8 +85,6 @@
   - `RAZORPAY_PLAN_MONTHLY_ID`
   - `RAZORPAY_PLAN_YEARLY_ID`
   - `RAZORPAY_WEBHOOK_SECRET`
-  - `STRIPE_SECRET_KEY`
-  - `STRIPE_WEBHOOK_SECRET`
 - Production Netlify functions URL: `https://spenzaio.netlify.app/.netlify/functions`.
 - Development native functions URL: `http://localhost:8888/.netlify/functions`.
 - Production web host and subscription page: `https://spenza-finance.web.app/#/subscribe`.
@@ -165,11 +163,12 @@
 - Pro access gates Family mode and user-triggered Dashboard Gemini insights.
 - Web purchase flow:
   - `/subscribe` offers monthly and yearly Pro plans.
-  - `PaymentService` selects Razorpay for India and Stripe elsewhere, falling back to Razorpay when country detection fails.
+  - `PaymentService` uses Razorpay exclusively. Stripe checkout is intentionally not exposed until it is fully implemented.
   - Firebase Functions own provider secrets, payment verification, webhook handling, and Firestore subscription-status writes.
 - Native Android purchase flow:
   - Native Settings shows a `Manage Subscription` action instead of rendering the purchase route inside the Capacitor WebView.
-  - Native Pro redirects request a five-minute, one-time Firebase subscription handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - Native Pro redirects request a five-minute Firebase subscription handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - The external subscription page removes the handoff code from browser history before redemption. The backend permits same-code redemption retries for 60 seconds after the first redemption so mobile-browser route re-entry cannot strand checkout without Firebase Auth.
   - The external browser silently redeems the handoff for a Firebase custom token, so an already signed-in mobile user does not have to sign in again before checkout.
   - Payment API calls send a Firebase ID token; Firebase Functions verify the token and derive the UID server-side rather than accepting a client-controlled UID.
   - Do not use the Netlify app URL for subscription-page navigation; Netlify URLs remain valid only for legacy serverless API endpoints.

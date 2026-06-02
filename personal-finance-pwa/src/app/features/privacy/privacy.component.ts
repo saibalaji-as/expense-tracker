@@ -30,7 +30,6 @@ import { RouterLink } from '@angular/router';
             <li><strong>Expense Data:</strong> Expenses and financial records you enter are stored in your own Google Drive or our secure cloud, depending on your chosen backup mode.</li>
             <li><strong>Device Token:</strong> A push-notification token so we can send you expense reminders (only with your permission).</li>
             <li><strong>Subscription Status:</strong> Your plan tier and renewal date, stored in our database to provide Pro features.</li>
-            <li><strong>Country:</strong> Detected once at checkout via a public IP-geolocation API to show the correct payment method (Razorpay for India, Stripe elsewhere). Not stored.</li>
           </ul>
         </section>
 
@@ -53,8 +52,7 @@ import { RouterLink } from '@angular/router';
           <ul class="list-disc list-inside text-gray-600 leading-relaxed mt-2 space-y-1">
             <li><strong>Google Firebase</strong> — authentication, cloud database, and push notifications.</li>
             <li><strong>Google Drive</strong> — optional backup of your expense data (you control this).</li>
-            <li><strong>Razorpay</strong> — payment processing for Indian users.</li>
-            <li><strong>Stripe</strong> — payment processing for international users.</li>
+            <li><strong>Razorpay</strong> — payment processing.</li>
           </ul>
         </section>
 
@@ -72,7 +70,7 @@ import { RouterLink } from '@angular/router';
           <p class="text-gray-600 leading-relaxed">
             All data is transmitted over HTTPS. Firebase security rules ensure only you can access
             your subscription data. We do not store payment card details — payments are handled
-            entirely by Razorpay and Stripe on their secure servers.
+            entirely by Razorpay on their secure servers.
           </p>
         </section>
 

@@ -267,9 +267,10 @@
 - Treat Firebase Hosting as the canonical web-app host: `https://spenza-finance.web.app`.
 - Use `https://spenza-finance.web.app/#/subscribe` for subscription-page navigation from Android and external redirects.
 - Do not use `https://spenzaio.netlify.app` as an app-page destination. Netlify remains valid only for legacy serverless API calls under `/.netlify/functions`.
-- Keep `/subscribe` web-only inside the Angular router. Native Android should request a short-lived, one-time Firebase handoff code and open the Firebase-hosted subscription page through `@capacitor/browser`.
-- Keep subscription handoff codes short-lived and single-use. Redeem them transactionally, delete them after redemption, and exchange them for Firebase custom tokens only in Firebase Functions.
-- Payment API identity must come from a verified Firebase ID token. Never trust a client-supplied UID for subscription creation, verification, or Stripe session creation.
+- Keep `/subscribe` web-only inside the Angular router. Native Android should request a short-lived Firebase handoff code and open the Firebase-hosted subscription page through `@capacitor/browser`.
+- Keep subscription handoff codes short-lived. Redeem them transactionally, allow only a brief same-code retry window for mobile-browser route re-entry, and exchange them for Firebase custom tokens only in Firebase Functions.
+- Payment API identity must come from a verified Firebase ID token. Never trust a client-supplied UID for subscription creation or verification.
+- Keep checkout Razorpay-only until another provider is fully implemented end to end. Do not add country-based provider selection or expose placeholder payment routes.
 - Keep payment-provider secrets, signature verification, and Firestore subscription writes in Firebase Functions; never move them into Angular client code.
 - Keep Firestore subscription rules read-only for clients and scoped to the authenticated user's own `users/{uid}/subscription/status` path.
 - Firebase Auth failure must not block Drive-backed expense features; it may prevent subscription-state lookup until identity is available.

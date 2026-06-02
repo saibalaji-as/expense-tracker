@@ -66,7 +66,7 @@ import { AuthService } from '../../core/services/auth.service';
 
         <button
           (click)="pay()"
-          [disabled]="!selectedPlan() || loading() || authorizing() || payService.detecting()"
+          [disabled]="!selectedPlan() || loading() || authorizing()"
           class="w-full py-4 rounded-2xl text-white font-semibold text-base transition-all
                  bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -74,18 +74,13 @@ import { AuthService } from '../../core/services/auth.service';
             Connecting your Spenza account...
           } @else if (loading()) {
             Processing...
-          } @else if (payService.detecting()) {
-            Detecting your region...
-          } @else if (payService.provider() === 'razorpay') {
-            Pay with Razorpay
           } @else {
-            Pay with Stripe
+            Pay with Razorpay
           }
         </button>
 
         <p class="text-xs text-center text-gray-400 mt-4">
-          Secure payments via {{ payService.provider() === 'razorpay' ? 'Razorpay' : 'Stripe' }}.
-          Cancel anytime. By subscribing you agree to our
+          Secure payments via Razorpay. Cancel anytime. By subscribing you agree to our
           <a routerLink="/terms" class="underline">Terms</a> and
           <a routerLink="/privacy" class="underline">Privacy Policy</a>.
         </p>
@@ -118,14 +113,13 @@ export class SubscribeComponent implements OnInit {
   ];
 
   async ngOnInit(): Promise<void> {
-    this.payService.detectProvider();
     const handoff = this.route.snapshot.queryParamMap.get('handoff');
     if (!handoff) return;
 
     this.authorizing.set(true);
+    window.history.replaceState({}, '', `${window.location.pathname}#/subscribe`);
     try {
       await this.authService.redeemSubscriptionHandoff(handoff);
-      window.history.replaceState({}, '', `${window.location.pathname}#/subscribe`);
     } catch (err) {
       this.errorMsg.set(err instanceof Error ? err.message : 'Could not authorize this subscription link.');
     } finally {
@@ -147,12 +141,7 @@ export class SubscribeComponent implements OnInit {
 
     try {
       const idToken = await this.authService.ensureFirebaseIdToken();
-      const provider = this.payService.provider() ?? await this.payService.detectProvider();
-      if (provider === 'razorpay') {
-        await this.payService.openRazorpay(plan, idToken, this.authService.userEmail());
-      } else {
-        await this.payService.redirectToStripe(plan, idToken);
-      }
+      await this.payService.openRazorpay(plan, idToken, this.authService.userEmail());
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Payment failed. Please try again.';
       if (msg !== 'Payment cancelled') this.errorMsg.set(msg);

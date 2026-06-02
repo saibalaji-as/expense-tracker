@@ -1887,3 +1887,45 @@
 ## 2026-06-02 - Firebase Functions Node.js 22 Runtime
 - Firebase CLI reported that Node.js 20 is deprecated and scheduled for decommissioning.
 - Updated Firebase Functions runtime configuration and the Functions package engine to Node.js 22.
+
+## 2026-06-02 - GitHub Actions Node.js 24 Compatibility
+- GitHub Actions reported that JavaScript actions running on Node.js 20 will be forced to Node.js 24 starting 2026-06-16.
+- Updated deploy workflow actions to Node.js 24-compatible majors:
+  - `actions/checkout@v6`
+  - `actions/setup-node@v5`
+  - `google-github-actions/auth@v3`
+
+## 2026-06-02 - Native Subscription Handoff Retry Hardening
+- Problem:
+  - Opening Manage Subscription from Android could show an expired-link error, then Pay could fail because the external browser did not retain a Firebase-authenticated user.
+  - The backend deleted the handoff document during the first redemption request, so mobile-browser route re-entry or a client-side Firebase sign-in retry could not recover.
+- Implemented:
+  - The subscription page now removes the handoff query parameter from browser history before awaiting redemption.
+  - The backend keeps the original five-minute handoff validity and permits same-code redemption retries for 60 seconds after the first redemption.
+  - New handoff creation opportunistically deletes expired handoff documents in bounded batches.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.
+
+## 2026-06-02 - Razorpay-Only Checkout
+- Problem:
+  - Web checkout selected Stripe for non-India IP addresses even though Stripe setup was incomplete and client price IDs were placeholders.
+- Implemented:
+  - Removed IP country detection and provider selection from `PaymentService`.
+  - `/subscribe` now always opens Razorpay checkout.
+  - Removed Stripe client redirect code, Firebase exports, backend source, npm dependency, and Stripe/country-detection legal copy.
+  - Added a durable rule to keep checkout Razorpay-only until another provider is fully implemented end to end.
+- Cloud cleanup:
+  - Deleted deployed Firebase Functions `createStripeSession` and `stripeWebhook` from `us-central1`.
+- Production release:
+  - Deployed Firebase Hosting plus `createSubscriptionHandoff` and `redeemSubscriptionHandoff`.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `git diff --check`.
+  - Ran `./scripts/refresh-ai-context.sh`.
+  - Verified production Hosting returns `200`.
+  - Verified removed Stripe endpoints return `404`.
+  - Verified the production handoff endpoint still returns the expected `401` for an invalid probe code.

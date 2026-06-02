@@ -4,6 +4,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { requireFirebaseUid } from './auth';
 
 const HANDOFF_TTL_MS = 5 * 60 * 1000;
+const HANDOFF_REDEEM_RETRY_MS = 60 * 1000;
 const CORS_ORIGINS = [
   'https://spenza-finance.web.app',
   'http://localhost:4200',
@@ -11,6 +12,19 @@ const CORS_ORIGINS = [
   'https://localhost',
   'capacitor://localhost',
 ];
+
+async function deleteExpiredSubscriptionHandoffs(): Promise<void> {
+  const expired = await admin.firestore()
+    .collection('subscriptionHandoffs')
+    .where('expiresAt', '<=', Timestamp.now())
+    .limit(100)
+    .get();
+  if (expired.empty) return;
+
+  const batch = admin.firestore().batch();
+  expired.docs.forEach((snapshot) => batch.delete(snapshot.ref));
+  await batch.commit();
+}
 
 export const createSubscriptionHandoff = functions.onRequest(
   { cors: CORS_ORIGINS, invoker: 'public' },
@@ -28,6 +42,11 @@ export const createSubscriptionHandoff = functions.onRequest(
         expiresAt: Timestamp.fromMillis(Date.now() + HANDOFF_TTL_MS),
         createdAt: FieldValue.serverTimestamp(),
       });
+      try {
+        await deleteExpiredSubscriptionHandoffs();
+      } catch (err) {
+        console.warn('Expired subscription handoff cleanup failed:', err);
+      }
       res.json({ code: handoff.id });
     } catch (err) {
       console.warn('Subscription handoff creation failed:', err);
@@ -56,11 +75,20 @@ export const redeemSubscriptionHandoff = functions.onRequest(
         const snapshot = await transaction.get(handoff);
         const data = snapshot.data();
         const expiresAt = data?.expiresAt as Timestamp | undefined;
+        const redeemedAt = data?.redeemedAt as Timestamp | undefined;
         if (!snapshot.exists || !data?.uid || !expiresAt || expiresAt.toMillis() <= Date.now()) {
           throw new Error('Subscription handoff is invalid or expired');
         }
 
-        transaction.delete(handoff);
+        // Mobile browsers can re-enter the Angular route while Firebase Auth is
+        // still signing in. Keep a short retry window so the same browser link
+        // can finish authorizing without making the handoff broadly reusable.
+        if (redeemedAt && redeemedAt.toMillis() + HANDOFF_REDEEM_RETRY_MS <= Date.now()) {
+          throw new Error('Subscription handoff was already redeemed');
+        }
+        if (!redeemedAt) {
+          transaction.update(handoff, { redeemedAt: FieldValue.serverTimestamp() });
+        }
         return String(data.uid);
       });
 

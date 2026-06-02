@@ -32,12 +32,17 @@
 - Firebase Hosting and subscription/payment phase:
   - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting plus the two subscription-handoff Functions from `main`.
   - Firebase Functions runtime is Node.js 22; Node.js 20 was removed after Firebase CLI reported its deprecation.
-  - Added Firebase Functions under `personal-finance-pwa/functions` for Razorpay subscription creation, signature verification, Razorpay webhook handling, Stripe Checkout session creation, Stripe webhook handling, and reminder export.
+  - Firebase deploy workflow uses Node 24-compatible GitHub Actions majors: `actions/checkout@v6`, `actions/setup-node@v5`, and `google-github-actions/auth@v3`.
+  - Firebase Functions under `personal-finance-pwa/functions` cover Razorpay subscription creation, signature verification, webhook handling, and reminder export.
   - Added Firebase Auth bridging in `AuthService`: Google credentials sign into Firebase when possible, `firebase_uid` is cached, and Drive-backed features remain usable when Firebase sign-in fails.
   - Added Firestore-backed `SubscriptionService`, read-only per-user subscription rules, `/subscribe`, Terms, Privacy, Settings plan UI, Family-mode gating, and Dashboard Gemini-insight gating.
-  - Native Android does not render `/subscribe` in the Capacitor WebView. Settings and Pro redirects request a five-minute, one-time Firebase handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
-  - The external browser redeems the one-time code into Firebase Auth silently, avoiding a second user sign-in before checkout.
-  - Razorpay and Stripe client calls now send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
+  - Native Android does not render `/subscribe` in the Capacitor WebView. Settings and Pro redirects request a five-minute Firebase handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - The subscription page removes the handoff query parameter from browser history before redeeming it. The backend allows same-code redemption retries for 60 seconds after the first redemption so mobile-browser route re-entry cannot consume the handoff before Firebase Auth completes.
+  - The external browser redeems the handoff code into Firebase Auth silently, avoiding a second user sign-in before checkout.
+  - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
+  - Checkout is Razorpay-only. Stripe provider detection, client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented.
+  - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.
+  - The live Razorpay payment Functions still run their older Node.js 20 deployment; redeploy them from the Node.js 22 source before the Node.js 20 runtime retirement.
   - Netlify app URLs remain only for legacy API calls such as AI and FCM endpoints; they are not app-page destinations.
 - Drive OAuth recovery hardening:
   - Drive config bootstrap 403 now stops retries, clears the in-memory Google token, and routes returning users to `/auth/callback` for fresh consent instead of new-user setup.

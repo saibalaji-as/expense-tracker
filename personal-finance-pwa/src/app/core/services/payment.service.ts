@@ -1,6 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable } from '@angular/core';
 
-export type PaymentProvider = 'razorpay' | 'stripe';
 export type PlanId = 'pro_monthly' | 'pro_yearly';
 export type PlanType = 'monthly' | 'yearly';
 
@@ -34,45 +33,12 @@ export const PRICING_PLANS: PricingPlan[] = [
   },
 ];
 
-// Stripe price IDs — configure after Stripe setup
-const STRIPE_PRICE_IDS: Record<PlanId, string> = {
-  pro_monthly: 'price_monthly_placeholder',
-  pro_yearly: 'price_yearly_placeholder',
-};
-
 // Cloud Run URLs for Firebase Functions v2
 const FN_CREATE_SUBSCRIPTION = 'https://createrazorpaysubscription-yvut3l44sq-uc.a.run.app';
 const FN_VERIFY_PAYMENT = 'https://verifyrazorpaypayment-yvut3l44sq-uc.a.run.app';
-const FN_CREATE_STRIPE_SESSION = 'https://createstripesession-yvut3l44sq-uc.a.run.app';
 
 @Injectable({ providedIn: 'root' })
 export class PaymentService {
-  readonly provider = signal<PaymentProvider | null>(null);
-  readonly detecting = signal(true);
-
-  async detectProvider(): Promise<PaymentProvider> {
-    try {
-      const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        const data = await res.json();
-        const country: string = data.country_code ?? '';
-        const p: PaymentProvider = country === 'IN' ? 'razorpay' : 'stripe';
-        this.provider.set(p);
-        this.detecting.set(false);
-        return p;
-      }
-    } catch {
-      // ipapi unavailable — default to Razorpay
-    }
-    this.provider.set('razorpay');
-    this.detecting.set(false);
-    return 'razorpay';
-  }
-
-  // ---------------------------------------------------------------------------
-  // Razorpay
-  // ---------------------------------------------------------------------------
-
   async openRazorpay(plan: PricingPlan, idToken: string, email: string | null): Promise<void> {
     await this.#loadRazorpayScript();
 
@@ -151,29 +117,6 @@ export class PaymentService {
       throw new Error((err as any).error ?? 'Payment verification failed');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Stripe (configure after Stripe setup)
-  // ---------------------------------------------------------------------------
-
-  async redirectToStripe(plan: PricingPlan, idToken: string): Promise<void> {
-    const res = await fetch(FN_CREATE_STRIPE_SESSION, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ priceId: STRIPE_PRICE_IDS[plan.id] }),
-    });
-
-    if (!res.ok) throw new Error('Failed to create Stripe session');
-    const { url } = await res.json();
-    window.location.href = url;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
 
   #razorpayKey(): string {
     return (window as any).__RAZORPAY_KEY_ID__ ?? '';
