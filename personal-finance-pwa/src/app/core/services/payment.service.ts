@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
+import { AuthService } from './auth.service';
 
 export type PlanId = 'pro_monthly' | 'pro_yearly';
 export type PlanType = 'monthly' | 'yearly';
@@ -37,10 +38,13 @@ export const PRICING_PLANS: PricingPlan[] = [
 // Cloud Run URLs for Firebase Functions v2
 const FN_CREATE_SUBSCRIPTION = 'https://createrazorpaysubscription-yvut3l44sq-uc.a.run.app';
 const FN_VERIFY_PAYMENT = 'https://verifyrazorpaypayment-yvut3l44sq-uc.a.run.app';
+const FN_RESTORE_SUBSCRIPTION = 'https://restorerazorpaysubscription-yvut3l44sq-uc.a.run.app';
 
 @Injectable({ providedIn: 'root' })
 export class PaymentService {
   readonly #storage = inject(StorageService);
+  readonly #authService = inject(AuthService);
+
   async openRazorpay(plan: PricingPlan, idToken: string, email: string | null): Promise<void> {
     await this.#loadRazorpayScript();
 
@@ -76,8 +80,10 @@ export class PaymentService {
           razorpay_signature: string;
         }) => {
           try {
-            // Step 3 — verify signature on backend, write Firestore
-            await this.#verifyPayment(response, idToken);
+            // Step 3 — get a fresh token before verifying (the initial token may
+            // have been obtained before the checkout opened and could be stale)
+            const verifyToken = await this.#authService.ensureFirebaseIdToken();
+            await this.#verifyPayment(response, verifyToken);
             resolve();
           } catch (err) {
             reject(err);
@@ -94,6 +100,19 @@ export class PaymentService {
       );
       rzp.open();
     });
+  }
+
+  async restoreSubscription(subscriptionId: string): Promise<void> {
+    const idToken = await this.#authService.ensureFirebaseIdToken();
+    const res = await fetch(FN_RESTORE_SUBSCRIPTION, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptionId: subscriptionId.trim() }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).error ?? 'Could not restore subscription');
+    }
   }
 
   async #verifyPayment(

@@ -89,6 +89,40 @@ import { AuthService } from '../../core/services/auth.service';
         <p class="text-center mt-6">
           <a routerLink="/" class="text-sm text-indigo-600 hover:underline">Continue with Free plan</a>
         </p>
+
+        <!-- Restore subscription for users who paid but weren't activated -->
+        <div class="mt-8 pt-6 border-t border-gray-100">
+          <p class="text-xs text-center text-gray-400 mb-3">Already paid but not activated?</p>
+          @if (!showRestore()) {
+            <button
+              (click)="showRestore.set(true)"
+              class="w-full py-2 text-sm text-indigo-600 hover:underline"
+            >
+              Restore my subscription
+            </button>
+          } @else {
+            <div class="flex gap-2">
+              <input
+                #subIdInput
+                type="text"
+                placeholder="Razorpay subscription ID (sub_...)"
+                class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                (click)="restore(subIdInput.value)"
+                [disabled]="restoring()"
+                class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl disabled:opacity-50"
+              >
+                {{ restoring() ? '…' : 'Restore' }}
+              </button>
+            </div>
+            @if (restoreMsg()) {
+              <p class="text-xs text-center mt-2" [class]="restoreSuccess() ? 'text-green-600' : 'text-red-500'">
+                {{ restoreMsg() }}
+              </p>
+            }
+          }
+        </div>
       </div>
     </div>
   `,
@@ -105,6 +139,10 @@ export class SubscribeComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly authorizing = signal(false);
   protected readonly errorMsg = signal<string | null>(null);
+  protected readonly showRestore = signal(false);
+  protected readonly restoring = signal(false);
+  protected readonly restoreMsg = signal<string | null>(null);
+  protected readonly restoreSuccess = signal(false);
 
   protected readonly features = [
     'Advanced spending insights',
@@ -133,6 +171,23 @@ export class SubscribeComponent implements OnInit {
   protected selectPlan(plan: PricingPlan): void {
     this.selectedPlan.set(plan);
     this.errorMsg.set(null);
+  }
+
+  protected async restore(subscriptionId: string): Promise<void> {
+    if (!subscriptionId.trim() || this.restoring()) return;
+    this.restoring.set(true);
+    this.restoreMsg.set(null);
+    try {
+      await this.payService.restoreSubscription(subscriptionId);
+      this.restoreSuccess.set(true);
+      this.restoreMsg.set('Subscription restored! Redirecting…');
+      await this.router.navigate(['/'], { replaceUrl: true });
+    } catch (err) {
+      this.restoreSuccess.set(false);
+      this.restoreMsg.set(err instanceof Error ? err.message : 'Restore failed. Please try again.');
+    } finally {
+      this.restoring.set(false);
+    }
   }
 
   protected async pay(): Promise<void> {

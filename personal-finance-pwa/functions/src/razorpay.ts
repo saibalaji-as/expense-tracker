@@ -175,3 +175,86 @@ export const verifyRazorpayPayment = functions.onRequest(
     res.json({ success: true });
   }
 );
+
+/**
+ * Restores Pro access for a user who paid but whose verification failed.
+ * Looks up the given Razorpay subscription, confirms it belongs to the
+ * authenticated user (uid matches notes.uid), and writes Pro to Firestore.
+ */
+export const restoreRazorpaySubscription = functions.onRequest(
+  { cors: CORS_ORIGINS, invoker: 'public' },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const { subscriptionId } = req.body as { subscriptionId?: string };
+    if (!subscriptionId) {
+      res.status(400).json({ error: 'subscriptionId is required' });
+      return;
+    }
+
+    let uid: string;
+    try {
+      uid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const rzp = getRazorpay();
+      const sub = await rzp.subscriptions.fetch(subscriptionId);
+      const subAny = sub as any;
+
+      // Verify this subscription belongs to the authenticated user
+      const notesUid: string | undefined = subAny.notes?.uid;
+      if (notesUid !== uid) {
+        console.warn('restoreRazorpaySubscription: uid mismatch', { uid, notesUid, subscriptionId });
+        res.status(403).json({ error: 'Subscription does not belong to this account' });
+        return;
+      }
+
+      const status: string = subAny.status ?? '';
+      if (!['active', 'authenticated', 'charged'].includes(status)) {
+        res.status(400).json({ error: `Subscription is not active (status: ${status})` });
+        return;
+      }
+
+      const planId: string = subAny.plan_id ?? '';
+      const currentEnd: number | undefined = subAny.current_end;
+      const yearlyPlanId = process.env.RAZORPAY_PLAN_YEARLY_ID ?? '';
+      const isYearly = !!yearlyPlanId && planId === yearlyPlanId;
+      const planType: PlanType = isYearly ? 'yearly' : 'monthly';
+      const expiresAt = currentEnd
+        ? new Date(currentEnd * 1000)
+        : (() => { const d = new Date(); d.setMonth(d.getMonth() + (isYearly ? 12 : 1)); return d; })();
+
+      await admin
+        .firestore()
+        .collection('users')
+        .doc(uid)
+        .collection('subscription')
+        .doc('status')
+        .set(
+          {
+            tier: 'pro',
+            provider: 'razorpay',
+            razorpaySubscriptionId: subscriptionId,
+            planId,
+            planType,
+            expiresAt: Timestamp.fromDate(expiresAt),
+            updatedAt: Timestamp.now(),
+          },
+          { merge: true }
+        );
+
+      console.log('restoreRazorpaySubscription: Pro restored', { uid, subscriptionId, planType });
+      res.json({ success: true, planType, expiresAt: expiresAt.toISOString() });
+    } catch (err) {
+      console.error('restoreRazorpaySubscription failed:', err);
+      res.status(500).json({ error: 'Could not restore subscription' });
+    }
+  }
+);
