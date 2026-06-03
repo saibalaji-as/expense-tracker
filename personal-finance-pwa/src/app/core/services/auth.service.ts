@@ -17,10 +17,11 @@ const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 // drive.file scope only allows access to files created by the app, not shared files
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
-// Always request all required scopes — drive.appdata for config file,
-// drive for family shared backup (includes shared file access), spreadsheets for Sheets import.
-const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
-const SCOPE_VERSION = '6'; // v6 = full drive scope instead of drive.file
+// Always request all required scopes — openid/email/profile for Firebase Auth identity
+// verification (userinfo endpoint), drive.appdata for config file, drive for family shared
+// backup (includes shared file access), spreadsheets for Sheets import.
+const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
+const SCOPE_VERSION = '7'; // v7 = added openid/email/profile for Firebase Auth userinfo
 const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
 const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
 const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
