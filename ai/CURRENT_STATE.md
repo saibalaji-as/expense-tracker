@@ -11,7 +11,7 @@
 - The setup script installs Graphify when needed, configures Codex and VS Code Copilot Chat, builds the local graph, and installs a machine-local Git `post-merge` hook for automatic refresh after future `git pull` merges.
 
 ## Last Memory Refresh
-- Date: 2026-06-02.
+- Date: 2026-06-03.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
@@ -413,6 +413,7 @@
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added daily insight binding from local backup snapshot and current-account widget queue; widget refreshes after queue save.
 - `personal-finance-pwa/android/app/src/main/res/xml/expense_widget_info.xml`: resized widget target to support insight dashboard layout.
 - `personal-finance-pwa/android/app/src/main/res/values/styles.xml`, `AndroidManifest.xml`: added translucent keyboard-resizing widget Activity theme.
+- `personal-finance-pwa/src/app/core/services/auth.service.ts`: added `computed` import and `displayName` computed signal that derives a friendly display name from the email username part (e.g., `saibalaji315` from `saibalaji315@gmail.com`); use for UI display only — Firestore paths continue to use `firebaseUid`.
 - `personal-finance-pwa/src/app/core/services/auth.service.ts`: native sign-in now stores a short-lived access token/expiry in Capacitor Preferences for widget Drive sync and clears those keys on sign-out/scope mismatch.
 - `personal-finance-pwa/src/app/core/services/expense-store.service.ts`: added app-side flushing of current-account pending widget queue entries from `spenza_widget_expense_queue_v1` during cached startup, Drive bootstrap, and Drive refresh.
 - `personal-finance-pwa/src/app/core/services/auth.service.ts`: silent web token refresh errors no longer clear persisted auth state.

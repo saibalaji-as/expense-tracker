@@ -1,10 +1,9 @@
 // Firebase Cloud Messaging Service Worker
 // This handles background push notifications when the app is not in focus
 
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging-compat.js');
 
-// TODO: Replace with your actual Firebase configuration
 firebase.initializeApp({
   apiKey: "AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg",
   authDomain: "spenza-notifications.firebaseapp.com",

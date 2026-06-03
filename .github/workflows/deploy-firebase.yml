@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v5
         with:
@@ -49,6 +49,19 @@ jobs:
       - name: Build Firebase Functions
         working-directory: personal-finance-pwa/functions
         run: npm run build
+
+      - name: Inject Razorpay live key into index.html
+        working-directory: personal-finance-pwa
+        env:
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('dist/personal-finance-pwa/browser/index.html', 'utf8');
+            fs.writeFileSync('dist/personal-finance-pwa/browser/index.html',
+              html.replace('RAZORPAY_LIVE_KEY_PLACEHOLDER', process.env.RAZORPAY_KEY_ID)
+            );
+          "
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3

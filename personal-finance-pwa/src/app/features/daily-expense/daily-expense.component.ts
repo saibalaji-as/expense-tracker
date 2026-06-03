@@ -212,7 +212,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
       </div>
 
       <!-- Two-column grid: stacks on mobile, 50/50 on tablet, 3/5 + 2/5 on desktop -->
-      <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-2">
+      <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
 
         <!-- Log Expense SectionCard -->
         <app-section-card

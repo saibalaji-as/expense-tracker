@@ -1,18 +1,10 @@
-import { Injectable, signal, isDevMode } from '@angular/core';
+import { Injectable, signal, computed, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { SocialLogin } from '@capgo/capacitor-social-login';
 import { StorageService } from './storage.service';
 import { BackupMode } from './backup-mode.service';
-import { getApps, initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  signInWithCredential,
-  signInWithCustomToken,
-  GoogleAuthProvider,
-  signOut as firebaseSignOut,
-} from 'firebase/auth';
 import { firebaseConfig } from '../config/firebase.config';
 import { environment } from '../../../environments/environment';
+import type { Auth } from 'firebase/auth';
 
 declare const google: any;
 
@@ -66,11 +58,10 @@ export class AuthService {
   readonly isAuthenticated = signal<boolean>(false);
   readonly userEmail = signal<string | null>(null);
   readonly firebaseUid = signal<string | null>(null);
+  readonly displayName = computed(() => this.userEmail()?.split('@')[0] ?? null);
 
   #accessToken: string | null = null;
-  readonly #firebaseAuth = getAuth(
-    getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig)
-  );
+  #firebaseAuth: Auth | null = null;
 
   /**
    * Shared promise for an in-flight token request (web only).
@@ -97,13 +88,29 @@ export class AuthService {
 
     // Initialize the native Google Sign-In plugin once on startup.
     if (this.#isNative) {
-      this.#nativeInitPromise = SocialLogin.initialize({
-        google: {
-          // webClientId is required by the plugin on Android for token verification
-          webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
-        },
-      }).catch((err) => console.error('SocialLogin.initialize failed:', err));
+      this.#nativeInitPromise = (async () => {
+        const { SocialLogin } = await import('@capgo/capacitor-social-login');
+        await SocialLogin.initialize({
+          google: {
+            // webClientId is required by the plugin on Android for token verification
+            webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
+          },
+        });
+      })().catch((err) => console.error('SocialLogin.initialize failed:', err));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private lazy Firebase initializer
+  // ---------------------------------------------------------------------------
+
+  async #getFirebaseAuth(): Promise<Auth> {
+    if (this.#firebaseAuth) return this.#firebaseAuth;
+    const { getApps, initializeApp } = await import('firebase/app');
+    const { getAuth } = await import('firebase/auth');
+    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+    this.#firebaseAuth = getAuth(app);
+    return this.#firebaseAuth;
   }
 
   // ---------------------------------------------------------------------------
@@ -241,12 +248,13 @@ export class AuthService {
   }
 
   async ensureFirebaseIdToken(): Promise<string> {
-    if (!this.#firebaseAuth.currentUser && this.isAuthenticated()) {
+    const auth = await this.#getFirebaseAuth();
+    if (!auth.currentUser && this.isAuthenticated()) {
       const accessToken = await this.ensureToken();
       await this.#signIntoFirebase(null, accessToken);
     }
 
-    const user = this.#firebaseAuth.currentUser;
+    const user = auth.currentUser;
     if (!user) {
       throw new Error('Could not verify your subscription account. Open this page from the Spenza app and try again.');
     }
@@ -294,7 +302,9 @@ export class AuthService {
       throw new Error('Subscription handoff did not return a token.');
     }
 
-    const credential = await signInWithCustomToken(this.#firebaseAuth, body.customToken);
+    const { signInWithCustomToken } = await import('firebase/auth');
+    const auth = await this.#getFirebaseAuth();
+    const credential = await signInWithCustomToken(auth, body.customToken);
     this.firebaseUid.set(credential.user.uid);
     await this.storageService.set('firebase_uid', credential.user.uid);
   }
@@ -305,6 +315,7 @@ export class AuthService {
 
   async #nativeSignIn(): Promise<SignInResult> {
     await this.#nativeInitPromise;
+    const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
@@ -349,6 +360,7 @@ export class AuthService {
   async #nativeSignOut(): Promise<void> {
     this.#clearAuthState();
     try {
+      const { SocialLogin } = await import('@capgo/capacitor-social-login');
       await SocialLogin.logout({ provider: 'google' });
     } catch (err) {
       // Non-critical — local state is already cleared
@@ -437,8 +449,10 @@ export class AuthService {
 
   async #signIntoFirebase(idToken: string | null, accessToken: string): Promise<void> {
     try {
+      const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+      const auth = await this.#getFirebaseAuth();
       const credential = GoogleAuthProvider.credential(idToken, accessToken);
-      const userCred = await signInWithCredential(this.#firebaseAuth, credential);
+      const userCred = await signInWithCredential(auth, credential);
       const uid = userCred.user.uid;
       this.firebaseUid.set(uid);
       await this.storageService.set('firebase_uid', uid);
@@ -459,7 +473,11 @@ export class AuthService {
     void this.storageService.remove('firebase_uid');
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
-    void firebaseSignOut(this.#firebaseAuth).catch(() => {});
+    void (async () => {
+      const { signOut } = await import('firebase/auth');
+      const auth = await this.#getFirebaseAuth();
+      await signOut(auth);
+    })().catch(() => {});
   }
 
   #nativeTokenExpiresAt(accessToken: { expires?: string } | null): string {

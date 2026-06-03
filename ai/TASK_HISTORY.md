@@ -1,5 +1,13 @@
 # Task History
 
+## 2026-06-03 - AuthService displayName Signal
+
+- User asked how to find the Firebase UID, why it is a long random string, and whether the email username could serve as an identifier.
+- Explained that Firebase UIDs are intentionally random 28-char strings: globally unique, unpredictable, and stable even when the user changes email/password. They are Firestore document keys and not meant to be human-readable.
+- Added `displayName` computed signal to `AuthService` (derives `saibalaji315` from `saibalaji315@gmail.com` via `userEmail().split('@')[0]`).
+- Added `computed` to the `@angular/core` import in `auth.service.ts`.
+- Decision: Firestore paths continue to use `firebaseUid` (periods in emails would require escaping; email can change). `displayName` is for UI display only.
+
 ## 2026-06-02 - Bill Extraction Modern Drag-To-Crop UI
 
 - User reported the legacy 4-slider crop tool in the bill image editor was hard to use.

@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
-import { budgetThresholdExceeded$ } from './expense-store.service';
+import { budgetThresholdExceeded$ } from './budget-events';
 import { getDailyReminderContent } from '../utils/reminder-message';
 
 /**

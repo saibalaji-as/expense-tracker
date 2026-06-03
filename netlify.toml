@@ -31,6 +31,7 @@
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' accounts.google.com apis.google.com checkout.razorpay.com www.gstatic.com; style-src 'self' 'unsafe-inline' accounts.google.com fonts.googleapis.com; font-src 'self' fonts.gstatic.com data:; img-src 'self' data: *.googleapis.com *.gstatic.com; connect-src 'self' *.googleapis.com *.firebaseapp.com *.firebaseio.com wss://*.firebaseio.com api.razorpay.com accounts.google.com; frame-src accounts.google.com checkout.razorpay.com *.firebaseapp.com; worker-src 'self'; manifest-src 'self'"
 
 # Cache static assets
 [[headers]]

@@ -23,7 +23,7 @@ vi.mock('@capacitor/local-notifications', () => ({
   }
 }));
 
-vi.mock('./expense-store.service', () => ({
+vi.mock('./budget-events', () => ({
   budgetThresholdExceeded$: {
     subscribe: vi.fn()
   }

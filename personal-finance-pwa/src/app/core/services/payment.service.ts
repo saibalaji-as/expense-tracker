@@ -1,4 +1,5 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { StorageService } from './storage.service';
 
 export type PlanId = 'pro_monthly' | 'pro_yearly';
 export type PlanType = 'monthly' | 'yearly';
@@ -39,6 +40,7 @@ const FN_VERIFY_PAYMENT = 'https://verifyrazorpaypayment-yvut3l44sq-uc.a.run.app
 
 @Injectable({ providedIn: 'root' })
 export class PaymentService {
+  readonly #storage = inject(StorageService);
   async openRazorpay(plan: PricingPlan, idToken: string, email: string | null): Promise<void> {
     await this.#loadRazorpayScript();
 
@@ -126,7 +128,7 @@ export class PaymentService {
     const CACHE_KEY = 'spenza_payment_country';
     const TTL = 604_800_000; // 7 days in ms
 
-    const cached = this.#readCountryCache(CACHE_KEY);
+    const cached = await this.#readCountryCache(CACHE_KEY);
 
     if (cached && Date.now() - cached.cachedAt < TTL) {
       return cached.country_code === 'IN' ? 'razorpay' : 'stripe';
@@ -137,7 +139,7 @@ export class PaymentService {
       if (!res.ok) throw new Error('ipapi error');
       const data: { country_code: string } = await res.json();
 
-      localStorage.setItem(
+      await this.#storage.set(
         CACHE_KEY,
         JSON.stringify({ country_code: data.country_code, cachedAt: Date.now() })
       );
@@ -152,9 +154,9 @@ export class PaymentService {
     }
   }
 
-  #readCountryCache(key: string): { country_code: string; cachedAt: number } | null {
+  async #readCountryCache(key: string): Promise<{ country_code: string; cachedAt: number } | null> {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = await this.#storage.get(key);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (typeof parsed.country_code !== 'string' || typeof parsed.cachedAt !== 'number') {

@@ -2,6 +2,7 @@ import { computed, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
+import { budgetThresholdExceeded$ } from './budget-events';
 import {
   AccountBalanceAdjustment,
   AdjustAccountBalanceInput,
@@ -20,7 +21,6 @@ import {
   UpdateDebtAccountInput,
   UpdateDebtPaymentInput,
 } from '../models';
-import { BudgetThresholdEvent } from '../models/local-notification.model';
 import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { BackupDocument, DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
@@ -72,10 +72,6 @@ type AccountBalanceDelta = Map<string, number>;
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
 export const driveError$ = new Subject<DriveApiError | DriveParseError>();
-
-// ─── Budget Threshold Event Subject ──────────────────────────────────────────
-
-export const budgetThresholdExceeded$ = new Subject<BudgetThresholdEvent>();
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 

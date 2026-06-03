@@ -1,8 +1,7 @@
-import { inject } from '@angular/core';
+import { inject, Injector, runInInjectionContext } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { BackupModeService } from '../services/backup-mode.service';
 import { AuthService } from '../services/auth.service';
-import { ExpenseStore } from '../services/expense-store.service';
 import { shouldRedirectToIncomeSetup } from './setup-income-gate';
 
 function isFamilySetupComplete(backupModeService: BackupModeService): boolean {
@@ -16,13 +15,16 @@ function isFamilySetupComplete(backupModeService: BackupModeService): boolean {
 export const setupGuard: CanActivateFn = async (_route, state) => {
   const authService = inject(AuthService);
   const backupModeService = inject(BackupModeService);
-  const expenseStore = inject(ExpenseStore);
+  const injector = inject(Injector);
   const router = inject(Router);
 
   await Promise.all([
     authService.sessionRestored,
     backupModeService.initialized,
   ]);
+
+  const { ExpenseStore } = await import('../services/expense-store.service');
+  const expenseStore = runInInjectionContext(injector, () => inject(ExpenseStore));
 
   const url = state.url.split('?')[0].split('#')[0];
   let mode = backupModeService.getMode();

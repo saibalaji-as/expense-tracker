@@ -1,6 +1,4 @@
 import { Injectable } from '@angular/core';
-import { recognize } from 'tesseract.js';
-import * as pdfjsLib from 'pdfjs-dist';
 import { PREDEFINED_EXPENSE_TYPES } from '../models';
 
 export interface ReceiptExtractionResult {
@@ -121,7 +119,8 @@ let pdfWorkerConfigured = false;
 export class ReceiptExtractionService {
   async extract(file: File): Promise<ReceiptExtractionResult> {
     if (file.type === 'application/pdf') {
-      return this.parse(await this.extractPdfText(file));
+      const pdfjsLib = await import('pdfjs-dist');
+      return this.parse(await this.extractPdfText(file, pdfjsLib));
     }
 
     const canvas = await this.fileToCanvas(file);
@@ -142,7 +141,8 @@ export class ReceiptExtractionService {
   }
 
   async convertPdfToCompressedImage(file: File): Promise<File> {
-    this.configurePdfWorker();
+    await this.configurePdfWorker();
+    const pdfjsLib = await import('pdfjs-dist');
     const data = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data }).promise;
 
@@ -207,8 +207,8 @@ export class ReceiptExtractionService {
     };
   }
 
-  private async extractPdfText(file: File): Promise<string> {
-    this.configurePdfWorker();
+  private async extractPdfText(file: File, pdfjsLib: typeof import('pdfjs-dist')): Promise<string> {
+    await this.configurePdfWorker();
     const data = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data }).promise;
     const pageCount = Math.min(pdf.numPages, MAX_PDF_PAGES_TO_SCAN);
@@ -243,6 +243,7 @@ export class ReceiptExtractionService {
   }
 
   private async extractImageText(canvas: HTMLCanvasElement): Promise<string> {
+    const { recognize } = await import('tesseract.js');
     const result = await recognize(canvas, OCR_LANGUAGES, {
       logger: (message) => {
         if (message.status === 'recognizing text') {
@@ -342,9 +343,10 @@ export class ReceiptExtractionService {
     });
   }
 
-  private configurePdfWorker(): void {
+  private async configurePdfWorker(): Promise<void> {
     if (pdfWorkerConfigured) return;
 
+    const pdfjsLib = await import('pdfjs-dist');
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
       'pdfjs-dist/build/pdf.worker.mjs',
       import.meta.url

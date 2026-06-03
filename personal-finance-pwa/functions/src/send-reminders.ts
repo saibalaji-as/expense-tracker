@@ -1,3 +1,4 @@
+// NOT DEPLOYED — port reminder logic from netlify/functions/send-reminders.ts before enabling
 import * as functions from 'firebase-functions/v2/scheduler';
 
 /**
