@@ -30,9 +30,10 @@
 
 ## Recently Completed / Present Features
 - Firebase Hosting and subscription/payment phase:
-  - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting plus the two subscription-handoff Functions from `main`.
+  - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting, both subscription-handoff Functions, and all three Razorpay Functions from `main`.
   - Firebase Functions runtime is Node.js 22; Node.js 20 was removed after Firebase CLI reported its deprecation.
-  - Firebase deploy workflow uses Node 24-compatible GitHub Actions majors: `actions/checkout@v6`, `actions/setup-node@v5`, and `google-github-actions/auth@v3`.
+  - Firebase deploy workflow currently uses `actions/checkout@v4`, `actions/setup-node@v5`, and `google-github-actions/auth@v3`.
+  - The deploy workflow injects the live Razorpay key into built `index.html` from the `RAZORPAY_KEY_ID` GitHub secret and refuses deployment if the placeholder remains, the key is blank, or it does not start with `rzp_live_`.
   - Firebase Functions under `personal-finance-pwa/functions` cover Razorpay subscription creation, signature verification, webhook handling, and reminder export.
   - Added Firebase Auth bridging in `AuthService`: Google credentials sign into Firebase when possible, `firebase_uid` is cached, and Drive-backed features remain usable when Firebase sign-in fails.
   - Added Firestore-backed `SubscriptionService`, read-only per-user subscription rules, `/subscribe`, Terms, Privacy, Settings plan UI, Family-mode gating, and Dashboard Gemini-insight gating.
@@ -41,10 +42,12 @@
   - The external browser redeems the handoff code into Firebase Auth silently, avoiding a second user sign-in before checkout.
   - The Functions runtime service account has `roles/iam.serviceAccountTokenCreator` on itself so Firebase Admin can sign handoff custom tokens. Redemption records `redeemedAt` only after custom-token creation succeeds.
   - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
-  - Checkout is Razorpay-only. Stripe provider detection, client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented.
+  - Active checkout is Razorpay-only. Stripe client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented; `PaymentService.detectProvider()` remains as an unused legacy helper and should not be wired back into checkout.
   - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.
   - Razorpay creation, verification, and webhook Functions were redeployed on Node.js 22 so production derives UID from the verified Firebase bearer token instead of the obsolete client request body.
+  - Razorpay verification fetches the subscription from Razorpay to resolve the authoritative plan ID/current period end before writing Firestore subscription status.
   - The Firebase deploy workflow ships Hosting, both handoff Functions, and all three Razorpay Functions together so client and payment-backend contracts stay aligned.
+  - `google-services.json`, `GoogleService-Info.plist`, signing key files, and `sha-keys.md` are ignored so generated Firebase/mobile signing secrets do not return to version control.
   - Netlify app URLs remain only for legacy API calls such as AI and FCM endpoints; they are not app-page destinations.
 - Drive OAuth recovery hardening:
   - Drive config bootstrap 403 now stops retries, clears the in-memory Google token, and routes returning users to `/auth/callback` for fresh consent instead of new-user setup.

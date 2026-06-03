@@ -44,6 +44,7 @@
   - Hosting target/site: `spenza-site` / `spenza-finance`.
   - Public directory: `dist/personal-finance-pwa/browser`.
   - Deploy workflow ships Hosting, the two subscription-handoff Functions, and the three Razorpay Functions together.
+  - Deploy workflow injects the live Razorpay key into built `index.html` from GitHub secrets and validates that the placeholder was replaced with an `rzp_live_` key before deploying.
 - Firebase Functions:
   - Source: `personal-finance-pwa/functions`.
   - Runtime: Node.js 22.
@@ -163,8 +164,10 @@
 - Pro access gates Family mode and user-triggered Dashboard Gemini insights.
 - Web purchase flow:
   - `/subscribe` offers monthly and yearly Pro plans.
-  - `PaymentService` uses Razorpay exclusively. Stripe checkout is intentionally not exposed until it is fully implemented.
+  - `PaymentService.openRazorpay()` is the active checkout path. Stripe checkout is intentionally not exposed until it is fully implemented.
+  - `PaymentService.detectProvider()` is an unused legacy helper; do not reconnect country-based provider selection to checkout.
   - Firebase Functions own provider secrets, payment verification, webhook handling, and Firestore subscription-status writes.
+  - Razorpay verification fetches the subscription server-side and uses the authoritative plan/current-period data for Firestore status.
 - Native Android purchase flow:
   - Native Settings shows a `Manage Subscription` action instead of rendering the purchase route inside the Capacitor WebView.
   - Native Pro redirects request a five-minute Firebase subscription handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.

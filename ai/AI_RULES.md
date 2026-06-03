@@ -1,11 +1,11 @@
 # AI Operating Rules
 
 ## Mandatory Startup Rules
-- Always read these memory files before architecture-affecting work:
+- Use project memory selectively. For substantial code changes, read:
   - `ai/PROJECT_CONTEXT.md`
-  - `ai/CURRENT_STATE.md`
   - `ai/AI_RULES.md`
-  - `ai/TASK_HISTORY.md`
+- Check `ai/CURRENT_STATE.md` for active bugs, blockers, unfinished work, or immediate next steps when relevant.
+- Search `ai/TASK_HISTORY.md` with `rg` when historical reasoning, prior fixes, or rejected approaches matter. Do not read the full archive by default.
 - Verify code before changing it; do not assume current behavior from old docs.
 - Treat `/ai` files as curated decision memory and `graphify-out/graph.json` as generated live code intelligence.
 - When `graphify-out/graph.json` exists, query Graphify before broad code searches:
@@ -329,6 +329,7 @@
 
 ## Security And Privacy Rules
 - Never commit private Firebase Admin credentials or service account JSON.
+- Never commit generated mobile/web Firebase client config or signing material such as `google-services.json`, `GoogleService-Info.plist`, `sha-keys.md`, `*.keystore`, `*.jks`, or `*.p12`.
 - Never persist OAuth access tokens outside `AuthService` ownership. The only current exception is the native-only short-lived widget sync cache described in Google Auth / Drive Rules.
 - Do not log Gemini API keys, OAuth tokens, FCM tokens, raw receipts, or sensitive receipt text.
 - Existing code logs some FCM tokens/debug data; do not add more sensitive logging.

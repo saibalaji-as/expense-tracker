@@ -1965,3 +1965,17 @@
 - Verification:
   - Confirmed all three Razorpay Functions now run Node.js 22 in production.
   - Verified an unauthenticated create probe returns HTTP `401` with `Authentication required`, confirming the obsolete client-supplied `uid` contract is gone.
+
+## 2026-06-03 - Curated AI Memory And Graphify Refresh
+- Problem:
+  - Recent Firebase/Razorpay verification, deployment, and secret-hygiene changes were ahead of the curated memory.
+  - `CURRENT_STATE.md` also overstated some details, including the checkout workflow action version and Stripe provider-detection removal.
+- Updated memory:
+  - Aligned startup rules with selective memory loading: read `PROJECT_CONTEXT.md` and `AI_RULES.md` for substantial code changes, use `CURRENT_STATE.md` and `TASK_HISTORY.md` as targeted lookups.
+  - Documented that the Firebase deploy workflow ships Hosting, both subscription-handoff Functions, and all three Razorpay Functions together.
+  - Documented live Razorpay key injection and validation in the deploy workflow.
+  - Documented that active checkout is Razorpay-only while the unused `PaymentService.detectProvider()` helper still exists and must not be wired back into checkout.
+  - Documented that Razorpay verification resolves authoritative subscription plan/current-period data server-side before writing Firestore subscription status.
+  - Added durable secret-hygiene guidance for generated Firebase config and signing files: `google-services.json`, `GoogleService-Info.plist`, `sha-keys.md`, `*.keystore`, `*.jks`, and `*.p12`.
+- Verification:
+  - Compared memory against current Angular subscription code, Firebase Functions source, deploy workflow, and ignore files.
