@@ -30,6 +30,17 @@ function expiresAtFromSubscription(planId: string, currentEnd: number | undefine
 export const razorpayWebhook = functions.onRequest(
   { cors: false, invoker: 'public' },
   async (req, res) => {
+    // rawBody is typed on firebase-functions v2 Request (v6.x+); no cast needed
+    const rawBody: Buffer | undefined = req.rawBody;
+    const signature = req.headers['x-razorpay-signature'] as string | undefined;
+
+    console.log('razorpayWebhook received', {
+      method: req.method,
+      hasSignature: !!signature,
+      hasRawBody: !!rawBody,
+      rawBodyLength: rawBody?.length ?? 0,
+    });
+
     if (req.method !== 'POST') {
       res.status(405).send('Method not allowed');
       return;
@@ -37,23 +48,24 @@ export const razorpayWebhook = functions.onRequest(
 
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!secret) {
-      console.error('RAZORPAY_WEBHOOK_SECRET not set');
+      console.error('razorpayWebhook: RAZORPAY_WEBHOOK_SECRET not set');
       res.status(500).send('Server misconfiguration');
       return;
     }
 
-    const signature = req.headers['x-razorpay-signature'] as string | undefined;
-    const rawBody = (req as any).rawBody as Buffer | undefined;
-
     if (!signature || !rawBody) {
+      console.error('razorpayWebhook: missing signature or rawBody', { hasSignature: !!signature, hasRawBody: !!rawBody });
       res.status(400).send('Missing signature or body');
       return;
     }
 
     if (!verifySignature(rawBody.toString(), signature, secret)) {
+      console.error('razorpayWebhook: signature verification failed');
       res.status(401).send('Invalid signature');
       return;
     }
+
+    console.log('razorpayWebhook: signature verified');
 
     const event = req.body as Record<string, any>;
     const eventType: string = event.event ?? '';
@@ -62,6 +74,7 @@ export const razorpayWebhook = functions.onRequest(
     const CANCEL_EVENTS = ['subscription.cancelled', 'subscription.halted'];
 
     if (![...ACTIVATE_EVENTS, ...CANCEL_EVENTS].includes(eventType)) {
+      console.log('razorpayWebhook: event ignored', { eventType });
       res.status(200).send('Event ignored');
       return;
     }
@@ -70,10 +83,17 @@ export const razorpayWebhook = functions.onRequest(
     const uid: string | undefined = subscription?.notes?.uid;
 
     if (!uid) {
-      console.warn('razorpayWebhook: no uid in notes', { eventType });
+      // Log the full notes so we can see what arrived (no sensitive payment data in notes)
+      console.warn('razorpayWebhook: no uid in subscription notes', {
+        eventType,
+        notes: subscription?.notes ?? null,
+        subscriptionId: subscription?.id ?? null,
+      });
       res.status(200).send('No uid — skipped');
       return;
     }
+
+    console.log('razorpayWebhook: uid resolved', { uid, planId: subscription?.plan_id, eventType });
 
     const subRef = admin
       .firestore()
@@ -92,6 +112,7 @@ export const razorpayWebhook = functions.onRequest(
         },
         { merge: true }
       );
+      console.log('razorpayWebhook: subscription cancelled', { uid });
       res.status(200).send('OK');
       return;
     }
@@ -118,6 +139,27 @@ export const razorpayWebhook = functions.onRequest(
 
     await subRef.set(writeData, { merge: true });
 
+    console.log('razorpayWebhook: Firestore write succeeded', {
+      uid,
+      tier: 'pro',
+      planType,
+      expiresAt: expiresAt.toISOString(),
+    });
+
     res.status(200).send('OK');
+  }
+);
+
+/** Health-check endpoint — verify all required env vars are configured before going live. */
+export const webhookHealthCheck = functions.onRequest(
+  { cors: false, invoker: 'public' },
+  async (_req, res) => {
+    res.status(200).json({
+      status: 'ok',
+      webhookSecretConfigured: !!process.env.RAZORPAY_WEBHOOK_SECRET,
+      planMonthlyConfigured: !!process.env.RAZORPAY_PLAN_MONTHLY_ID,
+      planYearlyConfigured: !!process.env.RAZORPAY_PLAN_YEARLY_ID,
+      timestamp: new Date().toISOString(),
+    });
   }
 );

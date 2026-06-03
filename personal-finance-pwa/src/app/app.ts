@@ -87,10 +87,10 @@ export class App implements OnInit, OnDestroy {
 
     console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
 
-    // Start Firestore subscription listener if Firebase UID is already restored from storage
+    // Ensure subscription listener is running before any route guard fires
     const restoredUid = this.authService.firebaseUid();
     if (restoredUid) {
-      this.subscriptionService.startListening(restoredUid);
+      this.subscriptionService.ensureStarted(restoredUid);
     }
 
     if (!this.authService.isAuthenticated()) {

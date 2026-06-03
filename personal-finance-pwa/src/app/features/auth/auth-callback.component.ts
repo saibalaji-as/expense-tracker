@@ -177,7 +177,7 @@ export class AuthCallbackComponent {
 
       // Start Firestore subscription listener once Firebase UID is available
       const uid = this.authService.firebaseUid();
-      if (uid) this.subscriptionService.startListening(uid);
+      if (uid) this.subscriptionService.ensureStarted(uid);
 
       await this.backupModeService.loadFromDrive(true);
 

@@ -10,6 +10,7 @@ import { DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
+import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/services/auth.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -737,25 +738,39 @@ interface BeforeInstallPromptEvent extends Event {
                     }}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  [attr.aria-checked]="spendNotificationAccess.promptEnabled()"
-                  (click)="onSpendPromptToggle()"
-                  [disabled]="spendNotificationAccess.isLoading()"
-                  [class]="
-                    'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ' +
-                    (spendNotificationAccess.promptEnabled() ? 'bg-primary' : 'bg-muted')
-                  "
-                  aria-label="Toggle spend prompts"
-                >
-                  <span
+                @if (subscriptionService.isPro()) {
+                  <button
+                    type="button"
+                    role="switch"
+                    [attr.aria-checked]="spendNotificationAccess.promptEnabled()"
+                    (click)="onSpendPromptToggle()"
+                    [disabled]="spendNotificationAccess.isLoading()"
                     [class]="
-                      'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
-                      (spendNotificationAccess.promptEnabled() ? 'translate-x-5' : 'translate-x-0')
+                      'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ' +
+                      (spendNotificationAccess.promptEnabled() ? 'bg-primary' : 'bg-muted')
                     "
-                  ></span>
-                </button>
+                    aria-label="Toggle spend prompts"
+                  >
+                    <span
+                      [class]="
+                        'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                        (spendNotificationAccess.promptEnabled() ? 'translate-x-5' : 'translate-x-0')
+                      "
+                    ></span>
+                  </button>
+                } @else {
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                    <button
+                      type="button"
+                      routerLink="/subscribe"
+                      class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted opacity-50"
+                      aria-label="Upgrade to Pro to enable spend prompts"
+                    >
+                      <span class="pointer-events-none block h-5 w-5 translate-x-0 rounded-full bg-white shadow-lg ring-0"></span>
+                    </button>
+                  </div>
+                }
               </div>
 
               <div class="mt-4 flex flex-wrap gap-2">
@@ -824,33 +839,52 @@ interface BeforeInstallPromptEvent extends Event {
           }
 
           <!-- Budget Warnings Toggle -->
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
-              <p class="text-xs text-muted-foreground">
-                {{ 'settings.local.budgetWarningsHint' | translate }}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              [attr.aria-checked]="notificationPrefs().budgetWarningsEnabled"
-              (click)="onBudgetWarningsToggle()"
-              [disabled]="localNotificationService.permissionStatus() === 'denied'"
-              [class]="
-                'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
-                (notificationPrefs().budgetWarningsEnabled ? 'bg-primary' : 'bg-muted')
-              "
-              aria-label="Toggle budget warnings"
-            >
-              <span
+          @if (subscriptionService.isPro()) {
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
+                <p class="text-xs text-muted-foreground">
+                  {{ 'settings.local.budgetWarningsHint' | translate }}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                [attr.aria-checked]="notificationPrefs().budgetWarningsEnabled"
+                (click)="onBudgetWarningsToggle()"
+                [disabled]="localNotificationService.permissionStatus() === 'denied'"
                 [class]="
-                  'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
-                  (notificationPrefs().budgetWarningsEnabled ? 'translate-x-5' : 'translate-x-0')
+                  'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
+                  (notificationPrefs().budgetWarningsEnabled ? 'bg-primary' : 'bg-muted')
                 "
-              ></span>
-            </button>
-          </div>
+                aria-label="Toggle budget warnings"
+              >
+                <span
+                  [class]="
+                    'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                    (notificationPrefs().budgetWarningsEnabled ? 'translate-x-5' : 'translate-x-0')
+                  "
+                ></span>
+              </button>
+            </div>
+          } @else {
+            <div class="flex items-center justify-between cursor-pointer" routerLink="/subscribe">
+              <div>
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
+                  <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  {{ 'settings.local.budgetWarningsHint' | translate }}
+                </p>
+              </div>
+              <div class="pointer-events-none opacity-50">
+                <div class="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent bg-muted">
+                  <span class="pointer-events-none block h-5 w-5 translate-x-0 rounded-full bg-white shadow-lg ring-0"></span>
+                </div>
+              </div>
+            </div>
+          }
 
           <!-- Test Notification Button (for debugging) -->
           @if (localNotificationService.permissionStatus() === 'granted') {
@@ -981,6 +1015,26 @@ interface BeforeInstallPromptEvent extends Event {
           </button>
         </div>
       </app-section-card>
+
+      @if (!isProduction) {
+        <div style="border: 2px dashed orange; padding: 16px; border-radius: 12px; margin-top: 24px;">
+          <p style="font-size: 12px; font-weight: 600; color: orange;">DEV ONLY — Subscription Debug</p>
+          <p style="font-size: 11px; color: var(--color-text-secondary); margin: 4px 0 12px;">
+            Tier: {{ subscriptionService.status().tier }} |
+            Active: {{ subscriptionService.status().isActive }} |
+            Loaded: {{ subscriptionService.loaded() }} |
+            Expires: {{ subscriptionService.status().expiresAt | date:'short' }}
+          </p>
+          <button (click)="devForceRefreshSubscription()"
+            style="padding: 8px 16px; border: 1px solid orange; border-radius: 8px; font-size: 12px; cursor: pointer;">
+            Force refresh subscription from Firestore
+          </button>
+          <button (click)="devClearSubscriptionCache()"
+            style="padding: 8px 16px; border: 1px solid red; border-radius: 8px; font-size: 12px; cursor: pointer; margin-left: 8px;">
+            Reset to free (clear cache)
+          </button>
+        </div>
+      }
     </div>
 
     <!-- Clear Local Data confirmation modal -->
@@ -1128,6 +1182,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
 
   readonly isNativePlatform = Capacitor.isNativePlatform();
+  readonly isProduction = environment.production;
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -2228,6 +2283,20 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } finally {
       this.isRotating.set(false);
     }
+  }
+
+  // ─── Dev-only debug helpers ───────────────────────────────────────────────────
+
+  async devForceRefreshSubscription(): Promise<void> {
+    const uid = this.authService.firebaseUid();
+    if (!uid) return;
+    await this.subscriptionService.startListening(uid);
+    this.feedback.success('Subscription refreshed', 'Pulled latest subscription status from Firestore.');
+  }
+
+  devClearSubscriptionCache(): void {
+    this.subscriptionService.stopListening();
+    this.feedback.success('Cache cleared', 'Local subscription state reset to free — reload to restore real status.');
   }
 
   // ─── Legal links ──────────────────────────────────────────────────────────────

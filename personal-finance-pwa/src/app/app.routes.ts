@@ -43,7 +43,8 @@ export const routes: Routes = [
       import('./features/finances/finances.component').then(
         (m) => m.FinancesComponent
       ),
-    canActivate: [authGuard, setupGuard],
+    canActivate: [authGuard, setupGuard, subscriptionGuard],
+    data: { requiresPro: true },
   },
   {
     path: 'dashboard',
@@ -108,7 +109,7 @@ export const routes: Routes = [
         (m) => m.FamilySetupComponent
       ),
     canActivate: [authGuard, setupGuard, subscriptionGuard],
-    data: { proOnly: true },
+    data: { requiresPro: true },
   },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },

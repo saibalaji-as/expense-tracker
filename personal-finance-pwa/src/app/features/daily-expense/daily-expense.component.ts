@@ -9,6 +9,7 @@ import {
   signal,
   untracked, isDevMode } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import {
@@ -38,6 +39,7 @@ import {
   Users,
   WalletCards,
   Image,
+  Lock,
 } from 'lucide-angular';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { SyncService } from '../../core/services/sync.service';
@@ -49,6 +51,7 @@ import { ReceiptExtractionService } from '../../core/services/receipt-extraction
 import { ReceiptExtractionSessionService } from '../../core/services/receipt-extraction-session.service';
 import { AiVoiceExpenseService } from '../../core/services/ai-voice-expense.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraft, DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
@@ -123,7 +126,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, Image }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, Image, Lock }),
     },
   ],
   template: `
@@ -241,49 +244,70 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
           <form [formGroup]="form" (ngSubmit)="onSubmit()">
 
             <!-- Voice expense smart-fill -->
-            <div class="mb-4 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/10 via-primary-glow/5 to-success/10 p-3">
-              <div class="flex items-center gap-3">
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
-                  <lucide-icon name="sparkles" class="h-4 w-4" />
-                </span>
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <p class="text-sm font-semibold text-foreground">{{ 'daily.voiceExpense.title' | translate }}</p>
-                    <span class="rounded-full border border-primary/25 bg-background/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-                      {{ 'daily.voiceExpense.geminiBadge' | translate }}
-                    </span>
+            @if (subscriptionService.isPro()) {
+              <div class="mb-4 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/10 via-primary-glow/5 to-success/10 p-3">
+                <div class="flex items-center gap-3">
+                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
+                    <lucide-icon name="sparkles" class="h-4 w-4" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <p class="text-sm font-semibold text-foreground">{{ 'daily.voiceExpense.title' | translate }}</p>
+                      <span class="rounded-full border border-primary/25 bg-background/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+                        {{ 'daily.voiceExpense.geminiBadge' | translate }}
+                      </span>
+                    </div>
+                    <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{{ 'daily.voiceExpense.hint' | translate }}</p>
                   </div>
-                  <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{{ 'daily.voiceExpense.hint' | translate }}</p>
+                  <button
+                    type="button"
+                    [attr.aria-label]="'daily.voiceExpense.action' | translate"
+                    [disabled]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                    (click)="recordingMode() === 'expense' ? stopVoiceRecording() : startVoiceExpenseRecording()"
+                    class="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    [class.border-destructive]="recordingMode() === 'expense'"
+                    [class.bg-destructive\/10]="recordingMode() === 'expense'"
+                    [class.text-destructive]="recordingMode() === 'expense'"
+                    [class.border-primary\/30]="recordingMode() !== 'expense'"
+                    [class.bg-primary\/10]="recordingMode() !== 'expense'"
+                    [class.text-primary]="recordingMode() !== 'expense'"
+                    [class.opacity-60]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                    [class.cursor-not-allowed]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
+                  >
+                    @if (isParsingVoiceExpense()) {
+                      <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                    } @else {
+                      <lucide-icon name="mic" class="h-4 w-4" />
+                    }
+                    <span class="hidden sm:inline">{{ (recordingMode() === 'expense' ? 'daily.voice.stop' : 'daily.voiceExpense.action') | translate }}</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  [attr.aria-label]="'daily.voiceExpense.action' | translate"
-                  [disabled]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
-                  (click)="recordingMode() === 'expense' ? stopVoiceRecording() : startVoiceExpenseRecording()"
-                  class="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  [class.border-destructive]="recordingMode() === 'expense'"
-                  [class.bg-destructive\/10]="recordingMode() === 'expense'"
-                  [class.text-destructive]="recordingMode() === 'expense'"
-                  [class.border-primary\/30]="recordingMode() !== 'expense'"
-                  [class.bg-primary\/10]="recordingMode() !== 'expense'"
-                  [class.text-primary]="recordingMode() !== 'expense'"
-                  [class.opacity-60]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
-                  [class.cursor-not-allowed]="isParsingVoiceExpense() || (isRecording() && recordingMode() !== 'expense')"
-                >
-                  @if (isParsingVoiceExpense()) {
-                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                  } @else {
-                    <lucide-icon name="mic" class="h-4 w-4" />
-                  }
-                  <span class="hidden sm:inline">{{ (recordingMode() === 'expense' ? 'daily.voice.stop' : 'daily.voiceExpense.action') | translate }}</span>
-                </button>
+                @if (recordingMode() === 'expense') {
+                  <p class="mt-2 text-xs font-medium text-destructive">{{ 'daily.voiceExpense.listening' | translate }}</p>
+                } @else if (isParsingVoiceExpense()) {
+                  <p class="mt-2 text-xs font-medium text-primary">{{ 'daily.voiceParsing' | translate }}</p>
+                }
               </div>
-              @if (recordingMode() === 'expense') {
-                <p class="mt-2 text-xs font-medium text-destructive">{{ 'daily.voiceExpense.listening' | translate }}</p>
-              } @else if (isParsingVoiceExpense()) {
-                <p class="mt-2 text-xs font-medium text-primary">{{ 'daily.voiceParsing' | translate }}</p>
-              }
-            </div>
+            } @else {
+              <div class="mb-4 rounded-2xl border border-border bg-card/40 p-3">
+                <div class="flex items-center gap-3">
+                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                    <lucide-icon name="lock" class="h-4 w-4" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-foreground">Voice Logging — Pro feature</p>
+                    <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">Record expenses in your voice and let AI fill in the form.</p>
+                  </div>
+                  <button
+                    type="button"
+                    (click)="router.navigate(['/subscribe'])"
+                    class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-all hover:border-primary/60"
+                  >
+                    Upgrade
+                  </button>
+                </div>
+              </div>
+            }
 
             <!-- Category chips -->
             <div>
@@ -533,20 +557,31 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                       </button>
                     }
                   }
-                  <button
-                    type="button"
-                    (click)="receiptCameraInput.click()"
-                    class="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/60"
-                  >
-                    {{ 'daily.receipt.scan' | translate }}
-                  </button>
-                  <button
-                    type="button"
-                    (click)="receiptInput.click()"
-                    class="rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
-                  >
-                    {{ (selectedReceiptFile() || editingEntry()?.receipt ? 'daily.receipt.change' : 'daily.receipt.attach') | translate }}
-                  </button>
+                  @if (subscriptionService.isPro()) {
+                    <button
+                      type="button"
+                      (click)="receiptCameraInput.click()"
+                      class="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/60"
+                    >
+                      {{ 'daily.receipt.scan' | translate }}
+                    </button>
+                    <button
+                      type="button"
+                      (click)="receiptInput.click()"
+                      class="rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary/40"
+                    >
+                      {{ (selectedReceiptFile() || editingEntry()?.receipt ? 'daily.receipt.change' : 'daily.receipt.attach') | translate }}
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      (click)="router.navigate(['/subscribe'])"
+                      class="inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted/60 px-3 py-2 text-xs font-semibold text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
+                    >
+                      <lucide-icon name="lock" class="h-3.5 w-3.5" />
+                      Receipt Scanner — Pro
+                    </button>
+                  }
                 </div>
               </div>
               @if (receiptError()) {
@@ -1400,6 +1435,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private readonly backupModeService = inject(BackupModeService);
   private readonly feedback = inject(UserFeedbackService);
   private readonly draftService = inject(DailyExpenseDraftService);
+  readonly subscriptionService = inject(SubscriptionService);
+  readonly router = inject(Router);
 
   // ─── Reactive form ────────────────────────────────────────────────────────
   readonly form = this.fb.group({

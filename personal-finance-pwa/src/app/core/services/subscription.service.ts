@@ -19,6 +19,7 @@ export class SubscriptionService {
 
   #db: Firestore | null = null;
   #unsubscribe: (() => void) | null = null;
+  #listeningUid: string | null = null;
 
   async #getDb(): Promise<Firestore> {
     if (this.#db) return this.#db;
@@ -29,9 +30,34 @@ export class SubscriptionService {
     return this.#db;
   }
 
+  /** Starts listening for the given UID only if not already listening for that UID. Safe to call from multiple places. */
+  ensureStarted(uid: string): void {
+    if (this.#listeningUid === uid) return;
+    void this.startListening(uid);
+  }
+
+  /** Resolves once loaded() is true, or after 6 seconds (whichever comes first). */
+  waitUntilLoaded(): Promise<void> {
+    if (this.loaded()) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const deadline = setTimeout(() => {
+        clearInterval(poll);
+        resolve();
+      }, 6000);
+      const poll = setInterval(() => {
+        if (this.loaded()) {
+          clearInterval(poll);
+          clearTimeout(deadline);
+          resolve();
+        }
+      }, 50);
+    });
+  }
+
   /** Call once after Firebase UID is known. Starts a real-time listener on the subscription doc. */
   async startListening(uid: string): Promise<void> {
     this.#unsubscribe?.();
+    this.#listeningUid = uid;
     const { doc, onSnapshot } = await import('firebase/firestore');
     const db = await this.#getDb();
     const ref = doc(db, 'users', uid, 'subscription', 'status');
@@ -88,5 +114,6 @@ export class SubscriptionService {
   stopListening(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
+    this.#listeningUid = null;
   }
 }

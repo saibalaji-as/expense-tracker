@@ -5,8 +5,6 @@ import { Browser } from '@capacitor/browser';
 import { AuthService } from '../services/auth.service';
 import { SubscriptionService, SubscriptionStatus } from '../services/subscription.service';
 
-// Opens the subscribe page on native (external browser handoff) or returns a
-// web redirect — shared by both the expired-subscription and free-on-pro-only paths.
 async function redirectToSubscribe(
   authService: AuthService,
   router: Router
@@ -30,35 +28,21 @@ export const subscriptionGuard: CanActivateFn = async (route: ActivatedRouteSnap
 
   await authService.sessionRestored;
 
-  // No UID yet — let authGuard handle authentication, don't block here
   const uid = authService.firebaseUid();
   if (!uid) return true;
 
-  let sub: SubscriptionStatus;
+  // Guarantee the listener is running, then wait for the first snapshot (max 6s).
+  subscriptionService.ensureStarted(uid);
+  await subscriptionService.waitUntilLoaded();
 
-  if (subscriptionService.loaded()) {
-    // startListening() already received a Firestore response — reuse it to avoid
-    // a duplicate read on every route navigation
-    sub = subscriptionService.status();
-  } else {
-    // Race fetchOnce against a 5-second timeout.
-    // On timeout the guard falls back to the cached signal value so a Pro user
-    // who is temporarily offline (or whose startListening() fired before the
-    // guard runs) is not incorrectly downgraded to free.
-    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
-    const result = await Promise.race([subscriptionService.fetchOnce(uid), timeout]);
-    sub = result ?? subscriptionService.status();
-  }
+  const sub: SubscriptionStatus = subscriptionService.status();
 
-  // Free tier is blocked on routes marked `data: { proOnly: true }` and redirected
-  // to subscribe; on ordinary guarded routes free tier is allowed through as normal.
-  const isProOnly = route.data?.['proOnly'] === true;
-  if (sub.tier === 'free') {
-    if (!isProOnly) return true;
-    return redirectToSubscribe(authService, router);
-  }
+  const requiresPro = route.data?.['requiresPro'] === true;
 
-  if (!sub.isActive) {
+  if (!requiresPro) return true;
+
+  // Pro-only route: block free users and users with expired subscriptions.
+  if (sub.tier === 'free' || !sub.isActive) {
     return redirectToSubscribe(authService, router);
   }
 
