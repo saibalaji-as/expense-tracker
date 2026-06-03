@@ -457,8 +457,8 @@ export class AuthService {
       this.firebaseUid.set(uid);
       await this.storageService.set('firebase_uid', uid);
     } catch (err) {
-      // Non-critical — Firebase Auth failure does not block Drive-based features
-      if (isDevMode()) { console.warn('[AuthService] Firebase sign-in failed:', err); }
+      // Non-critical for Drive features, but subscription will fail without Firebase auth.
+      console.warn('[AuthService] Firebase sign-in failed:', err);
     }
   }
 
