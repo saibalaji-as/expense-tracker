@@ -22,3 +22,5 @@ sha-keys.md
 *.keystore
 *.jks
 *.p12
+google-services.json
+GoogleService-Info.plist
