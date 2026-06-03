@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, isDevMode } from '@angular/core';
 import { AiReceiptExtractionService } from './ai-receipt-extraction.service';
 import { CurrencyService } from './currency.service';
 import { I18nService } from './i18n.service';
@@ -67,7 +67,7 @@ export class ReceiptExtractionSessionService {
       this.extraction.set(extraction);
     } catch (error) {
       if (runId !== this.runId) return;
-      console.warn('[ReceiptExtractionSession] Receipt smart extraction failed:', error);
+      if (isDevMode()) { console.warn('[ReceiptExtractionSession] Receipt smart extraction failed:', error); }
       this.extractionError.set(this.i18n.t('daily.receipt.smartFill.failed'));
     } finally {
       if (runId === this.runId) {

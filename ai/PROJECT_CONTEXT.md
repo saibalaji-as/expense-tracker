@@ -43,7 +43,7 @@
   - Firebase project: `spenza-notifications`.
   - Hosting target/site: `spenza-site` / `spenza-finance`.
   - Public directory: `dist/personal-finance-pwa/browser`.
-  - Deploy workflow ships Hosting plus the two subscription-handoff Functions together.
+  - Deploy workflow ships Hosting, the two subscription-handoff Functions, and the three Razorpay Functions together.
 - Firebase Functions:
   - Source: `personal-finance-pwa/functions`.
   - Runtime: Node.js 22.

@@ -43,7 +43,8 @@
   - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
   - Checkout is Razorpay-only. Stripe provider detection, client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented.
   - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.
-  - The live Razorpay payment Functions still run their older Node.js 20 deployment; redeploy them from the Node.js 22 source before the Node.js 20 runtime retirement.
+  - Razorpay creation, verification, and webhook Functions were redeployed on Node.js 22 so production derives UID from the verified Firebase bearer token instead of the obsolete client request body.
+  - The Firebase deploy workflow ships Hosting, both handoff Functions, and all three Razorpay Functions together so client and payment-backend contracts stay aligned.
   - Netlify app URLs remain only for legacy API calls such as AI and FCM endpoints; they are not app-page destinations.
 - Drive OAuth recovery hardening:
   - Drive config bootstrap 403 now stops retries, clears the in-memory Google token, and routes returning users to `/auth/callback` for fresh consent instead of new-user setup.

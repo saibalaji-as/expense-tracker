@@ -517,5 +517,17 @@
   "settings.localNotifications.requestPermission": "Request Permission",
   "settings.localNotifications.dailyReminder": "Daily Reminder",
   "settings.localNotifications.budgetWarnings": "Budget Warnings",
-  "settings.localNotifications.test": "Test Notification (10 seconds)"
+  "settings.localNotifications.test": "Test Notification (10 seconds)",
+  "notifDisclosure.title": "Allow Notification Access?",
+  "notifDisclosure.whatWeRead": "What Spenza reads:",
+  "notifDisclosure.whatWeReadBullet1": "Payment and UPI transaction alerts from SMS/banking apps",
+  "notifDisclosure.whatWeReadBullet2": "Notification title and amount to suggest expense logging",
+  "notifDisclosure.whatWeNever": "What Spenza never does:",
+  "notifDisclosure.whatWeNeverBullet1": "Never reads personal messages, OTPs or social notifications",
+  "notifDisclosure.whatWeNeverBullet2": "Never uploads notification content to any server — all processing happens on your device only",
+  "notifDisclosure.allowBtn": "Allow Access",
+  "notifDisclosure.denyBtn": "Not Now",
+  "settings.legal.title": "Legal",
+  "settings.privacyPolicy": "Privacy Policy",
+  "settings.terms": "Terms of Service"
 }

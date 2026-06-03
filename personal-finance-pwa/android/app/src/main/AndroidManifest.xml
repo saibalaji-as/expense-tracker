@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -128,9 +129,11 @@
     
     <!-- Exact alarms for precise notification timing (Android 12+) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     
-    <!-- Disable battery optimization for reliable notifications -->
+    <!-- Required to ensure push notification reminders and
+         scheduled expense alerts are delivered reliably
+         even when the device is in Doze mode. Users opt-in
+         to daily reminders explicitly in Settings. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     
     <!-- Features -->

@@ -517,5 +517,17 @@
   "settings.localNotifications.requestPermission": "अनुमति मांगें",
   "settings.localNotifications.dailyReminder": "दैनिक रिमाइंडर",
   "settings.localNotifications.budgetWarnings": "बजट चेतावनी",
-  "settings.localNotifications.test": "टेस्ट नोटिफिकेशन (10 सेकंड)"
+  "settings.localNotifications.test": "टेस्ट नोटिफिकेशन (10 सेकंड)",
+  "notifDisclosure.title": "नोटिफिकेशन एक्सेस की अनुमति दें?",
+  "notifDisclosure.whatWeRead": "Spenza क्या पढ़ता है:",
+  "notifDisclosure.whatWeReadBullet1": "SMS/बैंकिंग ऐप्स से भुगतान और UPI लेनदेन अलर्ट",
+  "notifDisclosure.whatWeReadBullet2": "खर्च लॉगिंग सुझाव के लिए नोटिफिकेशन शीर्षक और राशि",
+  "notifDisclosure.whatWeNever": "Spenza कभी नहीं करता:",
+  "notifDisclosure.whatWeNeverBullet1": "कभी भी व्यक्तिगत संदेश, OTP या सोशल नोटिफिकेशन नहीं पढ़ता",
+  "notifDisclosure.whatWeNeverBullet2": "नोटिफिकेशन सामग्री किसी भी सर्वर पर अपलोड नहीं करता — सभी प्रोसेसिंग केवल आपके डिवाइस पर होती है",
+  "notifDisclosure.allowBtn": "एक्सेस दें",
+  "notifDisclosure.denyBtn": "अभी नहीं",
+  "settings.legal.title": "कानूनी",
+  "settings.privacyPolicy": "गोपनीयता नीति",
+  "settings.terms": "सेवा की शर्तें"
 }

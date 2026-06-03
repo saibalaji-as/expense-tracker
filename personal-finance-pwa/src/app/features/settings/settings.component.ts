@@ -4,8 +4,7 @@ import {
   OnInit,
   OnDestroy,
   inject,
-  signal,
-} from '@angular/core';
+  signal, isDevMode } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
@@ -31,7 +30,7 @@ import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
-import { ClearableInputDirective, SectionCardComponent, ModalComponent } from '../../shared/components';
+import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
 import {
   LucideAngularModule,
@@ -65,7 +64,7 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -787,6 +786,7 @@ interface BeforeInstallPromptEvent extends Event {
               <p class="text-xs text-muted-foreground">
                 {{ 'settings.local.dailyReminderHint' | translate }}
               </p>
+              <p class="text-xs text-muted-foreground">Required for reliable daily expense reminders</p>
             </div>
             <button
               type="button"
@@ -959,6 +959,28 @@ interface BeforeInstallPromptEvent extends Event {
           </p>
         }
       </app-section-card>
+
+      <!-- Legal -->
+      <app-section-card [title]="'settings.legal.title' | translate">
+        <div class="space-y-2">
+          <button
+            type="button"
+            (click)="openPrivacyPolicy()"
+            class="flex w-full items-center gap-3 rounded-xl border border-border bg-card/40 px-4 py-3 text-left text-sm font-medium hover:border-primary/40"
+          >
+            <lucide-icon [img]="externalLinkIcon" class="h-4 w-4 shrink-0 text-muted-foreground" />
+            {{ 'settings.privacyPolicy' | translate }}
+          </button>
+          <button
+            type="button"
+            (click)="openTerms()"
+            class="flex w-full items-center gap-3 rounded-xl border border-border bg-card/40 px-4 py-3 text-left text-sm font-medium hover:border-primary/40"
+          >
+            <lucide-icon [img]="externalLinkIcon" class="h-4 w-4 shrink-0 text-muted-foreground" />
+            {{ 'settings.terms' | translate }}
+          </button>
+        </div>
+      </app-section-card>
     </div>
 
     <!-- Clear Local Data confirmation modal -->
@@ -1061,6 +1083,14 @@ interface BeforeInstallPromptEvent extends Event {
       }
     </app-modal>
 
+    <!-- Notification access prominent disclosure (shown before opening Android settings) -->
+    @if (showNotifDisclosure()) {
+      <app-notification-disclosure
+        (allow)="onDisclosureAllow()"
+        (deny)="onDisclosureDeny()"
+      />
+    }
+
     <!-- Rotate shared file — confirmation modal — DISABLED (use Switch Backup Mode instead) -->
     <!--
     <app-modal
@@ -1136,6 +1166,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // ─── Task 12.4: PWA install prompt ───────────────────────────────────────────
   readonly deferredPrompt = signal<BeforeInstallPromptEvent | null>(null);
+
+  // ─── Notification access prominent disclosure ─────────────────────────────────
+  readonly showNotifDisclosure = signal(false);
 
   // ─── Task 12.6: Clear modal state ────────────────────────────────────────────
   readonly isClearModalOpen = signal<boolean>(false);
@@ -1321,7 +1354,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       const prefs = await this.storageService.getNotificationPreferences();
       this.notificationPrefs.set(prefs);
-      console.log('[Settings] Loaded notification preferences:', prefs);
+      if (isDevMode()) { console.log('[Settings] Loaded notification preferences:', prefs); }
     } catch (error) {
       console.error('[Settings] Failed to load notification preferences:', error);
       // Keep default preferences on error
@@ -1343,18 +1376,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
       
       // Only reschedule if permission is granted and daily reminder was enabled
       if (permissionStatus === 'granted' && prefs.dailyReminderEnabled) {
-        console.log('[Settings] Rescheduling notifications on app start');
+        if (isDevMode()) { console.log('[Settings] Rescheduling notifications on app start'); }
         await this.localNotificationService.scheduleDailyReminder(
           prefs.reminderHour,
           prefs.reminderMinute
         );
         await this.localNotificationService.scheduleMonthlyNudge();
-        console.log('[Settings] Notifications rescheduled successfully');
+        if (isDevMode()) { console.log('[Settings] Notifications rescheduled successfully'); }
       } else {
-        console.log('[Settings] Notifications not rescheduled:', {
+        if (isDevMode()) { console.log('[Settings] Notifications not rescheduled:', {
           permissionGranted: permissionStatus === 'granted',
           reminderEnabled: prefs.dailyReminderEnabled
-        });
+        }); }
       }
     } catch (error) {
       console.error('[Settings] Failed to reschedule notifications:', error);
@@ -1566,8 +1599,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  async onOpenSpendNotificationAccess(): Promise<void> {
+  onOpenSpendNotificationAccess(): void {
+    this.showNotifDisclosure.set(true);
+  }
+
+  async onDisclosureAllow(): Promise<void> {
+    this.showNotifDisclosure.set(false);
     await this.spendNotificationAccess.openSettings();
+  }
+
+  onDisclosureDeny(): void {
+    this.showNotifDisclosure.set(false);
   }
 
   async onRefreshSpendNotificationAccess(): Promise<void> {
@@ -1593,7 +1635,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (this.localNotificationService.permissionStatus() !== 'granted') {
         const status = await this.localNotificationService.requestPermission();
         if (status !== 'granted') {
-          console.log('[Settings] Permission denied, cannot enable daily reminder');
+          if (isDevMode()) { console.log('[Settings] Permission denied, cannot enable daily reminder'); }
           this.feedback.warning(
             'Daily reminder was not enabled.',
             'Allow notification permission first, then turn on the reminder again.'
@@ -1614,7 +1656,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         updated.reminderMinute
       );
       
-      console.log('[Settings] Daily reminder enabled and scheduled');
+      if (isDevMode()) { console.log('[Settings] Daily reminder enabled and scheduled'); }
     } else {
       // Disable: cancel both notifications
       await this.localNotificationService.cancelDailyReminder();
@@ -1625,7 +1667,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         updated.reminderMinute
       );
       
-      console.log('[Settings] Daily reminder disabled and cancelled');
+      if (isDevMode()) { console.log('[Settings] Daily reminder disabled and cancelled'); }
     }
 
     // Save updated preferences
@@ -1700,7 +1742,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Used for debugging notification issues
    */
   async onTestNotification(): Promise<void> {
-    console.log('[Settings] Triggering test notification...');
+    if (isDevMode()) { console.log('[Settings] Triggering test notification...'); }
     await this.localNotificationService.scheduleTestNotification();
     this.feedback.success(
       'Test notification scheduled.',
@@ -1910,7 +1952,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       ]);
       const failed = deletionResults.filter((item) => !item.deleted);
       if (failed.length > 0) {
-        console.warn('[Settings] Some Spenza Drive items could not be deleted:', failed);
+        if (isDevMode()) { console.warn('[Settings] Some Spenza Drive items could not be deleted:', failed); }
       }
 
       await this.syncService.clearQueue();
@@ -2111,11 +2153,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
           // Write merged data back to the private file
           await this.googleDriveService.writeBackupFile(privateFileId, mergedDoc);
-          console.log(`[Settings] Merged ${sharedDoc.expenses.length} shared + ${privateDoc.expenses.length} private entries → ${mergedExpenses.length} total`);
+          if (isDevMode()) { console.log(`[Settings] Merged ${sharedDoc.expenses.length} shared + ${privateDoc.expenses.length} private entries → ${mergedExpenses.length} total`); }
         } catch (err) {
           // Non-critical — if merge fails, private file keeps its existing data
           // The shared file data is still accessible in Google Drive
-          console.warn('[Settings] Could not merge family backup into private backup:', err);
+          if (isDevMode()) { console.warn('[Settings] Could not merge family backup into private backup:', err); }
         }
       }
     }
@@ -2185,6 +2227,26 @@ export class SettingsComponent implements OnInit, OnDestroy {
       );
     } finally {
       this.isRotating.set(false);
+    }
+  }
+
+  // ─── Legal links ──────────────────────────────────────────────────────────────
+
+  openPrivacyPolicy(): void {
+    const url = 'https://saibalaji-as.github.io/spenza-legal/';
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url });
+    } else {
+      window.open(url, '_blank');
+    }
+  }
+
+  openTerms(): void {
+    const url = 'https://saibalaji-as.github.io/spenza-legal/terms';
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url });
+    } else {
+      window.open(url, '_blank');
     }
   }
 }

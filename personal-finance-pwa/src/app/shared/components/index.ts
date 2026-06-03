@@ -14,3 +14,4 @@ export { SectionCardComponent } from './section-card/section-card.component';
 export { SparklineComponent } from './sparkline/sparkline.component';
 export { ThemedSelectComponent, type ThemedSelectOption } from './themed-select/themed-select.component';
 export { ClearableInputDirective } from '../directives/clearable-input.directive';
+export { NotificationDisclosureComponent } from './notification-disclosure/notification-disclosure.component';

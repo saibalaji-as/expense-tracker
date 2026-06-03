@@ -3,7 +3,7 @@ import { CanActivateFn, Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { AuthService } from '../services/auth.service';
-import { SubscriptionService } from '../services/subscription.service';
+import { SubscriptionService, SubscriptionStatus } from '../services/subscription.service';
 
 export const subscriptionGuard: CanActivateFn = async () => {
   const authService = inject(AuthService);
@@ -12,13 +12,25 @@ export const subscriptionGuard: CanActivateFn = async () => {
 
   await authService.sessionRestored;
 
+  // No UID yet — let authGuard handle authentication, don't block here
   const uid = authService.firebaseUid();
-  if (!uid) {
-    // No Firebase UID yet — allow through (authGuard already gates authentication)
-    return true;
-  }
+  if (!uid) return true;
 
-  const sub = await subscriptionService.fetchOnce(uid);
+  let sub: SubscriptionStatus;
+
+  if (subscriptionService.loaded()) {
+    // startListening() already received a Firestore response — reuse it to avoid
+    // a duplicate read on every route navigation
+    sub = subscriptionService.status();
+  } else {
+    // Race fetchOnce against a 5-second timeout.
+    // On timeout the guard falls back to the cached signal value so a Pro user
+    // who is temporarily offline (or whose startListening() fired before the
+    // guard runs) is not incorrectly downgraded to free.
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+    const result = await Promise.race([subscriptionService.fetchOnce(uid), timeout]);
+    sub = result ?? subscriptionService.status();
+  }
 
   // Free tier always gets through — guard only blocks pro-only routes
   if (sub.tier === 'free') return true;

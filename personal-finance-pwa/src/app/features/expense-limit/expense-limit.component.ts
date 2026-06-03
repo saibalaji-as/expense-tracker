@@ -32,7 +32,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
-import { ClearableInputDirective, ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
+import { ButtonComponent, ClearableInputDirective, ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
@@ -65,6 +65,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    ButtonComponent,
     ModalComponent,
     ThemedSelectComponent,
     ClearableInputDirective,
@@ -361,6 +362,19 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
 	        {{ 'limits.lowSavings.description' | translate }}
       </p>
     </app-modal>
+
+    <!-- Delete Custom Limit Confirmation Modal -->
+    <app-modal
+      [title]="'limits.custom.deleteConfirm' | translate"
+      [isOpen]="showLimitDeleteModal()"
+      [showActions]="false"
+      (cancelled)="onLimitDeleteCancelled()"
+    >
+      <div class="mt-6 flex justify-end gap-3">
+        <app-button variant="ghost" (click)="onLimitDeleteCancelled()">{{ 'common.cancel' | translate }}</app-button>
+        <app-button variant="danger" (click)="onLimitDeleteConfirmed()">{{ 'common.confirm' | translate }}</app-button>
+      </div>
+    </app-modal>
   `,
 })
 export class ExpenseLimitComponent implements OnInit, OnDestroy {
@@ -409,6 +423,8 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   // Task 10.5: modal and save state
   readonly showSavingsWarning = signal(false);
   readonly saveSuccess = signal(false);
+  readonly showLimitDeleteModal = signal(false);
+  readonly pendingDeleteLimitIndex = signal<number | null>(null);
 
   private subscription?: Subscription;
   private pendingSave = false;
@@ -538,13 +554,26 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   // Remove custom type
   removeCustomType(index: number): void {
     if (this.isPredefined(index)) {
-      return; // Safety check - should never happen
+      return;
     }
-    if (confirm(this.i18n.t('limits.custom.deleteConfirm'))) {
+    this.pendingDeleteLimitIndex.set(index);
+    this.showLimitDeleteModal.set(true);
+  }
+
+  onLimitDeleteConfirmed(): void {
+    const index = this.pendingDeleteLimitIndex();
+    this.showLimitDeleteModal.set(false);
+    this.pendingDeleteLimitIndex.set(null);
+    if (index !== null) {
       this.limitsArray.removeAt(index);
       this.recalculateAmounts();
       this.updateRunningTotal();
     }
+  }
+
+  onLimitDeleteCancelled(): void {
+    this.showLimitDeleteModal.set(false);
+    this.pendingDeleteLimitIndex.set(null);
   }
 
   // Task 10.5: Save handler

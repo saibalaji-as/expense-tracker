@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, isDevMode } from '@angular/core';
 import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -82,7 +82,7 @@ export class LocalNotificationService {
       } else {
         // Web platform: use browser Notification API
         if (!('Notification' in window)) {
-          console.warn('[LocalNotificationService] Notifications not supported in this environment');
+          if (isDevMode()) { console.warn('[LocalNotificationService] Notifications not supported in this environment'); }
           this.permissionStatus.set('denied');
           return 'denied';
         }
@@ -186,7 +186,7 @@ export class LocalNotificationService {
           scheduledTime.setDate(scheduledTime.getDate() + 1);
         }
         
-        console.log(`[LocalNotificationService] Scheduling daily reminder for ${scheduledTime.toLocaleString()}`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Scheduling daily reminder for ${scheduledTime.toLocaleString()}`); }
         const content = getDailyReminderContent(scheduledTime);
         
         // Native platform: use Capacitor plugin with specific date/time
@@ -217,7 +217,7 @@ export class LocalNotificationService {
             }
           ]
         });
-        console.log(`[LocalNotificationService] Daily reminder scheduled successfully`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Daily reminder scheduled successfully`); }
       } else {
         // Web platform: use setTimeout with browser Notification API
         await this.scheduleWebDailyReminder(hour, minute);
@@ -237,7 +237,7 @@ export class LocalNotificationService {
       if (this.isNativePlatform) {
         const testTime = new Date(Date.now() + 10000); // 10 seconds from now
         
-        console.log(`[LocalNotificationService] Scheduling test notification for ${testTime.toLocaleString()}`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Scheduling test notification for ${testTime.toLocaleString()}`); }
         
         await LocalNotifications.schedule({
           notifications: [
@@ -262,9 +262,9 @@ export class LocalNotificationService {
             }
           ]
         });
-        console.log(`[LocalNotificationService] Test notification scheduled successfully`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Test notification scheduled successfully`); }
       } else {
-        console.log('[LocalNotificationService] Test notification only works on native platforms');
+        if (isDevMode()) { console.log('[LocalNotificationService] Test notification only works on native platforms'); }
       }
     } catch (error) {
       console.error('[LocalNotificationService] Failed to schedule test notification:', error);
@@ -293,14 +293,14 @@ export class LocalNotificationService {
         await LocalNotifications.cancel({
           notifications: [{ id: 1 }] // ID 1 is used for daily reminder
         });
-        console.log('[LocalNotificationService] Daily reminder cancelled');
+        if (isDevMode()) { console.log('[LocalNotificationService] Daily reminder cancelled'); }
       } else {
         // Web platform: clear timeout from internal map
         const timeoutId = this.webNotificationTimeouts.get('daily-reminder');
         if (timeoutId) {
           clearTimeout(timeoutId);
           this.webNotificationTimeouts.delete('daily-reminder');
-          console.log('[LocalNotificationService] Web daily reminder cancelled');
+          if (isDevMode()) { console.log('[LocalNotificationService] Web daily reminder cancelled'); }
         }
       }
     } catch (error) {
@@ -346,7 +346,7 @@ export class LocalNotificationService {
             }
           ]
         });
-        console.log(`[LocalNotificationService] Monthly nudge scheduled for ${next28th.toLocaleString()}`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Monthly nudge scheduled for ${next28th.toLocaleString()}`); }
       } else {
         // Web platform: use setTimeout with browser Notification API
         await this.scheduleWebMonthlyNudge();
@@ -379,14 +379,14 @@ export class LocalNotificationService {
         await LocalNotifications.cancel({
           notifications: [{ id: 2 }] // ID 2 is used for monthly nudge
         });
-        console.log('[LocalNotificationService] Monthly nudge cancelled');
+        if (isDevMode()) { console.log('[LocalNotificationService] Monthly nudge cancelled'); }
       } else {
         // Web platform: clear timeout from internal map
         const timeoutId = this.webNotificationTimeouts.get('monthly-nudge');
         if (timeoutId) {
           clearTimeout(timeoutId);
           this.webNotificationTimeouts.delete('monthly-nudge');
-          console.log('[LocalNotificationService] Web monthly nudge cancelled');
+          if (isDevMode()) { console.log('[LocalNotificationService] Web monthly nudge cancelled'); }
         }
       }
     } catch (error) {
@@ -432,7 +432,7 @@ export class LocalNotificationService {
   private async scheduleWebMonthlyNudge(): Promise<void> {
     // Check if Notification API is available
     if (!('Notification' in window)) {
-      console.warn('[LocalNotificationService] Notification API not available');
+      if (isDevMode()) { console.warn('[LocalNotificationService] Notification API not available'); }
       return;
     }
 
@@ -447,7 +447,7 @@ export class LocalNotificationService {
     const now = new Date();
     const delay = target.getTime() - now.getTime();
 
-    console.log(`[LocalNotificationService] Web monthly nudge scheduled for ${target.toLocaleString()}`);
+    if (isDevMode()) { console.log(`[LocalNotificationService] Web monthly nudge scheduled for ${target.toLocaleString()}`); }
 
     // Schedule the notification
     const timeoutId = window.setTimeout(() => {
@@ -500,7 +500,7 @@ export class LocalNotificationService {
       const oneHourInMs = 3600000; // 1 hour = 3600000 milliseconds
 
       if (lastAlert && now - lastAlert < oneHourInMs) {
-        console.log(`[LocalNotificationService] Skipping duplicate alert for ${category} (last alert was ${Math.round((now - lastAlert) / 60000)} minutes ago)`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Skipping duplicate alert for ${category} (last alert was ${Math.round((now - lastAlert) / 60000)} minutes ago)`); }
         return;
       }
 
@@ -536,7 +536,7 @@ export class LocalNotificationService {
             }
           ]
         });
-        console.log(`[LocalNotificationService] Budget alert scheduled for ${category} (${percent}%)`);
+        if (isDevMode()) { console.log(`[LocalNotificationService] Budget alert scheduled for ${category} (${percent}%)`); }
       } else {
         // Web platform: show notification immediately
         await this.showWebBudgetAlert(category, percent);
@@ -560,19 +560,19 @@ export class LocalNotificationService {
   private async showWebBudgetAlert(category: string, percent: number): Promise<void> {
     // Check if window is available (for test environment compatibility)
     if (typeof window === 'undefined') {
-      console.warn('[LocalNotificationService] Window not available');
+      if (isDevMode()) { console.warn('[LocalNotificationService] Window not available'); }
       return;
     }
 
     // Check if Notification API is available
     if (!('Notification' in window)) {
-      console.warn('[LocalNotificationService] Notification API not available');
+      if (isDevMode()) { console.warn('[LocalNotificationService] Notification API not available'); }
       return;
     }
 
     // Check permission
     if (Notification.permission !== 'granted') {
-      console.warn('[LocalNotificationService] Notification permission not granted');
+      if (isDevMode()) { console.warn('[LocalNotificationService] Notification permission not granted'); }
       return;
     }
 
@@ -595,7 +595,7 @@ export class LocalNotificationService {
       notification.close();
     };
 
-    console.log(`[LocalNotificationService] Web budget alert shown for ${category} (${percent}%)`);
+    if (isDevMode()) { console.log(`[LocalNotificationService] Web budget alert shown for ${category} (${percent}%)`); }
   }
 
   /**
@@ -618,7 +618,7 @@ export class LocalNotificationService {
     if (this.isNativePlatform) {
       // Native platform: register listener for localNotificationActionPerformed event
       LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
-        console.log('[LocalNotificationService] Notification tapped:', event);
+        if (isDevMode()) { console.log('[LocalNotificationService] Notification tapped:', event); }
         
         // Extract notification data and handle tap
         if (event.notification) {
@@ -626,11 +626,11 @@ export class LocalNotificationService {
         }
       });
       
-      console.log('[LocalNotificationService] Native notification tap listener registered');
+      if (isDevMode()) { console.log('[LocalNotificationService] Native notification tap listener registered'); }
     } else {
       // Web platform: click handlers are registered inline when notifications are created
       // See scheduleWebDailyReminder(), scheduleWebMonthlyNudge(), and showWebBudgetAlert()
-      console.log('[LocalNotificationService] Web notification click handlers registered inline');
+      if (isDevMode()) { console.log('[LocalNotificationService] Web notification click handlers registered inline'); }
     }
   }
 
@@ -666,18 +666,18 @@ export class LocalNotificationService {
       const route = notification.extra?.route;
       
       if (!route) {
-        console.warn('[LocalNotificationService] No route found in notification extra data');
+        if (isDevMode()) { console.warn('[LocalNotificationService] No route found in notification extra data'); }
         return;
       }
 
-      console.log(`[LocalNotificationService] Navigating to ${route} from notification tap`);
+      if (isDevMode()) { console.log(`[LocalNotificationService] Navigating to ${route} from notification tap`); }
 
       // Navigate to the target route
       this.router.navigate([route]).catch((error) => {
         console.error('[LocalNotificationService] Navigation failed:', error);
         
         // Fallback: navigate to home route
-        console.log('[LocalNotificationService] Falling back to home route');
+        if (isDevMode()) { console.log('[LocalNotificationService] Falling back to home route'); }
         this.router.navigate(['/']);
       });
     } catch (error) {
@@ -699,7 +699,7 @@ export class LocalNotificationService {
   private async scheduleWebDailyReminder(hour: number, minute: number): Promise<void> {
     // Check if Notification API is available
     if (!('Notification' in window)) {
-      console.warn('[LocalNotificationService] Notification API not available');
+      if (isDevMode()) { console.warn('[LocalNotificationService] Notification API not available'); }
       return;
     }
 
@@ -720,7 +720,7 @@ export class LocalNotificationService {
 
     const delay = target.getTime() - now.getTime();
 
-    console.log(`[LocalNotificationService] Web daily reminder scheduled for ${target.toLocaleString()}`);
+    if (isDevMode()) { console.log(`[LocalNotificationService] Web daily reminder scheduled for ${target.toLocaleString()}`); }
 
     // Schedule the notification
     const timeoutId = window.setTimeout(() => {
@@ -774,11 +774,11 @@ export class LocalNotificationService {
    */
   async initialize(): Promise<void> {
     try {
-      console.log('[LocalNotificationService] Initializing service...');
+      if (isDevMode()) { console.log('[LocalNotificationService] Initializing service...'); }
 
       // Step 1: Check current permission status (without requesting)
       await this.checkPermissionStatus();
-      console.log('[LocalNotificationService] Permission status:', this.permissionStatus());
+      if (isDevMode()) { console.log('[LocalNotificationService] Permission status:', this.permissionStatus()); }
 
       // Step 2: Setup notification tap listener
       this.setupNotificationListener();
@@ -786,26 +786,26 @@ export class LocalNotificationService {
       // Step 3: Subscribe to budget threshold events from ExpenseStore
       try {
         budgetThresholdExceeded$.subscribe(async (event) => {
-          console.log('[LocalNotificationService] Budget threshold exceeded:', event);
+          if (isDevMode()) { console.log('[LocalNotificationService] Budget threshold exceeded:', event); }
           
           // Check if budget warnings are enabled
           const currentPrefs = await this.storageService.getNotificationPreferences();
           if (currentPrefs.budgetWarningsEnabled && this.permissionStatus() === 'granted') {
             await this.scheduleOverspendAlert(event.category, event.percent);
           } else {
-            console.log('[LocalNotificationService] Budget warning not sent:', {
+            if (isDevMode()) { console.log('[LocalNotificationService] Budget warning not sent:', {
               warningsEnabled: currentPrefs.budgetWarningsEnabled,
               permissionGranted: this.permissionStatus() === 'granted'
-            });
+            }); }
           }
         });
-        console.log('[LocalNotificationService] Subscribed to budget threshold events');
+        if (isDevMode()) { console.log('[LocalNotificationService] Subscribed to budget threshold events'); }
       } catch (error) {
         console.error('[LocalNotificationService] Failed to subscribe to budget threshold events:', error);
         // Don't throw - allow app to continue even if subscription fails
       }
 
-      console.log('[LocalNotificationService] Initialization complete');
+      if (isDevMode()) { console.log('[LocalNotificationService] Initialization complete'); }
     } catch (error) {
       console.error('[LocalNotificationService] Initialization failed:', error);
       // Don't throw - allow app to continue even if notification initialization fails

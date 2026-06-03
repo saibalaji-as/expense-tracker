@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { SocialLogin } from '@capgo/capacitor-social-login';
 import { StorageService } from './storage.service';
@@ -352,7 +352,7 @@ export class AuthService {
       await SocialLogin.logout({ provider: 'google' });
     } catch (err) {
       // Non-critical — local state is already cleared
-      console.warn('Native sign-out error:', err);
+      if (isDevMode()) { console.warn('Native sign-out error:', err); }
     }
   }
 
@@ -427,7 +427,7 @@ export class AuthService {
           })
       )
       .catch((err) => {
-        console.warn('Google token revoke failed after local sign-out:', err);
+        if (isDevMode()) { console.warn('Google token revoke failed after local sign-out:', err); }
       });
   }
 
@@ -444,7 +444,7 @@ export class AuthService {
       await this.storageService.set('firebase_uid', uid);
     } catch (err) {
       // Non-critical — Firebase Auth failure does not block Drive-based features
-      console.warn('[AuthService] Firebase sign-in failed:', err);
+      if (isDevMode()) { console.warn('[AuthService] Firebase sign-in failed:', err); }
     }
   }
 

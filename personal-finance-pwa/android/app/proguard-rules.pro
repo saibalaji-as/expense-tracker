@@ -12,10 +12,10 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-keep class com.getcapacitor.** { *; }
+-keep class com.google.firebase.** { *; }
+-keep class androidx.work.** { *; }
+-keep class com.spenza.app.** { *; }
+-keepattributes SourceFile,LineNumberTable
+-dontwarn com.google.firebase.ktx.Firebase
+-dontwarn com.google.firebase.ktx.FirebaseKt

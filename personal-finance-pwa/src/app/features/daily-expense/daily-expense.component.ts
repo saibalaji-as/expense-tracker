@@ -7,8 +7,7 @@ import {
   effect,
   inject,
   signal,
-  untracked,
-} from '@angular/core';
+  untracked, isDevMode } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
@@ -56,6 +55,8 @@ import { DailyExpenseDraft, DailyExpenseDraftService } from '../../core/services
 import { AssetAccount, ExpenseEntry, ExpenseReceipt } from '../../core/models';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
+  ButtonComponent,
+  ModalComponent,
   SectionCardComponent,
   CategoryIconComponent,
   ProgressRingComponent,
@@ -109,6 +110,8 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     ReactiveFormsModule,
     CurrencyFormatPipe,
     TranslatePipe,
+    ButtonComponent,
+    ModalComponent,
     SectionCardComponent,
     CategoryIconComponent,
     ProgressRingComponent,
@@ -1364,6 +1367,21 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
         </div>
       </div>
     }
+
+    <!-- Delete Expense Confirmation Modal -->
+    @if (pendingDeleteEntry(); as entry) {
+      <app-modal
+        [title]="i18n.t('daily.deleteConfirm', { category: getCatName(entry.type), amount: currencyService.format(entry.amount, i18n.locale()) })"
+        [isOpen]="showDeleteModal()"
+        [showActions]="false"
+        (cancelled)="onDeleteCancelled()"
+      >
+        <div class="mt-6 flex justify-end gap-3">
+          <app-button variant="ghost" (click)="onDeleteCancelled()">{{ 'common.cancel' | translate }}</app-button>
+          <app-button variant="danger" (click)="onDeleteConfirmed()">{{ 'common.confirm' | translate }}</app-button>
+        </div>
+      </app-modal>
+    }
   `,
 })
 export class DailyExpenseComponent implements OnInit, OnDestroy {
@@ -1488,6 +1506,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private readonly receiptAutoFilledFields = new Set<'amount' | 'date' | 'type' | 'comment'>();
   readonly splitBillMode = signal(false);
   readonly splitRows = signal<SplitBillRow[]>([]);
+  readonly showDeleteModal = signal(false);
+  readonly pendingDeleteEntry = signal<ExpenseEntry | null>(null);
 
   private activityActor(): { email?: string; role: OwnerRole | 'single' } {
     const role = this.backupModeService.getMode() === 'family'
@@ -2308,7 +2328,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       this.receiptExtractionSession.setSelectedFile(editedFile);
       void this.extractReceiptFields(editedFile);
     } catch (error) {
-      console.warn('[DailyExpense] Receipt image edit failed, using original file:', error);
+      if (isDevMode()) { console.warn('[DailyExpense] Receipt image edit failed, using original file:', error); }
       this.receiptExtractionSession.setSelectedFile(editor.file);
       void this.extractReceiptFields(editor.file);
     } finally {
@@ -2327,7 +2347,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       const url = URL.createObjectURL(blob);
       this.setReceiptPreview(url, receipt.fileName);
     } catch (error) {
-      console.warn('[DailyExpense] Failed to preview receipt image:', error);
+      if (isDevMode()) { console.warn('[DailyExpense] Failed to preview receipt image:', error); }
       window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
     }
   }
@@ -2693,7 +2713,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       try {
         return await this.receiptExtractionService.convertPdfToCompressedImage(file);
       } catch (error) {
-        console.warn('[DailyExpense] PDF receipt image conversion failed before upload, keeping original PDF:', error);
+        if (isDevMode()) { console.warn('[DailyExpense] PDF receipt image conversion failed before upload, keeping original PDF:', error); }
         return file;
       }
     }
@@ -2703,7 +2723,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     try {
       return await this.compressReceiptImage(file);
     } catch (error) {
-      console.warn('[DailyExpense] Receipt compression failed before upload:', error);
+      if (isDevMode()) { console.warn('[DailyExpense] Receipt compression failed before upload:', error); }
       throw error;
     }
   }
@@ -2970,7 +2990,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   editEntry(entry: ExpenseEntry): void {
-    console.log('[DailyExpense] Editing entry:', entry.id);
+    if (isDevMode()) { console.log('[DailyExpense] Editing entry:', entry.id); }
     
     // Set editing state
     this.editingEntry.set(entry);
@@ -3012,14 +3032,14 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── View detail ──────────────────────────────────────────────────────────
   viewDetail(entry: ExpenseEntry): void {
-    console.log('[DailyExpense] Viewing detail for entry:', entry.id);
+    if (isDevMode()) { console.log('[DailyExpense] Viewing detail for entry:', entry.id); }
     this.viewingEntry.set(entry);
     this.viewingGroupedEntries.set([]);
   }
 
   // ─── View group detail ────────────────────────────────────────────────────
   viewGroupDetail(group: { type: string; entries: ExpenseEntry[]; totalAmount: number; totalSavings: number; count: number; limit: number }): void {
-    console.log('[DailyExpense] Viewing group detail for type:', group.type, 'with', group.count, 'entries');
+    if (isDevMode()) { console.log('[DailyExpense] Viewing group detail for type:', group.type, 'with', group.count, 'entries'); }
     
     if (group.count === 1) {
       // Single entry - show single entry view
@@ -3051,7 +3071,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Delete from detail ───────────────────────────────────────────────────
   deleteFromDetail(entry: ExpenseEntry): void {
     this.closeDetail();
-    void this.deleteEntry(entry);
+    this.deleteEntry(entry);
   }
 
   // ─── Date navigation ──────────────────────────────────────────────────────
@@ -3075,7 +3095,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   onDateChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     const newDate = input.value; // YYYY-MM-DD format
-    console.log('[DailyExpense] Date changed to:', newDate);
+    if (isDevMode()) { console.log('[DailyExpense] Date changed to:', newDate); }
     this.setActiveDate(newDate);
   }
 
@@ -3211,15 +3231,25 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Delete entry ─────────────────────────────────────────────────────────
-  async deleteEntry(entry: ExpenseEntry): Promise<void> {
-    if (!confirm(this.i18n.t('daily.deleteConfirm', {
-      category: this.getCatName(entry.type),
-      amount: this.currencyService.format(entry.amount, this.i18n.locale()),
-    }))) {
-      return;
-    }
+  deleteEntry(entry: ExpenseEntry): void {
+    this.pendingDeleteEntry.set(entry);
+    this.showDeleteModal.set(true);
+  }
 
-    console.log('[DailyExpense] Deleting entry:', entry.id);
+  onDeleteConfirmed(): void {
+    const entry = this.pendingDeleteEntry();
+    this.showDeleteModal.set(false);
+    this.pendingDeleteEntry.set(null);
+    if (entry) void this.#executeDeleteEntry(entry);
+  }
+
+  onDeleteCancelled(): void {
+    this.showDeleteModal.set(false);
+    this.pendingDeleteEntry.set(null);
+  }
+
+  async #executeDeleteEntry(entry: ExpenseEntry): Promise<void> {
+    if (isDevMode()) { console.log('[DailyExpense] Deleting entry:', entry.id); }
 
     try {
       await this.expenseStore.deleteEntry(entry.id);
@@ -3238,16 +3268,13 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Queue the delete operation for sync
     this.syncService.enqueueDelete(entry.id);
 
-    // If online, attempt to sync immediately
     if (this.syncService.isOnline()) {
       this.syncService.flushQueue().catch(err => {
         console.error('[DailyExpense] Failed to sync delete:', err);
       });
     } else {
-      // Show offline toast
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {
         clearTimeout(this.offlineToastTimer);

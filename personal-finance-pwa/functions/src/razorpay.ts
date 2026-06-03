@@ -44,8 +44,15 @@ export const createRazorpaySubscription = functions.onRequest(
       return;
     }
 
+    let uid: string;
     try {
-      const uid = await requireFirebaseUid(req);
+      uid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    try {
       const planId = resolvePlanId(planType as PlanType);
       const rzp = getRazorpay();
 

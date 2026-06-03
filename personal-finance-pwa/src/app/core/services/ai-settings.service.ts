@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, isDevMode } from '@angular/core';
 import { AuthService } from './auth.service';
 import { DriveApiError, GoogleDriveService, SpenzaConfig } from './google-drive.service';
 import { StorageService } from './storage.service';
@@ -51,7 +51,7 @@ export class AiSettingsService {
         }
       }
     } catch (error) {
-      console.warn('[AiSettingsService] Could not load AI settings:', error);
+      if (isDevMode()) { console.warn('[AiSettingsService] Could not load AI settings:', error); }
       this.lastError.set('Could not load AI settings.');
     } finally {
       this.isLoading.set(false);

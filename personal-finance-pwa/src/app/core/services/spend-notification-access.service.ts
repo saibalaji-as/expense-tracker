@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 interface SpendNotificationAccessStatus {
@@ -28,7 +28,7 @@ export class SpendNotificationAccessService {
     try {
       this.applyStatus(await SpendNotificationAccess.getStatus());
     } catch (error) {
-      console.warn('[SpendNotificationAccess] Failed to read status:', error);
+      if (isDevMode()) { console.warn('[SpendNotificationAccess] Failed to read status:', error); }
     } finally {
       this.isLoading.set(false);
     }

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, isDevMode } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
@@ -286,7 +286,7 @@ export class FamilySetupComponent {
     } catch (err) {
       // Non-critical — if migration fails, the shared file starts empty
       // The user's private data is still safe in appDataFolder
-      console.warn('[FamilySetup] Could not copy private backup to shared file:', err);
+      if (isDevMode()) { console.warn('[FamilySetup] Could not copy private backup to shared file:', err); }
     }
 
     try {
@@ -301,7 +301,7 @@ export class FamilySetupComponent {
         });
       }
     } catch (err) {
-      console.warn('[FamilySetup] Could not stamp receipt folder on family backup:', err);
+      if (isDevMode()) { console.warn('[FamilySetup] Could not stamp receipt folder on family backup:', err); }
     }
 
     await this.backupModeService.setFamilyConfig(newFileId, bundle.familyFolderId, 'owner');

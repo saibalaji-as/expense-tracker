@@ -1,4 +1,4 @@
-import { Injectable, Signal, inject, signal } from '@angular/core';
+import { Injectable, Signal, inject, signal, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { FcmService } from './fcm.service';
 import { StorageService } from './storage.service';
@@ -37,7 +37,7 @@ export class NotificationService {
 
     // On native platforms, permission is handled by FCM service
     if (Capacitor.isNativePlatform()) {
-      console.log('[NotificationService] Native platform - permission handled by FCM');
+      if (isDevMode()) { console.log('[NotificationService] Native platform - permission handled by FCM'); }
       this._permissionState.set('granted');
       return;
     }
@@ -82,13 +82,13 @@ export class NotificationService {
     const registered = await this.fcmService.registerForNotifications(userId, timezone, reminderPreferences);
 
     if (!registered) {
-      console.warn('[NotificationService] FCM registration failed — notifications remain disabled');
+      if (isDevMode()) { console.warn('[NotificationService] FCM registration failed — notifications remain disabled'); }
       return;
     }
 
     this._isEnabled.set(true);
     await this.#persistEnabled(true);
-    console.log('[NotificationService] Push notifications enabled');
+    if (isDevMode()) { console.log('[NotificationService] Push notifications enabled'); }
   }
 
   async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<void> {
@@ -114,7 +114,7 @@ export class NotificationService {
 
     this._isEnabled.set(false);
     await this.#persistEnabled(false);
-    console.log('[NotificationService] Push notifications disabled');
+    if (isDevMode()) { console.log('[NotificationService] Push notifications disabled'); }
   }
 
   // ─── Initialisation ───────────────────────────────────────────────────────────

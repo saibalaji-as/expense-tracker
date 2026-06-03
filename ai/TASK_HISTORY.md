@@ -1944,3 +1944,16 @@
   - Verified a temporary production handoff redeems successfully with HTTP `200`.
   - Verified an immediate same-link retry also redeems successfully with HTTP `200`.
   - Removed temporary production probe documents.
+
+## 2026-06-02 - Razorpay Production Contract Redeploy
+- Problem:
+  - After handoff authorization succeeded, Razorpay subscription creation returned `uid is required`.
+  - Production was still serving an older Node.js 20 Razorpay Function revision that expected a client-supplied UID.
+- Implemented:
+  - Redeployed `createRazorpaySubscription`, `verifyRazorpayPayment`, and `razorpayWebhook` from current Node.js 22 source.
+  - Production now derives the account UID from a verified Firebase bearer token.
+  - Updated the Firebase deploy workflow to ship Hosting, handoff Functions, and all Razorpay Functions together.
+  - Razorpay creation now returns an explicit `401 Authentication required` when the bearer identity is missing.
+- Verification:
+  - Confirmed all three Razorpay Functions now run Node.js 22 in production.
+  - Verified an unauthenticated create probe returns HTTP `401` with `Authentication required`, confirming the obsolete client-supplied `uid` contract is gone.

@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, isDevMode } from '@angular/core';
 import { StorageService } from './storage.service';
 
 export type AppLanguage = 'en' | 'ta' | 'hi';
@@ -196,7 +196,7 @@ export class I18nService {
       const loaded = await response.json() as Record<string, string>;
       this.translations.set({ ...FALLBACK_TRANSLATIONS, ...loaded });
     } catch (error) {
-      console.warn('[I18nService] Falling back to built-in English translations:', error);
+      if (isDevMode()) { console.warn('[I18nService] Falling back to built-in English translations:', error); }
       this.translations.set(FALLBACK_TRANSLATIONS);
     }
   }
