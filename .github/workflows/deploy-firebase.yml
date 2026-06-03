@@ -77,11 +77,15 @@ jobs:
             echo "ERROR: __RAZORPAY_KEY_ID__ value is empty in $BUILT_HTML — RAZORPAY_KEY_ID secret may be blank."
             exit 1
           fi
-          if [[ "$KEY" != rzp_live_* ]]; then
-            echo "ERROR: Injected Razorpay key does not start with 'rzp_live_' (got: ${KEY:0:12}...). Refusing to deploy."
+          if [[ "$KEY" != rzp_live_* && "$KEY" != rzp_test_* ]]; then
+            echo "ERROR: Injected Razorpay key does not start with 'rzp_live_' or 'rzp_test_' (got: ${KEY:0:12}...). Refusing to deploy."
             exit 1
           fi
-          echo "Razorpay key injection OK: ${KEY:0:12}..."
+          if [[ "$KEY" == rzp_test_* ]]; then
+            echo "WARNING: Deploying with a TEST Razorpay key (${KEY:0:12}...). Switch to live key before going live."
+          else
+            echo "Razorpay key injection OK: ${KEY:0:12}..."
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
