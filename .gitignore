@@ -16,3 +16,9 @@ node_modules/
 # Generated AI knowledge graph and machine-local Codex hook
 graphify-out/
 .codex/
+
+# Sensitive key/cert files — never commit
+sha-keys.md
+*.keystore
+*.jks
+*.p12
