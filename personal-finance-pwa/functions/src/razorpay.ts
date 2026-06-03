@@ -84,12 +84,11 @@ export const verifyRazorpayPayment = functions.onRequest(
       return;
     }
 
-    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, planType } =
+    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } =
       req.body as {
         razorpay_payment_id?: string;
         razorpay_subscription_id?: string;
         razorpay_signature?: string;
-        planType?: string;
       };
 
     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
@@ -113,11 +112,15 @@ export const verifyRazorpayPayment = functions.onRequest(
 
     // Verify HMAC-SHA256 signature
     const payload = `${razorpay_payment_id}|${razorpay_subscription_id}`;
-    const expected = crypto.createHmac('sha256', keySecret).update(payload).digest('hex');
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(expected, 'hex'),
-      Buffer.from(razorpay_signature, 'hex')
-    );
+    const expectedBuf = crypto.createHmac('sha256', keySecret).update(payload).digest();
+    let isValid = false;
+    try {
+      const sigBuf = Buffer.from(razorpay_signature, 'hex');
+      isValid = sigBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, sigBuf);
+    } catch {
+      isValid = false;
+    }
 
     if (!isValid) {
       console.warn('Razorpay signature mismatch for uid:', uid);
@@ -125,10 +128,29 @@ export const verifyRazorpayPayment = functions.onRequest(
       return;
     }
 
-    // Signature valid — write pro access to Firestore
-    const isYearly = planType === 'yearly';
-    const expiresAt = new Date();
-    expiresAt.setMonth(expiresAt.getMonth() + (isYearly ? 12 : 1));
+    // Fetch the subscription from Razorpay to get the authoritative plan_id
+    // (do not trust planType from the client for expiry calculation)
+    const rzp = getRazorpay();
+    let resolvedPlanId: string;
+    let resolvedCurrentEnd: number | undefined;
+    try {
+      const sub = await rzp.subscriptions.fetch(razorpay_subscription_id);
+      resolvedPlanId = (sub as any).plan_id ?? '';
+      resolvedCurrentEnd = (sub as any).current_end as number | undefined;
+    } catch (err) {
+      console.error('Failed to fetch Razorpay subscription for plan resolution:', err);
+      res.status(500).json({ error: 'Could not verify subscription plan' });
+      return;
+    }
+
+    const yearlyPlanId = process.env.RAZORPAY_PLAN_YEARLY_ID ?? '';
+    const isYearly = !!yearlyPlanId && resolvedPlanId === yearlyPlanId;
+    const resolvedPlanType: PlanType = isYearly ? 'yearly' : 'monthly';
+
+    // Use Razorpay's authoritative period end if available, otherwise calculate
+    const expiresAt = resolvedCurrentEnd
+      ? new Date(resolvedCurrentEnd * 1000)
+      : (() => { const d = new Date(); d.setMonth(d.getMonth() + (isYearly ? 12 : 1)); return d; })();
 
     await admin
       .firestore()
@@ -142,7 +164,8 @@ export const verifyRazorpayPayment = functions.onRequest(
           provider: 'razorpay',
           razorpaySubscriptionId: razorpay_subscription_id,
           razorpayPaymentId: razorpay_payment_id,
-          planType: planType ?? 'monthly',
+          planId: resolvedPlanId,
+          planType: resolvedPlanType,
           expiresAt: Timestamp.fromDate(expiresAt),
           updatedAt: Timestamp.now(),
         },

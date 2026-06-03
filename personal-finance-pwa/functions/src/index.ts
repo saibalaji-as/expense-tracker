@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import { createRazorpaySubscription, verifyRazorpayPayment } from './razorpay';
 import { razorpayWebhook } from './razorpay-webhook';
 import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
+import { sendReminders } from './send-reminders';
 
 admin.initializeApp();
 
@@ -11,4 +12,5 @@ export {
   razorpayWebhook,
   createSubscriptionHandoff,
   redeemSubscriptionHandoff,
+  sendReminders,
 };

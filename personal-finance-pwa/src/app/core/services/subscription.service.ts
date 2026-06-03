@@ -47,9 +47,13 @@ export class SubscriptionService {
       }
       this.loaded.set(true);
     }, () => {
-      // Firestore unavailable — default to free
-      this.status.set(FREE_STATUS);
-      this.loaded.set(true);
+      // Firestore unavailable — preserve an existing pro status so a paying user
+      // on a flaky connection is not incorrectly redirected to /subscribe.
+      // Only fall back to free if we have never received a successful snapshot.
+      if (!this.loaded()) {
+        this.status.set(FREE_STATUS);
+        this.loaded.set(true);
+      }
     });
   }
 
@@ -65,7 +69,12 @@ export class SubscriptionService {
       const expiresAt = data['expiresAt']?.toDate?.() ?? null;
       const tier: SubscriptionTier = data['tier'] === 'pro' ? 'pro' : 'free';
       const isActive = tier === 'free' || (expiresAt ? expiresAt > new Date() : false);
-      return { tier, expiresAt, isActive };
+      const result: SubscriptionStatus = { tier, expiresAt, isActive };
+      // Keep the signal up to date so components that read status() directly
+      // see the correct value even before startListening()'s onSnapshot fires.
+      this.status.set(result);
+      this.loaded.set(true);
+      return result;
     } catch {
       return FREE_STATUS;
     }

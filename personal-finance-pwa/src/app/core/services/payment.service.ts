@@ -77,7 +77,7 @@ export class PaymentService {
         }) => {
           try {
             // Step 3 — verify signature on backend, write Firestore
-            await this.#verifyPayment(response, idToken, plan.planType);
+            await this.#verifyPayment(response, idToken);
             resolve();
           } catch (err) {
             reject(err);
@@ -102,8 +102,7 @@ export class PaymentService {
       razorpay_subscription_id: string;
       razorpay_signature: string;
     },
-    idToken: string,
-    planType: PlanType
+    idToken: string
   ): Promise<void> {
     const verifyRes = await fetch(FN_VERIFY_PAYMENT, {
       method: 'POST',
@@ -111,7 +110,7 @@ export class PaymentService {
         Authorization: `Bearer ${idToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ...response, planType }),
+      body: JSON.stringify(response),
     });
 
     if (!verifyRes.ok) {

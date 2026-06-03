@@ -1,11 +1,29 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { ActivatedRouteSnapshot, CanActivateFn, Router, UrlTree } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { AuthService } from '../services/auth.service';
 import { SubscriptionService, SubscriptionStatus } from '../services/subscription.service';
 
-export const subscriptionGuard: CanActivateFn = async () => {
+// Opens the subscribe page on native (external browser handoff) or returns a
+// web redirect — shared by both the expired-subscription and free-on-pro-only paths.
+async function redirectToSubscribe(
+  authService: AuthService,
+  router: Router
+): Promise<boolean | UrlTree> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const url = await authService.createSubscriptionPageUrl();
+      await Browser.open({ url });
+    } catch (err) {
+      console.error('[subscriptionGuard] Could not open subscription page:', err);
+    }
+    return false;
+  }
+  return router.createUrlTree(['/subscribe']);
+}
+
+export const subscriptionGuard: CanActivateFn = async (route: ActivatedRouteSnapshot) => {
   const authService = inject(AuthService);
   const subscriptionService = inject(SubscriptionService);
   const router = inject(Router);
@@ -32,20 +50,16 @@ export const subscriptionGuard: CanActivateFn = async () => {
     sub = result ?? subscriptionService.status();
   }
 
-  // Free tier always gets through — guard only blocks pro-only routes
-  if (sub.tier === 'free') return true;
+  // Free tier is blocked on routes marked `data: { proOnly: true }` and redirected
+  // to subscribe; on ordinary guarded routes free tier is allowed through as normal.
+  const isProOnly = route.data?.['proOnly'] === true;
+  if (sub.tier === 'free') {
+    if (!isProOnly) return true;
+    return redirectToSubscribe(authService, router);
+  }
 
   if (!sub.isActive) {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const url = await authService.createSubscriptionPageUrl();
-        await Browser.open({ url });
-      } catch (err) {
-        console.error('[subscriptionGuard] Could not open subscription page:', err);
-      }
-      return false;
-    }
-    return router.createUrlTree(['/subscribe']);
+    return redirectToSubscribe(authService, router);
   }
 
   return true;

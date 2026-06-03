@@ -108,6 +108,7 @@ export const routes: Routes = [
         (m) => m.FamilySetupComponent
       ),
     canActivate: [authGuard, setupGuard, subscriptionGuard],
+    data: { proOnly: true },
   },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },

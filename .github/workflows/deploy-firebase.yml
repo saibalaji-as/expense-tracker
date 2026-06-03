@@ -59,9 +59,29 @@ jobs:
             const fs = require('fs');
             const html = fs.readFileSync('dist/personal-finance-pwa/browser/index.html', 'utf8');
             fs.writeFileSync('dist/personal-finance-pwa/browser/index.html',
-              html.replace('RAZORPAY_LIVE_KEY_PLACEHOLDER', process.env.RAZORPAY_KEY_ID)
+              html.replace(/RAZORPAY_LIVE_KEY_PLACEHOLDER/g, process.env.RAZORPAY_KEY_ID)
             );
           "
+
+      - name: Validate Razorpay key injection
+        working-directory: personal-finance-pwa
+        run: |
+          BUILT_HTML="dist/personal-finance-pwa/browser/index.html"
+          if grep -q "RAZORPAY_LIVE_KEY_PLACEHOLDER" "$BUILT_HTML"; then
+            echo "ERROR: RAZORPAY_LIVE_KEY_PLACEHOLDER was not replaced in $BUILT_HTML"
+            echo "Check that the RAZORPAY_KEY_ID secret is set in GitHub Actions repo settings."
+            exit 1
+          fi
+          KEY=$(grep -oP "(?<=__RAZORPAY_KEY_ID__ = ')[^']+" "$BUILT_HTML" || true)
+          if [[ -z "$KEY" ]]; then
+            echo "ERROR: __RAZORPAY_KEY_ID__ value is empty in $BUILT_HTML — RAZORPAY_KEY_ID secret may be blank."
+            exit 1
+          fi
+          if [[ "$KEY" != rzp_live_* ]]; then
+            echo "ERROR: Injected Razorpay key does not start with 'rzp_live_' (got: ${KEY:0:12}...). Refusing to deploy."
+            exit 1
+          fi
+          echo "Razorpay key injection OK: ${KEY:0:12}..."
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3

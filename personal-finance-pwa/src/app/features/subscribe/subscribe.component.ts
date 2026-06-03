@@ -5,7 +5,8 @@ import {
   signal,
   inject,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Location } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { PaymentService, PRICING_PLANS, PricingPlan } from '../../core/services/payment.service';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -96,6 +97,8 @@ export class SubscribeComponent implements OnInit {
   protected readonly payService = inject(PaymentService);
   private readonly authService = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly location = inject(Location);
 
   protected readonly plans = PRICING_PLANS;
   protected readonly selectedPlan = signal<PricingPlan | null>(PRICING_PLANS[0]);
@@ -117,7 +120,7 @@ export class SubscribeComponent implements OnInit {
     if (!handoff) return;
 
     this.authorizing.set(true);
-    window.history.replaceState({}, '', `${window.location.pathname}#/subscribe`);
+    this.location.replaceState('/subscribe');
     try {
       await this.authService.redeemSubscriptionHandoff(handoff);
     } catch (err) {
@@ -142,6 +145,7 @@ export class SubscribeComponent implements OnInit {
     try {
       const idToken = await this.authService.ensureFirebaseIdToken();
       await this.payService.openRazorpay(plan, idToken, this.authService.userEmail());
+      await this.router.navigate(['/'], { replaceUrl: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Payment failed. Please try again.';
       if (msg !== 'Payment cancelled') this.errorMsg.set(msg);
