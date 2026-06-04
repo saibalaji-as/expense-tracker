@@ -56,6 +56,7 @@ export class SubscriptionService {
 
   /** Call once after Firebase UID is known. Starts a real-time listener on the subscription doc. */
   async startListening(uid: string): Promise<void> {
+    console.log('[Sub] listening on uid:', uid); // add this
     this.#unsubscribe?.();
     this.#listeningUid = uid;
     const { doc, onSnapshot } = await import('firebase/firestore');
