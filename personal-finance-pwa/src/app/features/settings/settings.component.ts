@@ -1816,8 +1816,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (enabled) {
         await this.notificationService.requestPermission();
         if (this.notificationService.permissionState() === 'granted') {
-          await this.notificationService.enable();
-          this.feedback.success('Push reminders saved.', 'Spenza can now send reminder notifications.');
+          const success = await this.notificationService.enable();
+          if (success) {
+            this.feedback.success('Push reminders enabled.', 'Spenza can now send reminder notifications.');
+          } else {
+            this.feedback.error(
+              'Push reminders could not be enabled.',
+              'FCM registration failed. Check your internet connection and try again.'
+            );
+          }
         } else {
           this.feedback.warning(
             'Push reminders were not enabled.',

@@ -2,7 +2,14 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions/v2/https';
 import { resolveTimezone } from './scheduler-utils';
 
-const CORS_ORIGINS = ['https://spenza-finance.web.app', 'http://localhost:4200'];
+const CORS_ORIGINS = [
+  'https://spenza-finance.web.app',
+  'https://spenzaio.netlify.app',
+  'http://localhost:4200',
+  'https://localhost',    // Capacitor Android WebView
+  'http://localhost',     // older Capacitor / emulator
+  'capacitor://localhost', // Capacitor iOS
+];
 
 export const registerToken = functions.onRequest(
   { cors: CORS_ORIGINS, invoker: 'public' },

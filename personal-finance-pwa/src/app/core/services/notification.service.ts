@@ -66,13 +66,13 @@ export class NotificationService {
     dailyReminderEnabled: boolean;
     reminderHour: number;
     reminderMinute: number;
-  }): Promise<void> {
+  }): Promise<boolean> {
     // On native platforms, skip browser permission check
     if (!Capacitor.isNativePlatform()) {
       if (this._permissionState() !== 'granted') {
         await this.requestPermission();
       }
-      if (this._permissionState() !== 'granted') return;
+      if (this._permissionState() !== 'granted') return false;
     }
 
     const userId = await this.#getUserId();
@@ -83,23 +83,24 @@ export class NotificationService {
 
     if (!registered) {
       if (isDevMode()) { console.warn('[NotificationService] FCM registration failed — notifications remain disabled'); }
-      return;
+      return false;
     }
 
     this._isEnabled.set(true);
     await this.#persistEnabled(true);
     if (isDevMode()) { console.log('[NotificationService] Push notifications enabled'); }
+    return true;
   }
 
-  async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<void> {
+  async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<boolean> {
     if (!enabled) {
       if (this._isEnabled()) {
-        await this.enable({ dailyReminderEnabled: false, reminderHour, reminderMinute });
+        return this.enable({ dailyReminderEnabled: false, reminderHour, reminderMinute });
       }
-      return;
+      return true;
     }
 
-    await this.enable({
+    return this.enable({
       dailyReminderEnabled: true,
       reminderHour,
       reminderMinute,
