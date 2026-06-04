@@ -1,5 +1,4 @@
 import { Injectable, inject } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
 import { ReceiptExtractionResult } from './receipt-extraction.service';
@@ -57,7 +56,7 @@ export class AiReceiptExtractionService {
     }
 
     try {
-      const response = await fetch(`${this.functionsBaseUrl()}/extract-receipt`, {
+      const response = await fetch(`${this.functionsBaseUrl()}/extractReceipt`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -103,8 +102,6 @@ export class AiReceiptExtractionService {
   }
 
   private functionsBaseUrl(): string {
-    return Capacitor.isNativePlatform()
-      ? environment.netlifyFunctionsUrl
-      : '/.netlify/functions';
+    return environment.firebaseFunctionsUrl;
   }
 }

@@ -2,17 +2,8 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions/v2/https';
 import { resolveTimezone } from './scheduler-utils';
 
-const CORS_ORIGINS = [
-  'https://spenza-finance.web.app',
-  'https://spenzaio.netlify.app',
-  'http://localhost:4200',
-  'https://localhost',    // Capacitor Android WebView
-  'http://localhost',     // older Capacitor / emulator
-  'capacitor://localhost', // Capacitor iOS
-];
-
 export const registerToken = functions.onRequest(
-  { cors: CORS_ORIGINS, invoker: 'public' },
+  { cors: true, invoker: 'public' },
   async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });
@@ -43,7 +34,7 @@ export const registerToken = functions.onRequest(
 );
 
 export const unregisterToken = functions.onRequest(
-  { cors: CORS_ORIGINS, invoker: 'public' },
+  { cors: true, invoker: 'public' },
   async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });

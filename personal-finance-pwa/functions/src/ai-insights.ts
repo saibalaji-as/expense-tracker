@@ -1,0 +1,279 @@
+import { onRequest } from 'firebase-functions/v2/https';
+import type { Request, Response } from 'firebase-functions/v2/https';
+
+type InsightTone = 'good' | 'warn' | 'info';
+type InsightIcon = 'check-circle-2' | 'alert-triangle' | 'lightbulb' | 'clock-3' | 'sparkles';
+
+interface InsightSection {
+  label: string;
+  title: string;
+  detail: string;
+  tone: InsightTone;
+  icon: InsightIcon;
+}
+
+interface GeminiCandidate {
+  content?: { parts?: Array<{ text?: string }> };
+  finishReason?: string;
+}
+
+interface GeminiResponse {
+  candidates?: GeminiCandidate[];
+}
+
+interface GeminiError {
+  error?: { code?: number; message?: string; status?: string };
+}
+
+const SECTION_LABELS = new Set(['Anomaly', 'Behavior hack', 'What if', 'Seasonal timing', 'Intent check']);
+const TONES = new Set<InsightTone>(['good', 'warn', 'info']);
+const ICONS = new Set<InsightIcon>(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
+const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+const GEMINI_API_VERSION = 'v1beta';
+const INSIGHT_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    sections: {
+      type: 'ARRAY',
+      minItems: 5,
+      maxItems: 5,
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: { type: 'STRING', enum: ['Anomaly', 'Behavior hack', 'What if', 'Seasonal timing', 'Intent check'] },
+          title: { type: 'STRING' },
+          detail: { type: 'STRING' },
+          tone: { type: 'STRING', enum: ['good', 'warn', 'info'] },
+          icon: { type: 'STRING', enum: ['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles'] },
+        },
+        required: ['label', 'title', 'detail', 'tone', 'icon'],
+      },
+    },
+  },
+  required: ['sections'],
+};
+
+export const generateInsights = onRequest({ cors: true }, async (req: Request, res: Response) => {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method Not Allowed' });
+    return;
+  }
+
+  const userApiKey = (req.headers['x-gemini-api-key'] as string | undefined)?.trim() || null;
+  if (!userApiKey) {
+    res.status(400).json({ error: 'User Gemini API key is required' });
+    return;
+  }
+
+  try {
+    const payload = req.body;
+    const models = modelCandidates(process.env.GEMINI_MODEL);
+    const prompt = buildPrompt(payload);
+
+    const generated = await callGeminiWithFallbacks(userApiKey, models, prompt);
+
+    if (!generated.ok) {
+      if (generated.statusCode === 200) {
+        res.json({ provider: 'local', sections: [], fallback: true, reason: generated.detail });
+        return;
+      }
+      res.status(generated.statusCode).json({
+        code: generated.statusCode === 429 ? 'RATE_LIMIT' : undefined,
+        error: generated.clientMessage,
+        detail: generated.detail,
+        message: generated.detail,
+        model: generated.model,
+        upstreamStatus: generated.upstreamStatus,
+        upstreamCode: generated.upstreamCode,
+      });
+      return;
+    }
+
+    res.json({ provider: 'gemini', model: generated.model, sections: generated.sections });
+  } catch (error) {
+    console.error('[generateInsights] Error', error instanceof Error ? error.message : error);
+    res.status(503).json({
+      error: 'Could not generate insights',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+function buildPrompt(payload: unknown): string {
+  const locale = localeFromPayload(payload);
+  return [
+    'You are Spenza, a private household finance assistant.',
+    'Return JSON only using the provided response schema.',
+    `Write each section title and detail in this user language/locale: ${locale}.`,
+    'Keep the section label values exactly as the schema enum strings: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.',
+    'This is the Gemini-only deep-dive lane in a hybrid UI. The app already shows local deterministic weekly summaries.',
+    'Produce exactly five sections in this order: Anomaly, Behavior hack, What if, Seasonal timing, Intent check.',
+    'Do not repeat basic totals, top categories, or generic budget warnings unless needed as evidence.',
+    'Focus on work local rules cannot do well: anomaly explanation, cross-category contradictions, what-if simulations, seasonal timing, and budget intent vs reality.',
+    'Use compact recentDailyTrend and categoryBaselines to identify meaningful category spikes or drops.',
+    'Use budgetIntent to compare user-set budget priorities against actual behavior.',
+    'Use monthlySeasonality to spot upcoming seasonal pressure. Only mention same-month/year-over-year patterns if the data supports it.',
+    'Use whatIfCuts for the What if section; compare revised forecasts or savings from realistic category reductions.',
+    'Use repeatedExpenses, spendingPattern, partnerActivity, budgetUsage, categoryChanges, dailyTrend, and topExpenses as supporting evidence.',
+    'Make one concrete, actionable suggestion in each detail when possible.',
+    'Be specific and useful: each detail should explain the signal, the likely implication, and one next action.',
+    'Be practical and non-judgmental. Do not invent data. If data is sparse, say that clearly.',
+    'Keep each title under 10 words and each detail between 20 and 40 words when enough data exists.',
+    'Currency values are already summarized. Comments are intentionally excluded for privacy.',
+    `Data: ${JSON.stringify(payload)}`,
+  ].join('\n');
+}
+
+function localeFromPayload(payload: unknown): string {
+  if (payload && typeof payload === 'object' && 'locale' in payload) {
+    const locale = (payload as { locale?: unknown }).locale;
+    if (typeof locale === 'string' && locale.trim()) return locale.trim();
+  }
+  return 'en-IN';
+}
+
+async function callGeminiWithFallbacks(
+  apiKey: string,
+  models: string[],
+  prompt: string
+): Promise<
+  | { ok: true; model: string; sections: InsightSection[] }
+  | { ok: false; statusCode: number; clientMessage: string; detail: string; model: string; upstreamStatus?: number; upstreamCode?: string }
+> {
+  let lastFailure: { model: string; status: number; statusText: string; code?: string; message: string } | null = null;
+  let lastMalformed: { model: string; finishReason?: string; preview: string } | null = null;
+
+  for (const model of models) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/${GEMINI_API_VERSION}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.35,
+            maxOutputTokens: 1400,
+            responseMimeType: 'application/json',
+            responseSchema: INSIGHT_RESPONSE_SCHEMA,
+          },
+        }),
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json() as GeminiResponse;
+      const candidate = data.candidates?.[0];
+      const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('\n') ?? '';
+      const sections = parseGeminiSections(text);
+      if (sections) return { ok: true, model, sections };
+      lastMalformed = { model, finishReason: candidate?.finishReason, preview: stripJsonFence(text).slice(0, 300) };
+      console.warn('[generateInsights] Gemini returned unparsable sections', lastMalformed);
+      continue;
+    }
+
+    const failure = await readGeminiFailure(response, model);
+    lastFailure = failure;
+    console.error('[generateInsights] Gemini request failed', failure);
+    if (response.status !== 404) break;
+  }
+
+  const failure = lastFailure ?? {
+    model: models[0] ?? 'unknown',
+    status: 503,
+    statusText: 'Unavailable',
+    message: lastMalformed
+      ? `Gemini returned malformed JSON from ${lastMalformed.model}${lastMalformed.finishReason ? ` (${lastMalformed.finishReason})` : ''}.`
+      : 'No Gemini response was received.',
+  };
+
+  if (lastMalformed && !lastFailure) {
+    return { ok: false, statusCode: 200, clientMessage: 'AI insights fell back to local summaries', detail: failure.message, model: lastMalformed.model };
+  }
+
+  return {
+    ok: false,
+    statusCode: failure.status === 429 ? 429 : failure.status === 401 || failure.status === 403 ? 503 : 502,
+    clientMessage: failure.status === 429
+      ? 'Rate limit reached'
+      : failure.status === 401 || failure.status === 403
+        ? 'Gemini API key is not authorized'
+        : 'AI insights service temporarily unavailable',
+    detail: failure.message,
+    model: failure.model,
+    upstreamStatus: failure.status,
+    upstreamCode: failure.code,
+  };
+}
+
+function parseGeminiSections(text: string): InsightSection[] | null {
+  const cleaned = stripJsonFence(text);
+  for (const attempt of [cleaned, extractJsonObject(cleaned), extractJsonArray(cleaned)].filter((v): v is string => Boolean(v))) {
+    try { return normalizeSections(JSON.parse(attempt)); } catch { /* try next */ }
+  }
+  return null;
+}
+
+function normalizeSections(parsed: unknown): InsightSection[] {
+  if (typeof parsed === 'string') return normalizeSections(JSON.parse(parsed));
+  if (Array.isArray(parsed)) return normalizeSectionArray(parsed);
+  const r = parsed as { sections?: unknown; insights?: unknown; items?: unknown; weeklyInsights?: unknown };
+  const sections = parseSectionCandidate(r.sections) ?? parseSectionCandidate(r.insights) ?? parseSectionCandidate(r.items) ?? parseSectionCandidate(r.weeklyInsights);
+  if (!sections) throw new Error('Gemini response did not include sections array.');
+  return sections;
+}
+
+function parseSectionCandidate(candidate: unknown): InsightSection[] | null {
+  if (typeof candidate === 'string') {
+    try { return normalizeSections(JSON.parse(candidate)); } catch { return null; }
+  }
+  return Array.isArray(candidate) ? normalizeSectionArray(candidate) : null;
+}
+
+function normalizeSectionArray(sections: unknown[]): InsightSection[] {
+  return completeSections(sections.slice(0, 5).map((item): InsightSection => {
+    const s = item as Partial<InsightSection>;
+    return {
+      label: typeof s.label === 'string' && SECTION_LABELS.has(s.label) ? s.label : 'Behavior hack',
+      title: typeof s.title === 'string' ? s.title.slice(0, 90) : (s.label ?? 'Behavior hack'),
+      detail: typeof s.detail === 'string' ? s.detail.slice(0, 520) : '',
+      tone: s.tone && TONES.has(s.tone) ? s.tone : 'info',
+      icon: s.icon && ICONS.has(s.icon) ? s.icon : 'lightbulb',
+    };
+  }));
+}
+
+function completeSections(sections: InsightSection[]): InsightSection[] {
+  const byLabel = new Map(sections.map((s) => [s.label, s]));
+  return Array.from(SECTION_LABELS).map((label): InsightSection =>
+    byLabel.get(label) ?? { label, title: label, detail: 'Not enough AI detail was returned for this section.', tone: 'info', icon: 'lightbulb' }
+  );
+}
+
+function modelCandidates(configuredModel: string | undefined): string[] {
+  const configured = configuredModel?.trim().replace(/^models\//, '') || null;
+  return [...(configured ? [configured] : []), ...DEFAULT_GEMINI_MODELS].filter((m, i, arr) => arr.indexOf(m) === i);
+}
+
+async function readGeminiFailure(response: Response, model: string): Promise<{ model: string; status: number; statusText: string; code?: string; message: string }> {
+  const raw = await response.text();
+  let parsed: GeminiError | null = null;
+  try { parsed = JSON.parse(raw) as GeminiError; } catch { /* ignore */ }
+  return { model, status: response.status, statusText: response.statusText, code: parsed?.error?.status, message: parsed?.error?.message ?? (raw.slice(0, 500) || response.statusText) };
+}
+
+function stripJsonFence(text: string): string {
+  return text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+}
+
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  return start >= 0 && end > start ? text.slice(start, end + 1) : null;
+}
+
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  return start >= 0 && end > start ? text.slice(start, end + 1) : null;
+}

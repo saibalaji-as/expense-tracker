@@ -4,6 +4,10 @@ import { razorpayWebhook, webhookHealthCheck } from './razorpay-webhook';
 import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
 import { sendReminders } from './send-reminders';
 import { registerToken, unregisterToken } from './fcm';
+import { extractReceipt } from './ai-receipt';
+import { generateInsights } from './ai-insights';
+import { parseVoiceExpense } from './ai-voice';
+import { testNotification } from './test-notification';
 
 admin.initializeApp();
 
@@ -19,4 +23,8 @@ export {
   sendReminders,
   registerToken,
   unregisterToken,
+  extractReceipt,
+  generateInsights,
+  parseVoiceExpense,
+  testNotification,
 };

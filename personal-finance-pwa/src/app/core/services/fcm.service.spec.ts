@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // We test the fetch payload construction logic directly by mirroring the
 // relevant portion of registerForNotifications.
 
-const API_BASE = '/.netlify/functions';
+const API_BASE = 'http://localhost:5001/spenza-notifications/us-central1';
 
 /**
  * Mirrors the fetch call inside registerForNotifications.
@@ -22,7 +22,7 @@ async function sendRegistrationPayload(
   fcmToken: string,
   timezone: string
 ): Promise<boolean> {
-  const response = await fetchFn(`${API_BASE}/register-token`, {
+  const response = await fetchFn(`${API_BASE}/registerToken`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -93,11 +93,11 @@ describe('FcmService — registerForNotifications payload', () => {
     expect(capturedBody['timestamp'] as number).toBeLessThanOrEqual(after);
   });
 
-  it('POSTs to /.netlify/functions/register-token', async () => {
+  it('POSTs to Firebase Functions registerToken', async () => {
     await sendRegistrationPayload(mockFetch as unknown as typeof fetch, 'user_123', 'token_abc', 'UTC');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      '/.netlify/functions/register-token',
+      '/.netlify/functions/registerToken',
       expect.objectContaining({ method: 'POST' })
     );
   });

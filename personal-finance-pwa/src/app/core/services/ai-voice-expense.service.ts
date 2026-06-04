@@ -1,5 +1,4 @@
 import { Injectable, inject } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
 
@@ -54,7 +53,7 @@ export class AiVoiceExpenseService {
     }
 
     try {
-      const response = await fetch(`${this.functionsBaseUrl()}/parse-voice-expense`, {
+      const response = await fetch(`${this.functionsBaseUrl()}/parseVoiceExpense`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -82,8 +81,6 @@ export class AiVoiceExpenseService {
   }
 
   private functionsBaseUrl(): string {
-    return Capacitor.isNativePlatform()
-      ? environment.netlifyFunctionsUrl
-      : '/.netlify/functions';
+    return environment.firebaseFunctionsUrl;
   }
 }
