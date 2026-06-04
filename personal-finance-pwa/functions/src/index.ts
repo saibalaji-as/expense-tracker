@@ -1,5 +1,5 @@
 import * as admin from 'firebase-admin';
-import { createRazorpaySubscription, verifyRazorpayPayment, restoreRazorpaySubscription } from './razorpay';
+import { createRazorpaySubscription, verifyRazorpayPayment, restoreRazorpaySubscription, cancelRazorpaySubscription } from './razorpay';
 import { razorpayWebhook, webhookHealthCheck } from './razorpay-webhook';
 import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
 import { sendReminders } from './send-reminders';
@@ -10,6 +10,7 @@ export {
   createRazorpaySubscription,
   verifyRazorpayPayment,
   restoreRazorpaySubscription,
+  cancelRazorpaySubscription,
   razorpayWebhook,
   webhookHealthCheck,
   createSubscriptionHandoff,

@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
 import { ChartData, ChartOptions } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
@@ -21,6 +22,7 @@ import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { AiInsightPayload, AiInsightSection, AiInsightService } from '../../core/services/ai-insight.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
+import { AuthService } from '../../core/services/auth.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
@@ -597,6 +599,7 @@ export class DashboardComponent implements OnInit {
   private readonly aiInsightService = inject(AiInsightService);
   private readonly router = inject(Router);
   readonly subscriptionService = inject(SubscriptionService);
+  private readonly authService = inject(AuthService);
   @ViewChild('geminiInsightsBlock') private geminiInsightsBlock?: ElementRef<HTMLElement>;
 
   // Chart data signals
@@ -1414,7 +1417,22 @@ export class DashboardComponent implements OnInit {
 
   onUpgradeToPro(): void {
     this.showProUpgradeModal.set(false);
-    void this.router.navigate(['/subscribe']);
+    if (Capacitor.isNativePlatform()) {
+      void this.#openNativeSubscribePage();
+    } else {
+      void this.router.navigate(['/subscribe']);
+    }
+  }
+
+  async #openNativeSubscribePage(): Promise<void> {
+    try {
+      const url = await this.authService.createSubscriptionPageUrl();
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url });
+    } catch {
+      // Fall back to the in-app subscribe route if handoff fails
+      void this.router.navigate(['/subscribe']);
+    }
   }
 
   releaseAiButton(event?: Event): void {

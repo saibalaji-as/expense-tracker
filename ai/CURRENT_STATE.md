@@ -29,6 +29,24 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Subscription cancellation flow (2026-06-04):
+  - `cancelRazorpaySubscription` Firebase Function added to `razorpay.ts` and exported from `index.ts`; deployed via updated `deploy-firebase.yml` alongside other Razorpay Functions.
+  - Function calls `rzp.subscriptions.cancel(id, { cancel_at_cycle_end: true })` — user keeps Pro access until `expiresAt`; webhook fires `tier: free` at period end.
+  - Guards: POST-only, requires Firebase ID token, validates `tier === 'pro'`, `expiresAt` not past, and `cancelPending !== true` (no double-cancel).
+  - On success writes `{ cancelPending: true, cancelledAt, updatedAt }` to Firestore with `merge: true`.
+  - `SubscriptionStatus` interface now includes `cancelPending: boolean`; `FREE_STATUS` defaults to `false`; `startListening()` and `fetchOnce()` read it from Firestore.
+  - `PaymentService.cancelSubscription()` added — same pattern as `restoreSubscription()`; calls `FN_CANCEL_SUBSCRIPTION` Cloud Run URL.
+  - `SettingsComponent` Pro card now shows "Cancels {date} · Access until then" in amber when `cancelPending`, otherwise "Renews {date}". Cancel button (hidden when `cancelPending`) opens a ModalComponent confirmation with "Keep Pro" as primary action and "Cancel subscription" as destructive secondary; `cancelling` and `showCancelConfirm` signals guard re-entry.
+  - `razorpayWebhook` cancel handler now also writes `cancelPending: false` when setting `tier: free`, so resubscriptions start clean.
+  - `createRazorpaySubscription` resubscription edge case: if same-plan but `cancelPending === true`, clears the flag and proceeds to create a new subscription instead of returning a 400.
+  - `npm run build -- --configuration production` passed. `npm run build` in `functions/` passed.
+- Subscription duplicate protection and upgrade/downgrade flow (2026-06-04):
+  - `SubscriptionStatus` interface now includes `planType: 'monthly' | 'yearly' | null`; `FREE_STATUS` defaults to `null`.
+  - `SubscriptionService.startListening()` and `fetchOnce()` read `planType` from Firestore and expose it via the `status()` signal.
+  - `createRazorpaySubscription` Firebase Function now gates subscription creation: same-plan → 400 with clear error; yearly → monthly downgrade → 400 with clear error; monthly → yearly upgrade → cancels the old monthly subscription at cycle end before creating the new yearly one.
+  - `razorpayWebhook` cancel handler now reads the current Firestore doc before writing `tier: free`; if a *different* (newer) subscription ID is already active it skips the downgrade and logs the upgrade-flow scenario, preventing a race condition where the cancelled-at-cycle-end monthly event would wipe out the new yearly Pro status.
+  - `SubscribeComponent` now detects Pro users and shows upgrade mode instead of redirecting to settings: hides the currently active plan card, pre-selects the other plan, and labels the action button "Upgrade Plan". Handoff param is now redeemed before the subscription status check.
+  - `npm run build -- --configuration production` passed. `npm run build` in `functions/` passed.
 - Firebase Hosting and subscription/payment phase:
   - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting, both subscription-handoff Functions, and all three Razorpay Functions from `main`.
   - Firebase Functions runtime is Node.js 22; Node.js 20 was removed after Firebase CLI reported its deprecation.
@@ -394,6 +412,17 @@
   - Delete Spenza account data.
 
 ## Files Actively Touched In This Session
+- `personal-finance-pwa/functions/src/razorpay.ts`: added `cancelRazorpaySubscription` function; updated `createRazorpaySubscription` same-plan check to allow resubscription when `cancelPending === true`.
+- `personal-finance-pwa/functions/src/index.ts`: exported `cancelRazorpaySubscription`.
+- `personal-finance-pwa/functions/src/razorpay-webhook.ts`: cancel handler now writes `cancelPending: false` alongside `tier: free`.
+- `personal-finance-pwa/src/app/core/services/subscription.service.ts`: added `cancelPending: boolean` to `SubscriptionStatus` interface and `FREE_STATUS`; propagated from Firestore in both `startListening()` and `fetchOnce()`.
+- `personal-finance-pwa/src/app/core/services/payment.service.ts`: added `FN_CANCEL_SUBSCRIPTION` URL constant and `cancelSubscription()` method.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: Pro card shows conditional renew/cancel line; cancel button + ModalComponent confirmation; `cancelling`/`showCancelConfirm` signals; `cancelSubscription()` method; injected `PaymentService`; added `XCircle` icon.
+- `.github/workflows/deploy-firebase.yml`: added `functions:cancelRazorpaySubscription` to the deploy command.
+- `personal-finance-pwa/functions/src/razorpay.ts`: replaced flat duplicate-subscription check with upgrade/downgrade logic — same-plan 400, downgrade 400, upgrade cancels old monthly at cycle end.
+- `personal-finance-pwa/functions/src/razorpay-webhook.ts`: added upgrade-flow guard in cancel handler — reads current Firestore sub ID and skips free-downgrade if a newer subscription is already active.
+- `personal-finance-pwa/src/app/core/services/subscription.service.ts`: added `planType` to `SubscriptionStatus` interface and `FREE_STATUS`; propagated from Firestore data in `startListening()` and `fetchOnce()`.
+- `personal-finance-pwa/src/app/features/subscribe/subscribe.component.ts`: added `isUpgradeMode`, `currentPlanType` signals, `visiblePlans` computed; restructured `ngOnInit` to handle handoff before checking pro status; shows upgrade-mode UI (filtered plans, "Upgrade Plan" button label).
 - `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: replaced 4-slider crop UI with interactive drag-to-crop overlay; added `cropDragState`, `startCropDrag`, `onCropPointerMove`, `stopCropDrag`, `renderRotatedPreview`; made `rotateReceiptEditor` async with canvas pre-render; removed `receiptEditorClipPath` and `updateReceiptEditorCrop`; added `Image` icon; added crop hint text.
 - `personal-finance-pwa/src/app/core/services/i18n.service.ts`: removed legacy crop slider i18n keys; added `daily.receipt.editor.cropHint`.
 - `personal-finance-pwa/android/app/src/main/AndroidManifest.xml`: registered standalone `ExpenseWidgetActivity` and `ExpenseWidgetProvider`.
@@ -540,9 +569,14 @@
 - Decide whether legacy Sheets sync/offline queue should be removed, isolated behind migration naming, or revived intentionally.
 - Review i18n coverage and move remaining UI text into translation JSON.
 - Add/maintain tests around Drive mode switching, family folder access errors, receipt extraction fallback, and budget threshold calculations.
+- Yearly → monthly downgrade is intentionally blocked mid-cycle. Decision: requires the yearly plan to expire before switching. This avoids complexity around prorated refunds and Razorpay subscription replacement. Revisit if refund support is added.
 
 ## Current Blockers
 - No runtime blocker identified during static analysis.
+- Latest subscription upgrade/downgrade verification on 2026-06-04:
+  - `npm run build -- --configuration production` passed (Angular PWA).
+  - `npm run build` in `personal-finance-pwa/functions` passed (Firebase Functions TS).
+  - `npx vitest run src/app/core/services/expense-store.service.spec.ts` — 18 tests passed; no subscription.service.spec.ts exists.
 - Latest verification on 2026-05-22:
 - Latest verification on 2026-05-23:
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after exact Gemini block top scroll changes.

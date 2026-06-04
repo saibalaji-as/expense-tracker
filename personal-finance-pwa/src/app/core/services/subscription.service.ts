@@ -8,9 +8,11 @@ export interface SubscriptionStatus {
   tier: SubscriptionTier;
   expiresAt: Date | null;
   isActive: boolean;
+  planType: 'monthly' | 'yearly' | null;
+  cancelPending: boolean;
 }
 
-const FREE_STATUS: SubscriptionStatus = { tier: 'free', expiresAt: null, isActive: true };
+const FREE_STATUS: SubscriptionStatus = { tier: 'free', expiresAt: null, isActive: true, planType: null, cancelPending: false };
 
 @Injectable({ providedIn: 'root' })
 export class SubscriptionService {
@@ -70,7 +72,10 @@ export class SubscriptionService {
         const expiresAt = data['expiresAt']?.toDate?.() ?? null;
         const tier: SubscriptionTier = data['tier'] === 'pro' ? 'pro' : 'free';
         const isActive = tier === 'free' || (expiresAt ? expiresAt > new Date() : false);
-        this.status.set({ tier, expiresAt, isActive });
+        const planType: 'monthly' | 'yearly' | null =
+          data['planType'] === 'yearly' ? 'yearly' : data['planType'] === 'monthly' ? 'monthly' : null;
+        const cancelPending: boolean = data['cancelPending'] === true;
+        this.status.set({ tier, expiresAt, isActive, planType, cancelPending });
       }
       this.loaded.set(true);
     }, () => {
@@ -96,7 +101,10 @@ export class SubscriptionService {
       const expiresAt = data['expiresAt']?.toDate?.() ?? null;
       const tier: SubscriptionTier = data['tier'] === 'pro' ? 'pro' : 'free';
       const isActive = tier === 'free' || (expiresAt ? expiresAt > new Date() : false);
-      const result: SubscriptionStatus = { tier, expiresAt, isActive };
+      const planType: 'monthly' | 'yearly' | null =
+        data['planType'] === 'yearly' ? 'yearly' : data['planType'] === 'monthly' ? 'monthly' : null;
+      const cancelPending: boolean = data['cancelPending'] === true;
+      const result: SubscriptionStatus = { tier, expiresAt, isActive, planType, cancelPending };
       // Keep the signal up to date so components that read status() directly
       // see the correct value even before startListening()'s onSnapshot fires.
       this.status.set(result);

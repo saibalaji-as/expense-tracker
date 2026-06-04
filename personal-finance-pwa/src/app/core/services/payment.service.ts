@@ -39,6 +39,7 @@ export const PRICING_PLANS: PricingPlan[] = [
 const FN_CREATE_SUBSCRIPTION = 'https://createrazorpaysubscription-yvut3l44sq-uc.a.run.app';
 const FN_VERIFY_PAYMENT = 'https://verifyrazorpaypayment-yvut3l44sq-uc.a.run.app';
 const FN_RESTORE_SUBSCRIPTION = 'https://restorerazorpaysubscription-yvut3l44sq-uc.a.run.app';
+const FN_CANCEL_SUBSCRIPTION = 'https://cancelrazorpaysubscription-yvut3l44sq-uc.a.run.app';
 
 @Injectable({ providedIn: 'root' })
 export class PaymentService {
@@ -113,6 +114,20 @@ export class PaymentService {
       const err = await res.json().catch(() => ({}));
       throw new Error((err as any).error ?? 'Could not restore subscription');
     }
+  }
+
+  async cancelSubscription(): Promise<{ expiresAt: string }> {
+    const idToken = await this.#authService.ensureFirebaseIdToken();
+    const res = await fetch(FN_CANCEL_SUBSCRIPTION, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).error ?? 'Could not cancel subscription');
+    }
+    return res.json();
   }
 
   async #verifyPayment(

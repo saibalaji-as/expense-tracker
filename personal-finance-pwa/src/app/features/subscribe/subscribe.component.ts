@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   signal,
   inject,
 } from '@angular/core';
@@ -9,6 +10,7 @@ import { Location } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { PaymentService, PRICING_PLANS, PricingPlan } from '../../core/services/payment.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 
 @Component({
   selector: 'app-subscribe',
@@ -39,7 +41,7 @@ import { AuthService } from '../../core/services/auth.service';
 
         <!-- Pricing cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          @for (plan of plans; track plan.id) {
+          @for (plan of visiblePlans(); track plan.id) {
             <button
               (click)="selectPlan(plan)"
               [class]="selectedPlan()?.id === plan.id
@@ -75,6 +77,8 @@ import { AuthService } from '../../core/services/auth.service';
             Connecting your Spenza account...
           } @else if (loading()) {
             Processing...
+          } @else if (isUpgradeMode()) {
+            Upgrade Plan
           } @else {
             Pay with Razorpay
           }
@@ -130,6 +134,7 @@ import { AuthService } from '../../core/services/auth.service';
 export class SubscribeComponent implements OnInit {
   protected readonly payService = inject(PaymentService);
   private readonly authService = inject(AuthService);
+  protected readonly subscriptionService = inject(SubscriptionService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
@@ -143,6 +148,13 @@ export class SubscribeComponent implements OnInit {
   protected readonly restoring = signal(false);
   protected readonly restoreMsg = signal<string | null>(null);
   protected readonly restoreSuccess = signal(false);
+  protected readonly isUpgradeMode = signal(false);
+  protected readonly currentPlanType = signal<'monthly' | 'yearly' | null>(null);
+  protected readonly visiblePlans = computed(() =>
+    this.isUpgradeMode()
+      ? this.plans.filter(p => p.planType !== this.currentPlanType())
+      : this.plans
+  );
 
   protected readonly features = [
     'Advanced spending insights',
@@ -155,16 +167,25 @@ export class SubscribeComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     const handoff = this.route.snapshot.queryParamMap.get('handoff');
-    if (!handoff) return;
+    if (handoff) {
+      this.authorizing.set(true);
+      this.location.replaceState('/subscribe');
+      try {
+        await this.authService.redeemSubscriptionHandoff(handoff);
+      } catch (err) {
+        this.errorMsg.set(err instanceof Error ? err.message : 'Could not authorize this subscription link.');
+      } finally {
+        this.authorizing.set(false);
+      }
+    }
 
-    this.authorizing.set(true);
-    this.location.replaceState('/subscribe');
-    try {
-      await this.authService.redeemSubscriptionHandoff(handoff);
-    } catch (err) {
-      this.errorMsg.set(err instanceof Error ? err.message : 'Could not authorize this subscription link.');
-    } finally {
-      this.authorizing.set(false);
+    await this.subscriptionService.waitUntilLoaded();
+    const status = this.subscriptionService.status();
+    if (status.tier === 'pro' && status.isActive) {
+      this.isUpgradeMode.set(true);
+      this.currentPlanType.set(status.planType);
+      const otherPlan = this.plans.find(p => p.planType !== status.planType);
+      if (otherPlan) this.selectedPlan.set(otherPlan);
     }
   }
 

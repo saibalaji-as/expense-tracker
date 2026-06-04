@@ -139,6 +139,21 @@ export class AuthService {
     if (email) this.userEmail.set(email);
     const uid = await this.storageService.get('firebase_uid');
     if (uid) this.firebaseUid.set(uid);
+
+    // Restore the native access token so ensureToken() doesn't re-trigger the
+    // full SocialLogin.login() flow on app resume (avoids the 20-second delay
+    // when opening the subscription page after a cold start).
+    if (this.#isNative) {
+      const storedToken = await this.storageService.get(NATIVE_ACCESS_TOKEN_KEY);
+      const expiresAtStr = await this.storageService.get(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
+      if (storedToken && expiresAtStr) {
+        const expiresAt = parseInt(expiresAtStr, 10);
+        // Keep a 5-minute buffer so we don't hand out a token that's about to expire.
+        if (Number.isFinite(expiresAt) && Date.now() < expiresAt - 5 * 60 * 1000) {
+          this.#accessToken = storedToken;
+        }
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -250,6 +265,13 @@ export class AuthService {
 
   async ensureFirebaseIdToken(): Promise<string> {
     const auth = await this.#getFirebaseAuth();
+
+    // Wait for Firebase to restore its persisted auth state (IndexedDB) before
+    // checking currentUser. Without this, currentUser may be null immediately
+    // after a cold start even though the user was previously signed in, causing
+    // an unnecessary (and slow) re-authentication round-trip.
+    await auth.authStateReady();
+
     if (!auth.currentUser && this.isAuthenticated()) {
       const accessToken = await this.ensureToken();
       await this.#signIntoFirebase(null, accessToken);
@@ -321,10 +343,20 @@ export class AuthService {
 
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
 
-    const result = await SocialLogin.login({
-      provider: 'google',
-      options: { scopes },
-    });
+    // First attempt may throw "No credentials found" on Android Credential Manager
+    // when there is no cached credential (e.g., cold first-time launch). A second
+    // call reliably surfaces the interactive account-picker, so retry once.
+    let result;
+    try {
+      result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+    } catch (err: any) {
+      const msg: string = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+      if (msg.includes('no credentials') || msg.includes('no account')) {
+        result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+      } else {
+        throw err;
+      }
+    }
 
     // result.result is GoogleLoginResponse (online mode)
     const googleResult = result.result;

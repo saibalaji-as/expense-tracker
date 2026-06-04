@@ -94,4 +94,4 @@ jobs:
 
       - name: Deploy Firebase Hosting and subscription Functions
         working-directory: personal-finance-pwa
-        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription --project spenza-notifications --non-interactive
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription --project spenza-notifications --non-interactive

@@ -29,6 +29,7 @@ import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settin
 import { SpendNotificationAccessService } from '../../core/services/spend-notification-access.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
+import { PaymentService } from '../../core/services/payment.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
@@ -54,6 +55,7 @@ import {
   Pencil,
   Languages,
   Mic,
+  XCircle,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -70,7 +72,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic, XCircle }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -84,17 +86,38 @@ interface BeforeInstallPromptEvent extends Event {
 
       <!-- Spenza Pro -->
       @if (subscriptionService.isPro()) {
-        <div class="flex items-center gap-3 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
-          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
-            @if (subscriptionService.status().expiresAt) {
-              <p class="text-xs text-muted-foreground">
-                Renews {{ subscriptionService.status().expiresAt | date:'mediumDate' }}
-              </p>
-            }
+        <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
+              @if (subscriptionService.status().expiresAt) {
+                @if (subscriptionService.status().cancelPending) {
+                  <p class="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    Cancels {{ subscriptionService.status().expiresAt | date:'mediumDate' }} · Access until then
+                  </p>
+                } @else {
+                  <p class="text-xs text-muted-foreground">
+                    Renews {{ subscriptionService.status().expiresAt | date:'mediumDate' }}
+                  </p>
+                }
+              }
+            </div>
+            <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Pro</span>
           </div>
-          <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Pro</span>
+          @if (!subscriptionService.status().cancelPending) {
+            <div class="mt-3 border-t border-primary/15 pt-3">
+              <button
+                type="button"
+                (click)="showCancelConfirm.set(true)"
+                [disabled]="cancelling()"
+                class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <lucide-icon [img]="xCircleIcon" class="h-3.5 w-3.5" />
+                Cancel subscription
+              </button>
+            </div>
+          }
         </div>
       } @else {
         <div class="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-5 dark:border-indigo-800 dark:from-indigo-950/50 dark:to-purple-950/50">
@@ -1037,6 +1060,44 @@ interface BeforeInstallPromptEvent extends Event {
       }
     </div>
 
+    <!-- Cancel subscription confirmation modal -->
+    <app-modal
+      title="Cancel subscription?"
+      [isOpen]="showCancelConfirm()"
+      [showActions]="false"
+      (cancelled)="showCancelConfirm.set(false)"
+    >
+      <p class="text-sm text-muted-foreground">
+        Your Pro access continues until
+        <strong>{{ subscriptionService.status().expiresAt | date:'mediumDate' }}</strong>.
+        After that date, your subscription will not renew and your account will move to the free plan.
+      </p>
+      <div class="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          (click)="showCancelConfirm.set(false)"
+          class="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+        >
+          Keep Pro
+        </button>
+        <button
+          type="button"
+          (click)="cancelSubscription()"
+          [disabled]="cancelling()"
+          class="rounded-xl border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          @if (cancelling()) {
+            <span class="inline-flex items-center gap-2">
+              <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              Cancelling…
+            </span>
+          } @else {
+            Cancel subscription
+          }
+        </button>
+      </div>
+    </app-modal>
+
     <!-- Clear Local Data confirmation modal -->
     <app-modal
       [title]="'settings.clear.title' | translate"
@@ -1180,6 +1241,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly spendNotificationAccess = inject(SpendNotificationAccessService);
   private readonly feedback = inject(UserFeedbackService);
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
+  private readonly payService = inject(PaymentService);
 
   readonly isNativePlatform = Capacitor.isNativePlatform();
   readonly isProduction = environment.production;
@@ -1203,6 +1265,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly arrowLeftRightIcon = ArrowLeftRight;
   readonly monitorIcon = Monitor;
   readonly editIcon = Pencil;
+  readonly xCircleIcon = XCircle;
 
   // ─── Import from Sheets ───────────────────────────────────────────────────────
   importSheetId = '';
@@ -1248,6 +1311,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly deleteAccountCountdown = signal(10);
   readonly isDeletingAccount = signal(false);
   readonly deleteAccountError = signal<string | null>(null);
+
+  // ─── Subscription cancellation ────────────────────────────────────────────────
+  protected readonly cancelling = signal(false);
+  protected readonly showCancelConfirm = signal(false);
 
   private deleteAccountTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -1467,6 +1534,28 @@ export class SettingsComponent implements OnInit, OnDestroy {
         'Subscription page could not be opened.',
         err instanceof Error ? err.message : 'Please try again.'
       );
+    }
+  }
+
+  protected async cancelSubscription(): Promise<void> {
+    if (this.cancelling()) return;
+    this.cancelling.set(true);
+    this.showCancelConfirm.set(false);
+    try {
+      await this.payService.cancelSubscription();
+      // onSnapshot will update cancelPending: true automatically within seconds
+      this.feedback.success(
+        'Subscription cancelled',
+        'You have Pro access until ' +
+          (this.subscriptionService.status().expiresAt?.toLocaleDateString() ?? 'end of period')
+      );
+    } catch (err) {
+      this.feedback.error(
+        'Could not cancel',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+    } finally {
+      this.cancelling.set(false);
     }
   }
 

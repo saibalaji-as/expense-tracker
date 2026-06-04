@@ -56,9 +56,58 @@ export const createRazorpaySubscription = functions.onRequest(
       const planId = resolvePlanId(planType as PlanType);
       const rzp = getRazorpay();
 
+      // Duplicate-protection and upgrade/downgrade gate
+      const subRef = admin.firestore()
+        .collection('users')
+        .doc(uid)
+        .collection('subscription')
+        .doc('status');
+
+      const existing = await subRef.get();
+      if (existing.exists) {
+        const data = existing.data();
+        const expiresAt = data?.expiresAt?.toDate();
+        const isActive = data?.tier === 'pro' && expiresAt && expiresAt > new Date();
+
+        if (isActive) {
+          const existingPlanType = data?.planType as PlanType | undefined;
+          const existingSubId = data?.razorpaySubscriptionId as string | undefined;
+
+          if (existingPlanType === planType && data?.cancelPending === true) {
+            // User is resubscribing the same plan they just cancelled — clear the cancel flag
+            await subRef.set({ cancelPending: false, updatedAt: Timestamp.now() }, { merge: true });
+            console.log('createRazorpaySubscription: cancelPending cleared for resubscription', { uid });
+            // Fall through to create new subscription
+          } else if (existingPlanType === planType) {
+            // Same plan, no cancel pending — block duplicate subscription
+            res.status(400).json({
+              error: `You already have an active Pro subscription for this plan`,
+            });
+            return;
+          }
+
+          if (planType === 'monthly') {
+            // Downgrade (yearly → monthly) — not allowed mid-cycle
+            res.status(400).json({
+              error: 'To switch to monthly, let your yearly plan expire first',
+            });
+            return;
+          }
+
+          // Upgrade: monthly → yearly — cancel old at cycle end, then create new
+          if (existingSubId) {
+            await (rzp.subscriptions.cancel as any)(existingSubId, true);
+            console.log('createRazorpaySubscription: monthly subscription cancelled at cycle end for yearly upgrade', {
+              uid,
+              existingSubId,
+            });
+          }
+        }
+      }
+
       const subscription = await rzp.subscriptions.create({
         plan_id: planId,
-        total_count: planType === 'yearly' ? 10 : 120, // ~10 years / ~10 years months
+        total_count: planType === 'yearly' ? 10 : 120,
         quantity: 1,
         notes: { uid, planType },
       });
@@ -173,6 +222,85 @@ export const verifyRazorpayPayment = functions.onRequest(
       );
 
     res.json({ success: true });
+  }
+);
+
+/**
+ * Cancels a Razorpay subscription at cycle end so the user keeps Pro access until expiry.
+ * Sets cancelPending: true in Firestore — the webhook sets tier: free when the period ends.
+ */
+export const cancelRazorpaySubscription = functions.onRequest(
+  { cors: CORS_ORIGINS, invoker: 'public' },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    let uid: string;
+    try {
+      uid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const subRef = admin.firestore()
+      .collection('users')
+      .doc(uid)
+      .collection('subscription')
+      .doc('status');
+
+    const snap = await subRef.get();
+    if (!snap.exists) {
+      res.status(400).json({ error: 'No active subscription found' });
+      return;
+    }
+
+    const data = snap.data()!;
+    const expiresAt: Date | undefined = data['expiresAt']?.toDate?.();
+    const tier: string = data['tier'] ?? 'free';
+
+    if (tier !== 'pro') {
+      res.status(400).json({ error: 'No active Pro subscription to cancel' });
+      return;
+    }
+
+    if (!expiresAt || expiresAt <= new Date()) {
+      res.status(400).json({ error: 'Subscription has already expired' });
+      return;
+    }
+
+    if (data['cancelPending'] === true) {
+      res.status(400).json({ error: 'Subscription is already pending cancellation' });
+      return;
+    }
+
+    const razorpaySubscriptionId: string | undefined = data['razorpaySubscriptionId'];
+    if (!razorpaySubscriptionId) {
+      res.status(400).json({ error: 'No Razorpay subscription ID on record' });
+      return;
+    }
+
+    try {
+      const rzp = getRazorpay();
+      await (rzp.subscriptions.cancel as any)(razorpaySubscriptionId, true);
+
+      await subRef.set(
+        {
+          cancelPending: true,
+          cancelledAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      );
+
+      console.log('cancelRazorpaySubscription: cancelled at cycle end', { uid, razorpaySubscriptionId });
+      res.json({ success: true, expiresAt: expiresAt.toISOString() });
+    } catch (err) {
+      console.error('cancelRazorpaySubscription failed:', err);
+      res.status(500).json({ error: 'Failed to cancel subscription. Please try again.' });
+    }
   }
 );
 

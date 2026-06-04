@@ -1,5 +1,33 @@
 # Task History
 
+## 2026-06-04 - Subscription Cancellation Flow
+
+### What was built
+Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
+
+### Key decisions
+- **cancel_at_cycle_end: true** — user paid for the period; they keep Pro access until `expiresAt`. Immediate cut-off without refund is only for fraud. This matches Spotify/Netflix behaviour.
+- **Two-phase cancellation** — user action sets `cancelPending: true` in Firestore (tier stays `pro`); Razorpay fires `subscription.cancelled` webhook at period end which sets `tier: free` and clears `cancelPending: false`.
+- **cancelPending guard** — function returns 400 if already `cancelPending: true`; prevents double-calling Razorpay on retry/double-tap.
+- **UI: "Keep Pro" as primary button** — dark-pattern avoidance; destructive action should not be the visually dominant button.
+- **No navigate-away after cancel** — `onSnapshot` listener updates the signal within milliseconds of Firestore write; UI reacts automatically.
+- **Resubscription edge case** — if `cancelPending: true` and user subscribes the same plan again, `createRazorpaySubscription` clears the flag and proceeds (revenue recovery; user changed mind).
+- **ModalComponent with showActions=false** — `ModalComponent` uses translation keys for buttons with no label override; custom buttons placed in `ng-content` slot to get "Keep Pro" / "Cancel subscription" labels without touching the shared component.
+- **cancelPending: false in webhook** — clears the flag when `tier: free` is written so a future resubscription doesn't see stale `cancelPending: true` from the old sub.
+
+### Files changed
+- `functions/src/razorpay.ts` — new `cancelRazorpaySubscription` function; resubscription-after-cancel branch in `createRazorpaySubscription`
+- `functions/src/index.ts` — exported `cancelRazorpaySubscription`
+- `functions/src/razorpay-webhook.ts` — added `cancelPending: false` to cancel-event Firestore write
+- `src/app/core/services/subscription.service.ts` — `cancelPending` field in interface, `FREE_STATUS`, `startListening()`, `fetchOnce()`
+- `src/app/core/services/payment.service.ts` — `FN_CANCEL_SUBSCRIPTION` URL + `cancelSubscription()` method
+- `src/app/features/settings/settings.component.ts` — cancel UI, modal, signals, method, `PaymentService` inject, `XCircle` icon
+- `.github/workflows/deploy-firebase.yml` — `functions:cancelRazorpaySubscription` added to deploy command
+
+### Verification
+- `npm run build` in `personal-finance-pwa/functions` — passed
+- `npm run build -- --configuration production` in `personal-finance-pwa` — passed
+
 ## 2026-06-03 - AuthService displayName Signal
 
 - User asked how to find the Firebase UID, why it is a long random string, and whether the email username could serve as an identifier.

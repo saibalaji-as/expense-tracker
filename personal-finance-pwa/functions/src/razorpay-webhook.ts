@@ -103,10 +103,30 @@ export const razorpayWebhook = functions.onRequest(
       .doc('status');
 
     if (CANCEL_EVENTS.includes(eventType)) {
+      // Guard against accidentally downgrading a user who upgraded mid-cycle:
+      // if the Firestore doc already references a *different* (newer) subscription,
+      // this cancel event belongs to the old plan — skip the free-downgrade.
+      const currentDoc = await subRef.get();
+      const currentSubId: string | undefined = currentDoc.exists
+        ? currentDoc.data()?.razorpaySubscriptionId
+        : undefined;
+
+      if (currentDoc.exists && currentSubId && currentSubId !== subscription?.id) {
+        console.log('razorpayWebhook: cancel event for superseded subscription — user has a newer active subscription, skipping free downgrade', {
+          uid,
+          cancelledSubId: subscription?.id ?? null,
+          activeSubId: currentSubId,
+          eventType,
+        });
+        res.status(200).send('OK');
+        return;
+      }
+
       await subRef.set(
         {
           tier: 'free',
           razorpaySubscriptionId: subscription?.id ?? '',
+          cancelPending: false,
           cancelledAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         },
