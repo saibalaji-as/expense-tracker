@@ -78,15 +78,17 @@ export class NotificationService {
     const userId = await this.#getUserId();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+    this._isEnabled.set(true);
+
     // Register with FCM and backend
     const registered = await this.fcmService.registerForNotifications(userId, timezone, reminderPreferences);
 
     if (!registered) {
+      this._isEnabled.set(false);
       if (isDevMode()) { console.warn('[NotificationService] FCM registration failed — notifications remain disabled'); }
       return false;
     }
 
-    this._isEnabled.set(true);
     await this.#persistEnabled(true);
     if (isDevMode()) { console.log('[NotificationService] Push notifications enabled'); }
     return true;
@@ -109,13 +111,18 @@ export class NotificationService {
 
   async disable(): Promise<void> {
     const userId = await this.#getUserId();
-    
-    // Unregister from FCM and backend
-    await this.fcmService.unregister(userId);
 
     this._isEnabled.set(false);
-    await this.#persistEnabled(false);
-    if (isDevMode()) { console.log('[NotificationService] Push notifications disabled'); }
+
+    try {
+      // Unregister from FCM and backend
+      await this.fcmService.unregister(userId);
+      await this.#persistEnabled(false);
+      if (isDevMode()) { console.log('[NotificationService] Push notifications disabled'); }
+    } catch (error) {
+      this._isEnabled.set(true);
+      throw error;
+    }
   }
 
   // ─── Initialisation ───────────────────────────────────────────────────────────

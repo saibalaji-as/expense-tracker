@@ -1939,42 +1939,53 @@ export class SettingsComponent implements OnInit, OnDestroy {
           return;
         }
       }
-
-      // Enable: schedule both daily reminder and monthly nudge
-      await this.localNotificationService.scheduleDailyReminder(
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      await this.localNotificationService.scheduleMonthlyNudge();
-      await this.notificationService.syncDailyReminder(
-        true,
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      
-      if (isDevMode()) { console.log('[Settings] Daily reminder enabled and scheduled'); }
-    } else {
-      // Disable: cancel both notifications
-      await this.localNotificationService.cancelDailyReminder();
-      await this.localNotificationService.cancelMonthlyNudge();
-      await this.notificationService.syncDailyReminder(
-        false,
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      
-      if (isDevMode()) { console.log('[Settings] Daily reminder disabled and cancelled'); }
     }
 
-    // Save updated preferences
-    await this.storageService.setNotificationPreferences(updated);
+    // Optimistically update UI before async operations
     this.notificationPrefs.set(updated);
-    this.feedback.success(
-      updated.dailyReminderEnabled ? 'Daily reminder saved.' : 'Daily reminder turned off.',
-      updated.dailyReminderEnabled
-        ? `Spenza will remind you at ${this.formatTime(updated.reminderHour, updated.reminderMinute)}.`
-        : 'Spenza will stop scheduling the daily reminder on this device.'
-    );
+
+    try {
+      if (updated.dailyReminderEnabled) {
+        // Enable: schedule both daily reminder and monthly nudge
+        await this.localNotificationService.scheduleDailyReminder(
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        await this.localNotificationService.scheduleMonthlyNudge();
+        await this.notificationService.syncDailyReminder(
+          true,
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        if (isDevMode()) { console.log('[Settings] Daily reminder enabled and scheduled'); }
+      } else {
+        // Disable: cancel both notifications
+        await this.localNotificationService.cancelDailyReminder();
+        await this.localNotificationService.cancelMonthlyNudge();
+        await this.notificationService.syncDailyReminder(
+          false,
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        if (isDevMode()) { console.log('[Settings] Daily reminder disabled and cancelled'); }
+      }
+
+      // Save updated preferences
+      await this.storageService.setNotificationPreferences(updated);
+      this.feedback.success(
+        updated.dailyReminderEnabled ? 'Daily reminder saved.' : 'Daily reminder turned off.',
+        updated.dailyReminderEnabled
+          ? `Spenza will remind you at ${this.formatTime(updated.reminderHour, updated.reminderMinute)}.`
+          : 'Spenza will stop scheduling the daily reminder on this device.'
+      );
+    } catch (error) {
+      // Revert on failure
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Daily reminder setting was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
   }
 
   /**
@@ -2012,15 +2023,23 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const current = this.notificationPrefs();
     const updated = { ...current, budgetWarningsEnabled: !current.budgetWarningsEnabled };
 
-    // Save updated preferences
-    await this.storageService.setNotificationPreferences(updated);
     this.notificationPrefs.set(updated);
-    this.feedback.success(
-      updated.budgetWarningsEnabled ? 'Budget alerts saved.' : 'Budget alerts turned off.',
-      updated.budgetWarningsEnabled
-        ? 'Spenza will alert you when a category reaches 80% of its monthly limit.'
-        : 'Spenza will stop sending budget limit alerts.'
-    );
+
+    try {
+      await this.storageService.setNotificationPreferences(updated);
+      this.feedback.success(
+        updated.budgetWarningsEnabled ? 'Budget alerts saved.' : 'Budget alerts turned off.',
+        updated.budgetWarningsEnabled
+          ? 'Spenza will alert you when a category reaches 80% of its monthly limit.'
+          : 'Spenza will stop sending budget limit alerts.'
+      );
+    } catch (error) {
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Budget alert setting was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
   }
 
   /**
