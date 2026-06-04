@@ -91,7 +91,7 @@ export class FcmService {
     reminderPreferences?: PushReminderPreferences
   ): Promise<boolean> {
     try {
-      const endpoint = this.functionsEndpoint('register-token');
+      const endpoint = this.functionsEndpoint('registerToken');
       const response = await firstValueFrom(
         this.http.post<{ success: boolean }>(endpoint, {
           userId,
@@ -119,7 +119,7 @@ export class FcmService {
   async unregister(userId: string): Promise<void> {
     try {
       // Unregister from backend
-      const endpoint = this.functionsEndpoint('unregister-token');
+      const endpoint = this.functionsEndpoint('unregisterToken');
       await firstValueFrom(
         this.http.post(endpoint, { userId })
       );
@@ -237,10 +237,7 @@ export class FcmService {
   }
 
   private functionsEndpoint(name: string): string {
-    const base = Capacitor.isNativePlatform()
-      ? environment.netlifyFunctionsUrl
-      : '/.netlify/functions';
-
+    const base = environment.firebaseFunctionsUrl;
     return `${base.replace(/\/$/, '')}/${name}`;
   }
 

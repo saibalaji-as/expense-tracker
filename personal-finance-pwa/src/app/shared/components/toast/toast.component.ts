@@ -13,6 +13,7 @@ import { driveError$ } from '../../../core/services/expense-store.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { DriveApiError } from '../../../core/services/google-drive.service';
 import { UserFeedbackService, UserFeedbackTone } from '../../../core/services/user-feedback.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-toast',
@@ -38,15 +39,13 @@ import { UserFeedbackService, UserFeedbackTone } from '../../../core/services/us
             Switch to Single User
           </button>
         }
-        @if (!message.persistent) {
-          <button
-            class="ml-3 text-white hover:text-red-200 focus:outline-none"
-            aria-label="Dismiss notification"
-            (click)="dismiss()"
-          >
-            ✕
-          </button>
-        }
+        <button
+          class="ml-3 shrink-0 text-white opacity-70 hover:opacity-100 focus:outline-none"
+          aria-label="Dismiss notification"
+          (click)="dismiss()"
+        >
+          ✕
+        </button>
       </div>
     }
   `,
@@ -59,6 +58,7 @@ export class ToastComponent implements OnInit, OnDestroy {
   private readonly sheetsService = inject(GoogleSheetsService);
   private readonly backupModeService = inject(BackupModeService);
   private readonly router = inject(Router);
+  private readonly authService = inject(AuthService);
   private subscription?: Subscription;
   private driveSubscription?: Subscription;
 
@@ -101,11 +101,21 @@ export class ToastComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const message = 'message' in error ? error.message : (error as Error).message;
+      if (driveErr.status === 401) {
+        this.authService.clearToken();
+        this.showSwitchToSingleUser.set(false);
+        this.feedback.error(
+          'Google session expired.',
+          'Please sign out and sign in again to continue.',
+          true
+        );
+        return;
+      }
+
       this.showSwitchToSingleUser.set(false);
       this.feedback.error(
         'Could not save changes to Google Drive.',
-        `${message ?? 'Google Drive sync error'} Check your internet connection and Drive permissions, then try again.`,
+        'Check your internet connection and Drive permissions, then try again.',
         true
       );
     });

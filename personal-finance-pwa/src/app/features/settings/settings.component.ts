@@ -131,9 +131,15 @@ interface BeforeInstallPromptEvent extends Event {
                   <button
                     type="button"
                     (click)="openSubscribePage()"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                    [disabled]="isOpeningSubscribePage()"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    ✨ Manage Subscription
+                    @if (isOpeningSubscribePage()) {
+                      <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                    } @else {
+                      ✨
+                    }
+                    Manage Subscription
                   </button>
                 } @else {
                   <a
@@ -572,16 +578,24 @@ interface BeforeInstallPromptEvent extends Event {
             <button
               type="button"
               (click)="onSignOut()"
-              class="inline-flex items-center justify-center rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              [disabled]="isSigningOut()"
+              class="inline-flex items-center gap-2 justify-center rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              @if (isSigningOut()) {
+                <span class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              }
               {{ 'settings.action.signOut' | translate }}
             </button>
           } @else {
             <button
               type="button"
               (click)="onSignIn()"
-              class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow"
+              [disabled]="isSigningIn()"
+              class="inline-flex items-center gap-2 justify-center rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              @if (isSigningIn()) {
+                <span class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              }
               {{ 'settings.action.signInGoogle' | translate }}
             </button>
           }
@@ -1311,6 +1325,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly deleteAccountCountdown = signal(10);
   readonly isDeletingAccount = signal(false);
   readonly deleteAccountError = signal<string | null>(null);
+  readonly isSigningOut = signal(false);
+  readonly isSigningIn = signal(false);
+  readonly isOpeningSubscribePage = signal(false);
 
   // ─── Subscription cancellation ────────────────────────────────────────────────
   protected readonly cancelling = signal(false);
@@ -1526,6 +1543,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // ─── Subscription upgrade (Android Reader App exemption) ─────────────────────
 
   async openSubscribePage(): Promise<void> {
+    if (this.isOpeningSubscribePage()) return;
+    this.isOpeningSubscribePage.set(true);
     try {
       const url = await this.authService.createSubscriptionPageUrl();
       await Browser.open({ url });
@@ -1534,6 +1553,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
         'Subscription page could not be opened.',
         err instanceof Error ? err.message : 'Please try again.'
       );
+    } finally {
+      this.isOpeningSubscribePage.set(false);
     }
   }
 
@@ -1562,18 +1583,25 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────
 
   async onSignOut(): Promise<void> {
-    await Promise.allSettled([
-      this.notificationService.disable(),
-      this.localNotificationService.cancelDailyReminder(),
-      this.localNotificationService.cancelMonthlyNudge(),
-      this.authService.signOut(),
-    ]);
-
-    await this.clearSignedOutLocalState();
-    await this.router.navigate(['/auth/callback'], { replaceUrl: true });
+    if (this.isSigningOut()) return;
+    this.isSigningOut.set(true);
+    try {
+      await Promise.allSettled([
+        this.notificationService.disable(),
+        this.localNotificationService.cancelDailyReminder(),
+        this.localNotificationService.cancelMonthlyNudge(),
+        this.authService.signOut(),
+      ]);
+      await this.clearSignedOutLocalState();
+      await this.router.navigate(['/auth/callback'], { replaceUrl: true });
+    } finally {
+      this.isSigningOut.set(false);
+    }
   }
 
   async onSignIn(): Promise<void> {
+    if (this.isSigningIn()) return;
+    this.isSigningIn.set(true);
     try {
       const signInResult = await this.authService.signIn();
       if (signInResult.accountChanged) {
@@ -1587,6 +1615,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.expenseStore.loadFromDrive();
     } catch (err) {
       console.error('[Settings] Sign-in failed:', err);
+    } finally {
+      this.isSigningIn.set(false);
     }
   }
 

@@ -303,6 +303,8 @@ export class App implements OnInit, OnDestroy {
     // Handle DriveApiError with status codes
     if ('status' in err) {
       switch (err.status) {
+        case 401:
+          return 'Google session expired. Please sign out and sign in again.';
         case 403:
           return 'Access denied. Please check sharing permissions.';
         case 404:
@@ -331,6 +333,12 @@ export class App implements OnInit, OnDestroy {
 
       if (driveErr.message === 'FAMILY_SETUP_INCOMPLETE') {
         void this.router.navigate(['/family-setup']);
+        return;
+      }
+
+      if (driveErr.status === 401) {
+        this.authService.clearToken();
+        console.warn('[App] Drive returned 401 — token cleared, user must re-sign-in:', driveErr);
         return;
       }
 

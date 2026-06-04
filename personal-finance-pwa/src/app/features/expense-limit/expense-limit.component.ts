@@ -341,10 +341,15 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         <div class="sticky z-30 md:static md:bottom-auto">
           <button
             type="submit"
-            [disabled]="!isAllocationBalanced() || form.invalid"
+            [disabled]="!isAllocationBalanced() || form.invalid || isSaving()"
             class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
           >
-	            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> {{ 'limits.save' | translate }}
+            @if (isSaving()) {
+              <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            } @else {
+              <lucide-icon [img]="saveIcon" class="h-4 w-4" />
+            }
+            {{ 'limits.save' | translate }}
           </button>
         </div>
 
@@ -423,6 +428,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   // Task 10.5: modal and save state
   readonly showSavingsWarning = signal(false);
   readonly saveSuccess = signal(false);
+  readonly isSaving = signal(false);
   readonly showLimitDeleteModal = signal(false);
   readonly pendingDeleteLimitIndex = signal<number | null>(null);
 
@@ -717,7 +723,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
       userPercentage: Number(ctrl.get('userPercentage')?.value) || 0,
     }));
 
-    // setLimitsAndIncome automatically persists to Google Drive
+    this.isSaving.set(true);
     try {
       await this.expenseStore.setLimitsAndIncome(limits, income);
       this.feedback.success(
@@ -733,6 +739,8 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
           ? error.message
           : 'Check your connection and Drive access, then try again.'
       );
+    } finally {
+      this.isSaving.set(false);
     }
   }
 
