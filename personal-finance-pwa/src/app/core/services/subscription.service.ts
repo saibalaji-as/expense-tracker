@@ -58,11 +58,24 @@ export class SubscriptionService {
 
   /** Call once after Firebase UID is known. Starts a real-time listener on the subscription doc. */
   async startListening(uid: string): Promise<void> {
-    console.log('[Sub] listening on uid:', uid); // add this
+    console.log('[Sub] listening on uid:', uid);
     this.#unsubscribe?.();
     this.#listeningUid = uid;
+    this.loaded.set(false);
     const { doc, onSnapshot } = await import('firebase/firestore');
     const db = await this.#getDb();
+    // Initialize Firebase Auth and wait for its persisted session to be restored
+    // before starting the Firestore listener. On cold starts where the stored
+    // access token is still valid, ensureToken() returns immediately and
+    // signInWithCredential is never called — leaving Firebase Auth uninitialized
+    // for the entire session. Without this, onSnapshot sends unauthenticated
+    // requests, hits permission-denied, and permanently sets FREE_STATUS.
+    const { getAuth } = await import('firebase/auth');
+    const { getApps } = await import('firebase/app');
+    const auth = getAuth(getApps()[0]);
+    await auth.authStateReady();
+    // Bail if another startListening call superseded this one while we were awaiting.
+    if (this.#listeningUid !== uid) return;
     const ref = doc(db, 'users', uid, 'subscription', 'status');
     this.#unsubscribe = onSnapshot(ref, (snap) => {
       if (!snap.exists()) {
