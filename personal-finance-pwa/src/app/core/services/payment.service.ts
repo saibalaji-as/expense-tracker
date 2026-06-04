@@ -124,8 +124,15 @@ export class PaymentService {
       body: JSON.stringify({}),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as any).error ?? 'Could not cancel subscription');
+      const body = await res.text().catch(() => '');
+      let message = 'Could not cancel subscription';
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed?.error) message = parsed.error;
+      } catch {
+        // non-JSON body
+      }
+      throw new Error(`${message} (HTTP ${res.status})`);
     }
     return res.json();
   }

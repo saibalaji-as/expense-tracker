@@ -1,7 +1,10 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { firebaseConfig } from '../config/firebase.config';
 import { AuthService } from './auth.service';
+import { StorageService } from './storage.service';
 import type { Firestore } from 'firebase/firestore';
+
+const PRO_TIER_STORAGE_KEY = 'spenza_pro_tier';
 
 export type SubscriptionTier = 'free' | 'pro';
 
@@ -18,6 +21,7 @@ const FREE_STATUS: SubscriptionStatus = { tier: 'free', expiresAt: null, isActiv
 @Injectable({ providedIn: 'root' })
 export class SubscriptionService {
   readonly #authService = inject(AuthService);
+  readonly #storage = inject(StorageService);
 
   readonly status = signal<SubscriptionStatus>(FREE_STATUS);
   readonly loaded = signal(false);
@@ -82,6 +86,7 @@ export class SubscriptionService {
         errorRetries = 0;
         if (!snap.exists()) {
           this.status.set(FREE_STATUS);
+          this.#syncProTierToStorage(false);
         } else {
           const data = snap.data();
           const expiresAt = data['expiresAt']?.toDate?.() ?? null;
@@ -91,6 +96,7 @@ export class SubscriptionService {
             data['planType'] === 'yearly' ? 'yearly' : data['planType'] === 'monthly' ? 'monthly' : null;
           const cancelPending: boolean = data['cancelPending'] === true;
           this.status.set({ tier, expiresAt, isActive, planType, cancelPending });
+          this.#syncProTierToStorage(tier === 'pro' && isActive);
         }
         this.loaded.set(true);
       }, () => {
@@ -116,6 +122,11 @@ export class SubscriptionService {
     attachListener();
   }
 
+  /** Persists pro-tier flag to Capacitor Storage so the Android widget can read it. */
+  #syncProTierToStorage(isPro: boolean): void {
+    void this.#storage.set(PRO_TIER_STORAGE_KEY, isPro ? '1' : '0');
+  }
+
   /** One-shot fetch — used by the subscription guard on native (no persistent listener needed). */
   async fetchOnce(uid: string): Promise<SubscriptionStatus> {
     try {
@@ -136,6 +147,7 @@ export class SubscriptionService {
       // see the correct value even before startListening()'s onSnapshot fires.
       this.status.set(result);
       this.loaded.set(true);
+      this.#syncProTierToStorage(tier === 'pro' && isActive);
       return result;
     } catch {
       return FREE_STATUS;

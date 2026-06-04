@@ -15,6 +15,7 @@ final class WidgetExpenseConstants {
     static final String CURRENCY_KEY = "spenza_currency";
     static final String SPEND_NOTIFICATION_PROMPTS_ENABLED_KEY = "spenza_spend_notification_prompts_enabled_v1";
     static final String SPEND_NOTIFICATION_DEDUPE_KEY = "spenza_spend_notification_dedupe_v1";
+    static final String PRO_TIER_KEY = "spenza_pro_tier";
     static final String WIDGET_CATEGORY_EXTRA = "com.spenza.app.WIDGET_CATEGORY";
     static final String WIDGET_AMOUNT_EXTRA = "com.spenza.app.WIDGET_AMOUNT";
     static final String WIDGET_COMMENT_EXTRA = "com.spenza.app.WIDGET_COMMENT";
