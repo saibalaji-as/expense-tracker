@@ -8,6 +8,16 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
+        "source": "/functions/registerToken",
+        "function": "registerToken",
+        "region": "us-central1"
+      },
+      {
+        "source": "/functions/unregisterToken",
+        "function": "unregisterToken",
+        "region": "us-central1"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
