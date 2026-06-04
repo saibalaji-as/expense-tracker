@@ -263,6 +263,28 @@ export class AuthService {
     return this.firebaseUid();
   }
 
+  /**
+   * Ensures Firebase Auth has a signed-in user without triggering any interactive UI.
+   * On cold starts (kill → relaunch) the Firebase Auth IndexedDB session may not be
+   * restored, leaving currentUser null. If we have a stored Google access token we
+   * can call signInWithCredential silently to re-establish the Firebase session.
+   */
+  async ensureFirebaseSignedInSilently(): Promise<void> {
+    const auth = await this.#getFirebaseAuth();
+    await auth.authStateReady();
+    if (!auth.currentUser && this.#accessToken) {
+      try {
+        const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+        const credential = GoogleAuthProvider.credential(null, this.#accessToken);
+        const userCred = await signInWithCredential(auth, credential);
+        this.firebaseUid.set(userCred.user.uid);
+        await this.storageService.set('firebase_uid', userCred.user.uid);
+      } catch (err) {
+        console.warn('[AuthService] Silent Firebase re-sign-in failed:', err);
+      }
+    }
+  }
+
   async ensureFirebaseIdToken(): Promise<string> {
     const auth = await this.#getFirebaseAuth();
 

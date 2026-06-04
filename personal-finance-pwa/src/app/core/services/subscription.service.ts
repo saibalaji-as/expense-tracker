@@ -1,5 +1,6 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { firebaseConfig } from '../config/firebase.config';
+import { AuthService } from './auth.service';
 import type { Firestore } from 'firebase/firestore';
 
 export type SubscriptionTier = 'free' | 'pro';
@@ -16,6 +17,8 @@ const FREE_STATUS: SubscriptionStatus = { tier: 'free', expiresAt: null, isActiv
 
 @Injectable({ providedIn: 'root' })
 export class SubscriptionService {
+  readonly #authService = inject(AuthService);
+
   readonly status = signal<SubscriptionStatus>(FREE_STATUS);
   readonly loaded = signal(false);
 
@@ -64,42 +67,53 @@ export class SubscriptionService {
     this.loaded.set(false);
     const { doc, onSnapshot } = await import('firebase/firestore');
     const db = await this.#getDb();
-    // Initialize Firebase Auth and wait for its persisted session to be restored
-    // before starting the Firestore listener. On cold starts where the stored
-    // access token is still valid, ensureToken() returns immediately and
-    // signInWithCredential is never called — leaving Firebase Auth uninitialized
-    // for the entire session. Without this, onSnapshot sends unauthenticated
-    // requests, hits permission-denied, and permanently sets FREE_STATUS.
-    const { getAuth } = await import('firebase/auth');
-    const { getApps } = await import('firebase/app');
-    const auth = getAuth(getApps()[0]);
-    await auth.authStateReady();
+    // Ensure Firebase Auth has a signed-in user before starting the Firestore listener.
+    // On cold starts (kill → relaunch) the Firebase Auth IndexedDB session may not be
+    // restored. ensureFirebaseSignedInSilently() waits for authStateReady() and, if
+    // currentUser is still null but a Google access token is available, re-signs in
+    // silently — avoiding permission-denied on the first Firestore request.
+    await this.#authService.ensureFirebaseSignedInSilently();
     // Bail if another startListening call superseded this one while we were awaiting.
     if (this.#listeningUid !== uid) return;
     const ref = doc(db, 'users', uid, 'subscription', 'status');
-    this.#unsubscribe = onSnapshot(ref, (snap) => {
-      if (!snap.exists()) {
-        this.status.set(FREE_STATUS);
-      } else {
-        const data = snap.data();
-        const expiresAt = data['expiresAt']?.toDate?.() ?? null;
-        const tier: SubscriptionTier = data['tier'] === 'pro' ? 'pro' : 'free';
-        const isActive = tier === 'free' || (expiresAt ? expiresAt > new Date() : false);
-        const planType: 'monthly' | 'yearly' | null =
-          data['planType'] === 'yearly' ? 'yearly' : data['planType'] === 'monthly' ? 'monthly' : null;
-        const cancelPending: boolean = data['cancelPending'] === true;
-        this.status.set({ tier, expiresAt, isActive, planType, cancelPending });
-      }
-      this.loaded.set(true);
-    }, () => {
-      // Firestore unavailable — preserve an existing pro status so a paying user
-      // on a flaky connection is not incorrectly redirected to /subscribe.
-      // Only fall back to free if we have never received a successful snapshot.
-      if (!this.loaded()) {
-        this.status.set(FREE_STATUS);
+    let errorRetries = 0;
+    const attachListener = () => {
+      this.#unsubscribe = onSnapshot(ref, (snap) => {
+        errorRetries = 0;
+        if (!snap.exists()) {
+          this.status.set(FREE_STATUS);
+        } else {
+          const data = snap.data();
+          const expiresAt = data['expiresAt']?.toDate?.() ?? null;
+          const tier: SubscriptionTier = data['tier'] === 'pro' ? 'pro' : 'free';
+          const isActive = tier === 'free' || (expiresAt ? expiresAt > new Date() : false);
+          const planType: 'monthly' | 'yearly' | null =
+            data['planType'] === 'yearly' ? 'yearly' : data['planType'] === 'monthly' ? 'monthly' : null;
+          const cancelPending: boolean = data['cancelPending'] === true;
+          this.status.set({ tier, expiresAt, isActive, planType, cancelPending });
+        }
         this.loaded.set(true);
-      }
-    });
+      }, () => {
+        // Firestore error (permission-denied or network failure).
+        // Retry up to 2 times before giving up, so a transient auth hiccup on cold
+        // start doesn't permanently lock the user onto free tier.
+        if (!this.loaded() && errorRetries < 2 && this.#listeningUid === uid) {
+          errorRetries++;
+          const delay = errorRetries * 1000;
+          setTimeout(() => {
+            if (this.#listeningUid === uid) attachListener();
+          }, delay);
+          return;
+        }
+        // Preserve an existing pro status so a paying user on a flaky connection
+        // is not incorrectly redirected to /subscribe.
+        if (!this.loaded()) {
+          this.status.set(FREE_STATUS);
+          this.loaded.set(true);
+        }
+      });
+    };
+    attachListener();
   }
 
   /** One-shot fetch — used by the subscription guard on native (no persistent listener needed). */
