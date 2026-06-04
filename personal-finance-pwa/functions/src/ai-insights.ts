@@ -1,5 +1,4 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import type { Request, Response } from 'firebase-functions/v2/https';
 
 type InsightTone = 'good' | 'warn' | 'info';
 type InsightIcon = 'check-circle-2' | 'alert-triangle' | 'lightbulb' | 'clock-3' | 'sparkles';
@@ -53,7 +52,7 @@ const INSIGHT_RESPONSE_SCHEMA = {
   required: ['sections'],
 };
 
-export const generateInsights = onRequest({ cors: true }, async (req: Request, res: Response) => {
+export const generateInsights = onRequest({ cors: true }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;

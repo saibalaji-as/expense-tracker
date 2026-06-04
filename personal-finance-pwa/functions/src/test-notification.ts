@@ -1,6 +1,5 @@
 import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
-import type { Request, Response } from 'firebase-functions/v2/https';
 
 const TEST_MESSAGE = {
   notification: {
@@ -19,7 +18,7 @@ const TEST_MESSAGE = {
   },
 };
 
-export const testNotification = onRequest({ cors: true }, async (req: Request, res: Response) => {
+export const testNotification = onRequest({ cors: true }, async (req, res) => {
   try {
     const db = admin.firestore();
     const userId = (req.query['userId'] as string | undefined) || (req.body as { userId?: string })?.userId;

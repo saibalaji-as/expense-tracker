@@ -1,5 +1,4 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import type { Request, Response } from 'firebase-functions/v2/https';
 
 interface AiVoiceExpensePayload {
   transcript?: string;
@@ -50,7 +49,7 @@ const VOICE_EXPENSE_SCHEMA = {
   required: ['rawText', 'amount', 'date', 'type', 'comment', 'confidence', 'readable'],
 };
 
-export const parseVoiceExpense = onRequest({ cors: true }, async (req: Request, res: Response) => {
+export const parseVoiceExpense = onRequest({ cors: true }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;

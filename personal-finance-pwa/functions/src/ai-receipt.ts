@@ -1,7 +1,4 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import type { Request, Response } from 'firebase-functions/v2/https';
-
-type InsightTone = 'good' | 'warn' | 'info';
 
 interface AiReceiptPayload {
   fileName?: string;
@@ -76,7 +73,7 @@ const RECEIPT_SCHEMA = {
   required: ['amount', 'amountConfidence', 'amountCandidates', 'lineItems', 'date', 'type', 'comment', 'confidence', 'readable'],
 };
 
-export const extractReceipt = onRequest({ cors: true }, async (req: Request, res: Response) => {
+export const extractReceipt = onRequest({ cors: true }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;
