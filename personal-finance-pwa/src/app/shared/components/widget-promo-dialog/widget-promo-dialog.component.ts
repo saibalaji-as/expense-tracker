@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '../../../core/services/auth.service';
 import { StorageService } from '../../../core/services/storage.service';
 import { SubscriptionService } from '../../../core/services/subscription.service';
 import { UserFeedbackService } from '../../../core/services/user-feedback.service';
 
 interface ExpenseWidgetPlugin {
+  isAdded(): Promise<{ added: boolean }>;
   isSupported(): Promise<{ supported: boolean }>;
   requestPin(): Promise<{ supported: boolean }>;
   refresh(): Promise<void>;
@@ -34,7 +36,7 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
       >
         <!-- Header -->
         <div class="flex items-start gap-4">
-          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white text-xl shadow-lg">📲</span>
+          <span class="shrink-0 text-[2rem] leading-none">📲</span>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
               <p class="font-semibold text-foreground">Home Screen Widget</p>
@@ -92,7 +94,8 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
     }
   `,
 })
-export class WidgetPromoDialogComponent implements OnInit {
+export class WidgetPromoDialogComponent {
+  private readonly authService = inject(AuthService);
   private readonly storageService = inject(StorageService);
   readonly subscriptionService = inject(SubscriptionService);
   private readonly feedback = inject(UserFeedbackService);
@@ -102,10 +105,31 @@ export class WidgetPromoDialogComponent implements OnInit {
   readonly widgetPinSupported = signal(false);
   readonly dontShowAgain = signal(false);
 
-  async ngOnInit(): Promise<void> {
+  private checked = false;
+
+  constructor() {
+    effect(() => {
+      if (this.authService.isAuthenticated() && !this.checked) {
+        this.checked = true;
+        void this.maybeShow();
+      }
+    });
+  }
+
+  private async maybeShow(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
     const dismissed = await this.storageService.get(DISMISSED_KEY);
     if (dismissed === '1') return;
+
+    try {
+      const { added } = await ExpenseWidget.isAdded();
+      if (added) {
+        await this.storageService.set(DISMISSED_KEY, '1');
+        return;
+      }
+    } catch {
+      // fall through and show the dialog if the check fails
+    }
 
     try {
       const { supported } = await ExpenseWidget.isSupported();

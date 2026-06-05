@@ -135,6 +135,11 @@ const FALLBACK_TRANSLATIONS: Record<string, string> = {
   'daily.receipt.split.removeRow': 'Remove split row',
   'daily.receipt.split.totalMismatch': 'Split total must match bill total.',
   'daily.receipt.split.adjustmentComment': 'Tax / bill adjustment',
+  'family.ownerPaywall.title': 'Pro Required',
+  'family.ownerPaywall.description': 'Creating a family backup requires Spenza Pro. Upgrade to sync expenses with your partner.',
+  'family.ownerPaywall.upgrade': 'Upgrade to Pro',
+  'family.ownerPaywall.back': 'Go Back',
+  'family.partner.slotTaken': 'This family backup already has a partner connected. Only one partner per backup is supported.',
 };
 
 @Injectable({ providedIn: 'root' })

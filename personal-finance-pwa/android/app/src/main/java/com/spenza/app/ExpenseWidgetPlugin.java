@@ -19,6 +19,17 @@ public class ExpenseWidgetPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Returns whether the user has already added the Spenza widget to their home screen. */
+    @PluginMethod
+    public void isAdded(PluginCall call) {
+        AppWidgetManager mgr = AppWidgetManager.getInstance(getContext());
+        ComponentName provider = new ComponentName(getContext(), ExpenseWidgetProvider.class);
+        int[] ids = mgr.getAppWidgetIds(provider);
+        JSObject result = new JSObject();
+        result.put("added", ids != null && ids.length > 0);
+        call.resolve(result);
+    }
+
     /** Returns whether the launcher supports the pin-widget request dialog. */
     @PluginMethod
     public void isSupported(PluginCall call) {

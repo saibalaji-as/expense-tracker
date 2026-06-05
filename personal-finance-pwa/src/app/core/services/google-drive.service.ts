@@ -11,6 +11,8 @@ export interface BackupDocument {
     monthlyIncome: number;
     currency: string;
     receiptFolderId?: string;
+    ownerUid?: string;   // Firebase UID stamped by owner at setup — marks a legitimate Spenza family backup
+    partnerUid?: string; // Firebase UID stamped when a partner connects — enforces single-partner limit
   };
   expenses: ExpenseEntry[];
   limits: ExpenseLimit[];

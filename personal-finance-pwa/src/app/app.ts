@@ -158,6 +158,20 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    // ── Loophole 2: owner subscription lapse check ────────────────────────────
+    // The subscription listener is already running (started above). Wait for it
+    // to settle (max 6s), then block the owner if their Pro subscription lapsed.
+    // Partners are free-tier by design — skip the check for them.
+    if (mode === 'family' && this.backupModeService.getOwnerRole() === 'owner') {
+      await this.subscriptionService.waitUntilLoaded();
+      if (!this.subscriptionService.isPro()) {
+        this.clearLoadingTimeout();
+        this.isLoading.set(false);
+        await this.router.navigate(['/subscribe']);
+        return;
+      }
+    }
+
     console.log('[App] Starting Drive bootstrap...');
     await this.withBootstrapRetries(async () => {
       await this.expenseStore.loadFromDrive();
@@ -214,6 +228,17 @@ export class App implements OnInit, OnDestroy {
       const mode = this.backupModeService.getMode();
       if (mode === null || (mode === 'family' && !this.backupModeService.getSharedFileId())) {
         return;
+      }
+
+      // ── Loophole 2 (cached path): owner subscription lapse check ─────────────
+      // Same gate as the non-cached path — owner whose Pro lapsed gets redirected
+      // to /subscribe even when they had a valid local cache on startup.
+      if (mode === 'family' && this.backupModeService.getOwnerRole() === 'owner') {
+        await this.subscriptionService.waitUntilLoaded();
+        if (!this.subscriptionService.isPro()) {
+          await this.router.navigate(['/subscribe']);
+          return;
+        }
       }
 
       await this.expenseStore.loadFromDrive();
