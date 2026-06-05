@@ -1,5 +1,144 @@
 # Task History
 
+## 2026-06-05 - Replace Native Browser alert/confirm With Design System UI
+
+### What was changed
+- `daily-expense.component.ts`: updated voice-unsupported warning to use `feedback.warning()` with i18n key `daily.voice.unsupportedBrowser`.
+- `daily-expense.component.ts` template: updated delete-expense modal title from interpolated `daily.deleteConfirm` to `daily.deleteConfirm.title`; added `daily.deleteConfirm.message` body paragraph.
+- `expense-limit.component.ts` template: updated custom-category delete modal title from `limits.custom.deleteConfirm` to `limits.deleteConfirm.title`; added `limits.deleteConfirm.message` body paragraph.
+- `settings.component.ts`: updated `onTestNotification()` feedback to use `i18n.t('settings.notifications.testSent')` instead of hardcoded English.
+- `en.json`, `ta.json`, `hi.json`: added `daily.voice.unsupportedBrowser`, `daily.deleteConfirm.title`, `daily.deleteConfirm.message`, `limits.deleteConfirm.title`, `limits.deleteConfirm.message`, `settings.notifications.testSent`.
+
+### Why
+- Native `alert()`/`confirm()` dialogs block the main thread, ignore app theming, and fail on some mobile WebView environments.
+- All user-facing confirmations and feedback must go through `ModalComponent` or `UserFeedbackService` to maintain design consistency and mobile reliability.
+- The core implementations (modal signals/methods) were already in place from prior sessions; this session completed the i18n key alignment and message body paragraphs the task specification required.
+
+### Verification
+- `npx vitest run daily-expense/daily-expense.component.spec.ts expense-limit/expense-limit.component.spec.ts settings/settings.component.spec.ts` — 91 tests passed.
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - SyncService Legacy Hardening
+
+### What was changed
+Made the legacy status of `SyncService` explicit and safe so that unexpected activation cannot silently write stale data to Google Sheets and new developers can clearly see this is not the primary persistence path.
+
+### Changes made
+- **`SyncService`** (`src/app/core/services/sync.service.ts`):
+  - File-level comment block was already present (added previously); verified it correctly directs readers to Drive/ExpenseStore.
+  - Added `pf_sheet_id` early-return guard to `enqueueDelete()` — if no Sheets ID is configured, logs a `console.warn` in dev mode and returns immediately.
+  - Added `pf_sheet_id` early-return guard to `enqueueUpdate()` — same pattern.
+  - Updated `flushQueue()` guard warning message to the canonical format `[SyncService] flushQueue skipped — no Sheets ID configured.` (was slightly different phrasing before).
+  - The guard in `enqueue()` (create path) was already correct and required no change.
+- **`ai/AI_RULES.md`**:
+  - Added three explicit rules under "Offline / Legacy Sheets Rules": do not delete `SyncService` or any of its methods; do not change existing callers; do not change the IndexedDB DB name or store name.
+
+### Key decisions
+- Existing `DailyExpenseComponent` callers that enqueue after Drive persistence are intentionally left in place — they are now no-ops when `pf_sheet_id` is absent, which is the normal production state.
+- No IndexedDB schema or DB name changes — preserving backward compatibility for any user who has items already in the queue.
+- Code is not deleted — retained for potential future Sheets migration tooling.
+
+### Files changed
+- `src/app/core/services/sync.service.ts`
+- `ai/AI_RULES.md`
+
+### Build
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - beforeunload Guard for Unsaved Daily Expense Drafts
+
+### What was changed
+Added a browser `beforeunload` guard to `DailyExpenseComponent` so users see the native "Leave site? Changes you made may not be saved" dialog when they have an unsaved draft or active receipt extraction and attempt to close/reload the tab.
+
+### Changes made
+- **`DailyExpenseComponent`** (`src/app/features/daily-expense/daily-expense.component.ts`):
+  - Added `HostListener` to the `@angular/core` import.
+  - Added `Capacitor` import from `@capacitor/core`.
+  - Added `onBeforeUnload(event: BeforeUnloadEvent)` method decorated with `@HostListener('window:beforeunload', ['$event'])`.
+  - Guard fires when: form is `touched` AND `amount > 0` (user has typed meaningful data), OR `receiptExtractionSession.extraction()` is non-null.
+  - Guard is a no-op on `Capacitor.isNativePlatform() === true` (native apps don't use browser unload events).
+
+### Key decisions
+- No changes to `DailyExpenseDraftService` — the draft persistence behavior is correct and this guard is purely a warning layer.
+- Used the existing `receiptExtractionSession` private field (already injected) rather than adding any new injection.
+- `event.returnValue = ''` required for Chrome compatibility in addition to `event.preventDefault()`.
+
+### Files changed
+- `src/app/features/daily-expense/daily-expense.component.ts`
+
+### Build
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - Dead-code Removal: detectProvider() and DATA_SAFETY.md Stripe/ipapi cleanup
+
+### What was changed
+Two isolated cleanup items in one commit.
+
+### Changes made
+- **`PaymentService`** (`src/app/core/services/payment.service.ts`): Removed `detectProvider()` public method, `#readCountryCache()` private helper, `spenza_payment_country` cache key constant, 7-day TTL constant, `StorageService` import, and `StorageService` inject. Only Razorpay-related methods (`openRazorpay`, `restoreSubscription`, `cancelSubscription`, `#verifyPayment`, `#razorpayKey`, `#loadRazorpayScript`) and `AuthService` remain.
+- **`docs/DATA_SAFETY.md`**: Payment Info section now references Razorpay only (removed "or Stripe (international)"); "Razorpay/Stripe are sub-processors" replaced with "Razorpay is a sub-processor under their own privacy policy"; country code detection bullet removed from Device Info; "No location" note simplified.
+
+### Key decisions
+- `StorageService` was injected only by the removed `#readCountryCache` helper, so the inject and import were safe to remove entirely.
+- The two CSS comment occurrences of "stripe" (a visual design term) in `daily-expense.component.ts` are not payment-provider references and were correctly left untouched.
+
+### Files changed
+- `src/app/core/services/payment.service.ts`
+- `docs/DATA_SAFETY.md`
+
+### Build
+- `grep -r "detectProvider\|ipapi\|stripe\|Stripe" src` — only two innocuous CSS design comments remain in `daily-expense.component.ts`; zero payment-provider references.
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - Finances: Payment History UI Polish & Delete Confirmation Refactor
+
+### What was built
+Enhanced the `FinancesComponent` payment history section for each debt card.
+
+### Changes made
+- **Always-visible payment history section**: Removed the `@if (debtPaymentsForDebt.length > 0)` guard; section now always renders under each debt card, showing a "No payments recorded yet" empty state when empty.
+- **Comment display**: Added `paymentComment(payment: DebtPayment): string` helper that resolves the linked `ExpenseEntry` comment; each history row now shows the comment (when present) below the date/account line.
+- **Date formatting**: Payment date now uses `| dateFormat` pipe for consistent formatting.
+- **New signals**: Replaced `deleteDebtPaymentTarget` with `confirmingDeletePayment = signal<DebtPayment | null>(null)` and added `isDeletingPayment = signal(false)` for isolated delete-in-progress state.
+- **New methods**: Added `requestPaymentDelete`, `cancelPaymentDelete`, `confirmPaymentDelete`; removed `requestDebtPaymentDelete` and `confirmDebtPaymentDelete`.
+- **Delete confirmation modal**: Changed from default ModalComponent actions to `showActions=false` with custom buttons matching the subscription-cancel confirmation pattern. Uses `isDeletingPayment` for spinner state.
+- **i18n keys added** (en, ta, hi): `finances.payments.history`, `finances.payments.noHistory`, `finances.payments.deleteConfirmTitle`, `finances.payments.deleteConfirmMessage`, `finances.feedback.debtPaymentDeleteFailed`.
+- **i18n keys updated**: `finances.feedback.debtPaymentDeleted` updated to shorter "Payment deleted." copy in all three locales.
+
+### Key decisions
+- Kept `saving` signal for all non-payment-delete loading states; `isDeletingPayment` scopes only the payment delete flow.
+- `paymentComment` looks up the linked `ExpenseEntry` by `expenseId` at render time — no extra storage needed on the `DebtPayment` model.
+- Old `deleteDebtPaymentTarget` and `finances.debts.deletePaymentTitle/Description` i18n keys are kept in place (they were in the i18n files) to avoid breaking anything that might reference them, but the modal no longer uses them.
+
+### Files changed
+- `src/app/features/finances/finances.component.ts` — signals, methods, template updates
+- `src/assets/i18n/en.json`, `ta.json`, `hi.json` — new and updated i18n keys
+
+### Build
+- `npm run build` — passed
+
+## 2026-06-05 - Phase 5: Debt Payment Reversal — Store Hardening & Tests
+
+### What was built
+Completed Phase 5 of `ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`. The `deleteDebtPayment` and `updateDebtPayment` store methods were already present; this session closed the remaining gaps and added focused pure-logic tests.
+
+### Gaps closed
+- **`deleteDebtPayment` — missing ExpenseEntry validation**: Added explicit "throw if not found" for the linked `ExpenseEntry` before mutating state (step 2 of the spec). Previously `applyAccountDeltas` would catch a missing account, but a missing expense silently passed through.
+- **`updateDebtPayment` — missing actor fields on updated entry**: Added `updatedByEmail: actor.email, updatedByRole: actor.role` to the updated `ExpenseEntry` so family activity attribution is preserved on edits.
+
+### Key decisions
+- **Pure-logic test pattern**: Tests follow the existing spec pattern — standalone pure helper functions that mirror store logic, tested without Angular `TestBed`. This avoids complex mocking of `GoogleDriveService`, `AuthService`, etc. in a vitest/node environment.
+- **Status logic `nextRemainingBalance === 0 ? 'paid' : 'active'`**: Correct as-is. After reversing a payment, `nextRemainingBalance` is always > 0 (capped at `principalAmount`), so paid debts are automatically reopened to `active`.
+- **`deleteDebtPayment` still doesn't validate the linked account explicitly** — `applyAccountDeltas` already throws with a user-friendly message if the account is missing or archived, so a redundant upfront check would duplicate that error path.
+
+### Files changed
+- `src/app/core/services/expense-store.service.ts` — added ExpenseEntry not-found guard in `deleteDebtPayment`; added `updatedByEmail/Role` to `updatedEntry` in `updateDebtPayment`
+- `src/app/core/services/expense-store.service.spec.ts` — added 14 new tests across `deleteDebtPayment`, `updateDebtPayment`, and `deleteEntry` debt-payment rejection
+
+### Verification
+- `npx vitest run src/app/core/services/expense-store.service.spec.ts` — 32 tests passed (18 existing + 14 new)
+- `npm run build` — passed
+
 ## 2026-06-04 - Subscription Cancellation Flow
 
 ### What was built

@@ -310,7 +310,10 @@
 
 ## Offline / Legacy Sheets Rules
 - Treat `SyncService` as legacy/Sheets queue unless a task explicitly revives it.
+- Do not delete `SyncService` or any of its methods; the service is retained for Google Sheets migration import compatibility.
 - Do not wire new Drive-backed expense mutations into `SyncService`.
+- All `SyncService` enqueue methods and `flushQueue()` guard on `pf_sheet_id` and return immediately when absent; existing callers in `DailyExpenseComponent` are harmless — do not remove or change those call sites.
+- Do not change the IndexedDB DB name (`pf-pwa-db`) or store name (`offline-queue`).
 - Keep Google Sheets import flow bulk-based:
   - Read Sheets data.
   - Write once to Drive through `ExpenseStore.importFromSheets()`.

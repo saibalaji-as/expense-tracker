@@ -1498,6 +1498,8 @@ export const ExpenseStore = signalStore(
           accountId: input.accountId,
           debtId: debt.id,
           source: 'debt-payment',
+          updatedByEmail: actor.email,
+          updatedByRole: actor.role,
         };
 
         patchState(store, {
@@ -1533,6 +1535,10 @@ export const ExpenseStore = signalStore(
         const payment = store.debtPayments().find((candidate) => candidate.id === paymentId);
         if (!payment) {
           throw new Error('Debt payment was not found.');
+        }
+        const existingEntry = store.entries().find((entry) => entry.id === payment.expenseId);
+        if (!existingEntry) {
+          throw new Error('Linked debt payment expense was not found.');
         }
         const debt = store.debts().find((candidate) => candidate.id === payment.debtId);
         if (!debt) {

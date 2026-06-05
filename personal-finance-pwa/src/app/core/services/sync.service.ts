@@ -9,6 +9,14 @@ const STORE_NAME = 'offline-queue';
 const DB_VERSION = 1;
 const MAX_RETRY_COUNT = 5;
 
+/**
+ * LEGACY — Sheets/IndexedDB offline queue. NOT the primary persistence path.
+ * Google Drive JSON backup (ExpenseStore) is the authoritative source of truth.
+ * This service remains only for Google Sheets migration import compatibility.
+ * Do NOT wire new expense mutations through this service.
+ * Do NOT call flushQueue() from new code paths.
+ * See ai/PROJECT_CONTEXT.md — "Offline And Sync" section.
+ */
 @Injectable({ providedIn: 'root' })
 export class SyncService {
   // ─── Task 6.1: online signal ──────────────────────────────────────────────────
@@ -73,6 +81,13 @@ export class SyncService {
   // ─── Task 6.2: enqueue ────────────────────────────────────────────────────────
 
   async enqueue(entry: ExpenseEntry): Promise<void> {
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
     if (isDevMode()) { console.log('[SyncService] Enqueuing entry:', entry.id); }
     const queueEntry: OfflineQueueEntry = {
       id: entry.id,
@@ -94,6 +109,13 @@ export class SyncService {
   // ─── Enqueue Delete Operation ─────────────────────────────────────────────────
 
   async enqueueDelete(entryId: string): Promise<void> {
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
     if (isDevMode()) { console.log('[SyncService] Enqueuing delete for entry:', entryId); }
     const queueEntry: OfflineQueueEntry = {
       id: crypto.randomUUID(), // Generate a unique ID for this queue entry
@@ -115,6 +137,13 @@ export class SyncService {
   // ─── Enqueue Update Operation ─────────────────────────────────────────────────
 
   async enqueueUpdate(entry: ExpenseEntry): Promise<void> {
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
     if (isDevMode()) { console.log('[SyncService] Enqueuing update for entry:', entry.id); }
     const queueEntry: OfflineQueueEntry = {
       id: crypto.randomUUID(), // Generate a unique ID for this queue entry
@@ -139,8 +168,10 @@ export class SyncService {
     if (isDevMode()) { console.log('[SyncService] flushQueue called'); }
     const sheetId = await this.storageService.get('pf_sheet_id') ?? '';
     if (!sheetId) {
-      if (isDevMode()) { console.warn('[SyncService] No sheet ID configured, skipping flush'); }
-      return;   // no sheet configured yet
+      if (isDevMode()) {
+        console.warn('[SyncService] flushQueue skipped — no Sheets ID configured.');
+      }
+      return;
     }
 
     const db = await this.getDb();

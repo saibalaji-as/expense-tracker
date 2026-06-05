@@ -370,11 +370,12 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
 
     <!-- Delete Custom Limit Confirmation Modal -->
     <app-modal
-      [title]="'limits.custom.deleteConfirm' | translate"
+      [title]="'limits.deleteConfirm.title' | translate"
       [isOpen]="showLimitDeleteModal()"
       [showActions]="false"
       (cancelled)="onLimitDeleteCancelled()"
     >
+      <p class="text-sm text-muted-foreground">{{ 'limits.deleteConfirm.message' | translate }}</p>
       <div class="mt-6 flex justify-end gap-3">
         <app-button variant="ghost" (click)="onLimitDeleteCancelled()">{{ 'common.cancel' | translate }}</app-button>
         <app-button variant="danger" (click)="onLimitDeleteConfirmed()">{{ 'common.confirm' | translate }}</app-button>

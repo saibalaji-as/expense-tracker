@@ -1957,10 +1957,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async onTestNotification(): Promise<void> {
     if (isDevMode()) { console.log('[Settings] Triggering test notification...'); }
     await this.localNotificationService.scheduleTestNotification();
-    this.feedback.success(
-      'Test notification scheduled.',
-      'It should appear in about 10 seconds if notifications are allowed.'
-    );
+    this.feedback.success(this.i18n.t('settings.notifications.testSent'));
   }
 
   // ─── Task 12.4: PWA install ───────────────────────────────────────────────────

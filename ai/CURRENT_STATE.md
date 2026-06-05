@@ -29,6 +29,14 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Native browser alert/confirm replacement (2026-06-05):
+  - All four remaining native `alert()`/`confirm()` call sites replaced with `ModalComponent` or `UserFeedbackService` toasts.
+  - Daily voice-unsupported warning now calls `feedback.warning()` using i18n key `daily.voice.unsupportedBrowser`.
+  - Daily delete-expense confirm now uses `ModalComponent` with `daily.deleteConfirm.title` title and `daily.deleteConfirm.message` body paragraph.
+  - Expense-limit custom-category delete confirm now uses `ModalComponent` with `limits.deleteConfirm.title` and `limits.deleteConfirm.message`.
+  - Settings test-notification handler now calls `feedback.success()` using i18n key `settings.notifications.testSent`.
+  - All six new i18n keys added to `en.json`, `ta.json`, and `hi.json`.
+  - `npx vitest run` (3 spec files, 91 tests) passed; `npm run build -- --configuration production` passed.
 - Subscription cancellation flow (2026-06-04):
   - `cancelRazorpaySubscription` Firebase Function added to `razorpay.ts` and exported from `index.ts`; deployed via updated `deploy-firebase.yml` alongside other Razorpay Functions.
   - Function calls `rzp.subscriptions.cancel(id, { cancel_at_cycle_end: true })` — user keeps Pro access until `expiresAt`; webhook fires `tier: free` at period end.
@@ -60,7 +68,7 @@
   - The external browser redeems the handoff code into Firebase Auth silently, avoiding a second user sign-in before checkout.
   - The Functions runtime service account has `roles/iam.serviceAccountTokenCreator` on itself so Firebase Admin can sign handoff custom tokens. Redemption records `redeemedAt` only after custom-token creation succeeds.
   - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
-  - Active checkout is Razorpay-only. Stripe client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented; `PaymentService.detectProvider()` remains as an unused legacy helper and should not be wired back into checkout.
+  - Active checkout is Razorpay-only. Stripe client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented. `PaymentService.detectProvider()`, `#readCountryCache()`, the `spenza_payment_country` cache key, the 7-day TTL constant, and the `StorageService` inject were removed on 2026-06-05 as dead code; do not rewire country-based provider selection or ipapi.co calls.
   - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.
   - Razorpay creation, verification, and webhook Functions were redeployed on Node.js 22 so production derives UID from the verified Firebase bearer token instead of the obsolete client request body.
   - Razorpay verification fetches the subscription from Razorpay to resolve the authoritative plan ID/current period end before writing Firestore subscription status.
@@ -114,8 +122,22 @@
   - Supported currency markers include INR forms (`₹`, `INR`, `Rs`, rupee), USD forms (`$`, `US$`, `USD`, dollar), and AED forms (`AED`, `د.إ`, `dh/dhs`, dirham).
   - The listener reads the current currency from `spenza_currency`, falls back to the cached Drive backup snapshot metadata, and uses that currency in the prompt amount display/dedupe key.
   - Added Android unit coverage for non-SMS rejection, selected-currency mismatch, USD SMS classification, and bare-amount rejection.
+- Finances payment history UI polish (2026-06-05):
+  - Payment history section under each debt card now always renders (even when empty), showing a "No payments recorded yet" message via `finances.payments.noHistory`.
+  - Each payment row now shows the linked ExpenseEntry comment when present.
+  - Delete confirmation modal refactored to use `showActions=false` with custom buttons (matching subscription cancel pattern); `isDeletingPayment` signal isolates delete loading state.
+  - Replaced `deleteDebtPaymentTarget`/`requestDebtPaymentDelete`/`confirmDebtPaymentDelete` with `confirmingDeletePayment`, `isDeletingPayment`, `requestPaymentDelete`, `cancelPaymentDelete`, `confirmPaymentDelete`.
+  - New helper `paymentComment(payment)` resolves comment from linked ExpenseEntry by `expenseId`.
+  - Added `finances.payments.*` and `finances.feedback.debtPaymentDeleteFailed` i18n keys in en, ta, hi; updated `debtPaymentDeleted` copy.
+  - `npm run build` — passed.
+- Debt/EMI Phase 5 — payment reversal store hardening (2026-06-05):
+  - `deleteDebtPayment` now explicitly throws if the linked `ExpenseEntry` is not found before mutating state.
+  - `updateDebtPayment` now sets `updatedByEmail` and `updatedByRole` on the updated expense entry for family activity attribution.
+  - Added 14 focused pure-logic spec tests covering `deleteDebtPayment`, `updateDebtPayment`, overpayment, overdraft rejection, and Daily `deleteEntry` debt-payment guard.
+  - `npx vitest run expense-store.service.spec.ts` — 32 tests passed.
+  - `npm run build` — passed.
 - Debt/EMI edit/delete logs:
-  - `ExpenseStore` now supports `deleteDebt`, `updateDebtPayment`, and `deleteDebtPayment`.
+  - `ExpenseStore` supports `deleteDebt`, `updateDebtPayment`, and `deleteDebtPayment`.
   - Debt payment edits reverse the previous payment effect, apply the new account/date/amount/comment, update the generated `Debt Payment` expense, update account balances, and recalculate debt remaining/status in one persisted mutation.
   - Debt payment deletes remove the generated `Debt Payment` expense, restore the payment account balance, increase the debt remaining balance, and persist the updated debt/account/payment arrays.
   - Finances now shows per-debt payment history with edit/delete controls.
@@ -411,6 +433,27 @@
   - Clear local cache.
   - Delete Spenza account data.
 
+- Dead-code removal and DATA_SAFETY.md cleanup (2026-06-05):
+  - Removed `detectProvider()`, `#readCountryCache()`, `spenza_payment_country` cache key, 7-day TTL, `StorageService` import/inject from `PaymentService`; only Razorpay-related methods remain.
+  - `docs/DATA_SAFETY.md` updated: Payment Info section now references only Razorpay; removed country code detection bullet from Device Info; cleaned up "No location" note.
+  - `npm run build -- --configuration production` passed.
+
+- beforeunload guard for unsaved Daily expense drafts (2026-06-05):
+  - Added `@HostListener('window:beforeunload')` to `DailyExpenseComponent`.
+  - Guard fires when the form is touched AND has a non-zero amount, OR when a receipt extraction is in progress/completed but not yet applied.
+  - Guard is skipped on native Capacitor platforms (`Capacitor.isNativePlatform() === true`).
+  - Added `HostListener` to `@angular/core` import; added `Capacitor` import from `@capacitor/core`.
+  - No changes to `DailyExpenseDraftService` or draft persistence behavior.
+  - `npm run build -- --configuration production` passed.
+
+- SyncService legacy hardening (2026-06-05):
+  - File-level comment block (already present) explicitly marks the class as LEGACY and directs readers to Drive/ExpenseStore for primary persistence.
+  - Added `pf_sheet_id` guard at the top of `enqueueDelete()` and `enqueueUpdate()`; both now return immediately when no Sheets ID is configured, matching the existing guard in `enqueue()`.
+  - Updated `flushQueue()` guard warning message to canonical format: `[SyncService] flushQueue skipped — no Sheets ID configured.`
+  - Existing callers in `DailyExpenseComponent` remain unchanged — they are harmless because all paths return early when `sheetId` is absent.
+  - Added explicit rules to `ai/AI_RULES.md` under Offline / Legacy Sheets Rules: do not delete SyncService methods, do not change callers, do not change the IndexedDB schema.
+  - `npm run build -- --configuration production` passed.
+
 ## Files Actively Touched In This Session
 - `personal-finance-pwa/functions/src/razorpay.ts`: added `cancelRazorpaySubscription` function; updated `createRazorpaySubscription` same-plan check to allow resubscription when `cancelPending === true`.
 - `personal-finance-pwa/functions/src/index.ts`: exported `cancelRazorpaySubscription`.
@@ -555,17 +598,11 @@
 - Some strings are still hardcoded English and bypass i18n.
 - `SettingsComponent` includes disabled/commented rotate-file UI and live rotation methods; treat as legacy unless revived deliberately.
 - `SyncService` and Sheets write paths remain but are not primary data path.
-- Browser alert/confirm are still used in some flows:
-  - Daily voice unsupported alert.
-  - Daily delete confirm.
-  - Expense limit custom delete confirm.
-  - Settings test notification alert.
 - `firebase.config.ts` contains public Firebase web config and stale TODO text; private credentials must remain in Netlify env only.
 
 ## Current Technical Debt
 - Split large standalone components into smaller presentational components and domain helpers.
 - Replace `console.log` debugging with quieter logging conventions or remove before production hardening.
-- Replace browser `alert()`/`confirm()` with `ModalComponent`/toast-style UI.
 - Decide whether legacy Sheets sync/offline queue should be removed, isolated behind migration naming, or revived intentionally.
 - Review i18n coverage and move remaining UI text into translation JSON.
 - Add/maintain tests around Drive mode switching, family folder access errors, receipt extraction fallback, and budget threshold calculations.

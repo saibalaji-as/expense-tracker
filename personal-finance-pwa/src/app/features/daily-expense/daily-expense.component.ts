@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   OnDestroy,
   OnInit,
   computed,
@@ -74,6 +75,7 @@ import {
   getCategoryIdByName,
 } from '../../core/models/category-definitions';
 import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
+import { Capacitor } from '@capacitor/core';
 
 interface SplitBillRow {
   id: string;
@@ -1406,11 +1408,12 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     <!-- Delete Expense Confirmation Modal -->
     @if (pendingDeleteEntry(); as entry) {
       <app-modal
-        [title]="i18n.t('daily.deleteConfirm', { category: getCatName(entry.type), amount: currencyService.format(entry.amount, i18n.locale()) })"
+        [title]="'daily.deleteConfirm.title' | translate"
         [isOpen]="showDeleteModal()"
         [showActions]="false"
         (cancelled)="onDeleteCancelled()"
       >
+        <p class="text-sm text-muted-foreground">{{ 'daily.deleteConfirm.message' | translate }}</p>
         <div class="mt-6 flex justify-end gap-3">
           <app-button variant="ghost" (click)="onDeleteCancelled()">{{ 'common.cancel' | translate }}</app-button>
           <app-button variant="danger" (click)="onDeleteConfirmed()">{{ 'common.confirm' | translate }}</app-button>
@@ -1813,6 +1816,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         }
       });
     });
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): void {
+    if (Capacitor.isNativePlatform()) return;
+    const hasDraft = this.form.touched && (this.form.get('amount')?.value ?? 0) > 0;
+    const hasExtraction = this.receiptExtractionSession.extraction() !== null;
+    if (hasDraft || hasExtraction) {
+      event.preventDefault();
+      event.returnValue = ''; // Required for Chrome
+    }
   }
 
   // ─── Type-selection logic ─────────────────────────────────────────────────
@@ -3153,7 +3167,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       this.feedback.warning(
         this.i18n.t('daily.voiceUnsupportedTitle'),
-        this.i18n.t('daily.voiceUnsupported')
+        this.i18n.t('daily.voice.unsupportedBrowser')
       );
       return;
     }
