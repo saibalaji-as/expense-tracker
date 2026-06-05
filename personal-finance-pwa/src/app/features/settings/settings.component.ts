@@ -168,63 +168,6 @@ interface BeforeInstallPromptEvent extends Event {
         </div>
       }
 
-      <!-- Widget promo (Android native only) -->
-      @if (isNativePlatform && widgetPromoVisible()) {
-        <app-section-card>
-          <div class="flex items-start gap-4">
-            <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white text-xl shadow-lg">📲</span>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <p class="font-semibold text-foreground">Home Screen Widget</p>
-                @if (!subscriptionService.isPro()) {
-                  <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
-                }
-              </div>
-              <p class="mt-1 text-xs text-muted-foreground">Add the Spenza widget to your home screen to log expenses instantly — without opening the app.</p>
-              @if (subscriptionService.isPro()) {
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    (click)="onAddWidget()"
-                    [disabled]="isRequestingPin()"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    @if (isRequestingPin()) {
-                      <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                    } @else {
-                      📲
-                    }
-                    Add Widget
-                  </button>
-                  <button
-                    type="button"
-                    (click)="onDismissWidgetPromo()"
-                    class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2 text-sm font-medium text-muted-foreground hover:border-primary/40"
-                  >
-                    Don't show again
-                  </button>
-                </div>
-                @if (!widgetPinSupported()) {
-                  <p class="mt-2 text-xs text-muted-foreground">To add manually: long-press your home screen → Widgets → Spenza.</p>
-                }
-              } @else {
-                <div class="mt-3">
-                  <a routerLink="/subscribe" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors">
-                    ✨ Upgrade to Pro
-                  </a>
-                </div>
-              }
-            </div>
-            <button
-              type="button"
-              (click)="onDismissWidgetPromo()"
-              aria-label="Dismiss widget promo"
-              class="shrink-0 rounded-lg p-1 text-muted-foreground hover:text-foreground"
-            >✕</button>
-          </div>
-        </app-section-card>
-      }
-
       <!-- Appearance -->
       <app-section-card
         [title]="'settings.appearance.title' | translate"
@@ -1397,12 +1340,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   protected readonly cancelling = signal(false);
   protected readonly showCancelConfirm = signal(false);
 
-  // ─── Widget promo ─────────────────────────────────────────────────────────────
-  readonly widgetPromoVisible = signal(false);
-  readonly widgetPinSupported = signal(false);
-  readonly isRequestingPin = signal(false);
-  private static readonly WIDGET_PROMO_DISMISSED_KEY = 'spenza_widget_promo_dismissed';
-
   private deleteAccountTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly beforeInstallHandler = (event: Event) => {
@@ -1428,9 +1365,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
 
-    if (this.isNativePlatform) {
-      void this.initWidgetPromo();
-    }
   }
 
   async onThemeChange(theme: 'light' | 'dark' | 'system'): Promise<void> {
@@ -1652,42 +1586,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } finally {
       this.cancelling.set(false);
     }
-  }
-
-  // ─── Widget promo ─────────────────────────────────────────────────────────────
-
-  private async initWidgetPromo(): Promise<void> {
-    const dismissed = await this.storageService.get(SettingsComponent.WIDGET_PROMO_DISMISSED_KEY);
-    if (dismissed === '1') return;
-    try {
-      const { supported } = await ExpenseWidget.isSupported();
-      this.widgetPinSupported.set(supported);
-    } catch {
-      this.widgetPinSupported.set(false);
-    }
-    this.widgetPromoVisible.set(true);
-  }
-
-  async onAddWidget(): Promise<void> {
-    if (this.isRequestingPin()) return;
-    this.isRequestingPin.set(true);
-    try {
-      const { supported } = await ExpenseWidget.requestPin();
-      if (supported) {
-        this.feedback.success('Widget request sent', 'Follow the system prompt to add the Spenza widget to your home screen.');
-      } else {
-        this.feedback.info('Not supported', 'Your launcher does not support pinning widgets this way. Long-press your home screen and choose Widgets to add it manually.');
-      }
-    } catch {
-      this.feedback.info('Add widget manually', 'Long-press your home screen, choose Widgets, and find Spenza.');
-    } finally {
-      this.isRequestingPin.set(false);
-    }
-  }
-
-  async onDismissWidgetPromo(): Promise<void> {
-    this.widgetPromoVisible.set(false);
-    await this.storageService.set(SettingsComponent.WIDGET_PROMO_DISMISSED_KEY, '1');
   }
 
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────

@@ -4,6 +4,7 @@ import { Subscription, filter } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
 import { ToastComponent } from './shared/components/toast/toast.component';
 import { AppShellComponent } from './shared/components/app-shell/app-shell.component';
+import { WidgetPromoDialogComponent } from './shared/components/widget-promo-dialog/widget-promo-dialog.component';
 import { ExpenseStore, driveError$ } from './core/services/expense-store.service';
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
@@ -18,7 +19,7 @@ const BOOTSTRAP_RETRY_DELAYS_MS = [750, 2000];
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, AppShellComponent],
+  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, AppShellComponent, WidgetPromoDialogComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
