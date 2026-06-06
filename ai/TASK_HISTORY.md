@@ -1,5 +1,188 @@
 # Task History
 
+## 2026-06-06 - Migration Path for Shared-Drive Family Users + Cleanup (Prompt 7 of Family Sync Migration)
+
+### What was changed
+- **`app.ts`**:
+  - Added `needsFamilyMigration` and `migrationBannerDismissed` signals (both public, readonly).
+  - Added `dismissMigrationBanner()` method (called from template).
+  - Added `checkLegacyFamilyMode()` private method — reads mode/sharedFileId/familyFolderId/getFamilyId signals and sets `needsFamilyMigration` when user is in old Drive-based family mode with no Firestore ID.
+  - Called `checkLegacyFamilyMode()` after `loadFromDrive()` in both `bootstrapData` (non-cached path) and `bootstrapDriveInBackground` (cached path).
+  - Fixed `tryLoadCachedStartupData`: localSetupComplete now also accepts `!!getFamilyId()` so Firestore-backed family users (null sharedFileId) can use the fast cached startup path.
+  - Fixed bootstrap redirect guard: `if (mode === 'family' && !getSharedFileId())` now also requires `!getFamilyId()` before redirecting to /family-setup. This prevents Firestore family users from being incorrectly bounced into family setup on every startup — a bug introduced when sharedFileId was set to null in Prompt 4.
+  - Same guard fixed in `bootstrapDriveInBackground` early-return condition.
+- **`app.html`**: Added dismissible amber banner inside the `@else` (loaded) block. Banner text: "Spenza's family sync has been updated. Please go to Settings → Family to reconnect with your partner." Dismiss button calls `dismissMigrationBanner()`.
+- **`settings.component.ts`**:
+  - Added migration prompt card (amber border, amber bg) before the owner/partner family status blocks. Shown when `mode === 'family' && !firestoreFamilyId()`. Contains "Update now" button navigating to `/family-setup` and subtext about reconnect time.
+  - Updated Owner block condition to require `firestoreFamilyId()` — hides Firestore-dependent UI (partner email, generate invite) from old Drive users who can't use those flows.
+  - Updated Partner block condition to require `firestoreFamilyId()` — same reason.
+- **`google-drive.service.ts`**: Added `// TODO: Remove after 2026-09-01 — no users should be on old shared-Drive family mode by then.` above all four deprecated legacy family methods: `createFamilyFolderBundle`, `findExistingFamilyFolderBundle`, `findBackupFileInFolder`, `findOrCreateReceiptsFolderInFamilyFolder`.
+- **`docs/DATA_SAFETY.md`**: Added "Family Sync" section — Firestore-only delta sync, amounts/categories/dates only (no comments/receipts), deleted on dissolve.
+- **`docs/OAUTH_SCOPE_JUSTIFICATION.md`**: Updated `drive.appdata` section to clarify it applies to ALL users (single and family) now that family no longer uses shared Drive. Removed stale "Spenza Family folder" reference from What Spenza Does NOT Do list.
+- **`ai/AI_RULES.md`**: Added two rules under Google Auth / Drive Rules:
+  - Keep family mode folder-based logic deprecated; do not add new features against the four deprecated methods.
+  - Family sync uses Firestore activity deltas for expenses only; accounts/debts/limits/income sync via Drive polling.
+- **`ai/CURRENT_STATE.md`**: Updated Active Project Shape family mode description; prepended Prompt 7 to Recently Completed Features.
+
+### Why these decisions were made
+- Migration detection is non-blocking by design: old Drive family mode still works (sharedFileId is still stored and Drive polling still reads the shared backup). The banner is informational only.
+- The Firestore bootstrap bug fix (null sharedFileId causing redirect to /family-setup) was a silent regression from Prompt 4. New Firestore family users with no sharedFileId were being incorrectly treated as "family setup incomplete". The fix correctly distinguishes old Drive mode (sharedFileId set, no firestoreFamilyId) from new Firestore mode (firestoreFamilyId set, null sharedFileId).
+- Owner/partner blocks gated on `firestoreFamilyId()` prevents misleading UI: old users can't generate Firestore invite codes, and the partner email display would always be empty (null familyDoc). Migration card replaces that confused state with a clear action.
+- TODO removal date set to 2026-09-01 — 3 months to ensure all active sessions have migrated.
+- `docs/` updates keep OAuth verification and data safety documentation accurate after the family mode architecture change.
+
+### Build verification
+- `npm run build -- --configuration production` in `personal-finance-pwa/` — zero errors.
+- `npm run build` in `functions/` — zero errors.
+- `grep -r "createFamilyFolderBundle|findBackupFileInFolder|findExistingFamilyFolderBundle" personal-finance-pwa/src/app/features` — 0 results.
+
+## 2026-06-06 - Settings Family Status UI for New Architecture (Prompt 6 of Family Sync Migration)
+
+### What was changed
+- **`functions/src/family.ts`**: Added `dissolveFamily` Firebase Function v2 — POST only, requires Firebase ID token, verifies caller is owner of `families/{familyId}`, sets `status: 'dissolved'` and `updatedAt`, returns `{ success: true }`.
+- **`functions/src/index.ts`**: Imported and exported `dissolveFamily`.
+- **`core/services/family-api.service.ts`**: Added `dissolveFamily(familyId)` method — same pattern as other family API methods (Bearer token, POST, throws FamilyApiError on non-200).
+- **`features/settings/settings.component.ts`**:
+  - Added imports: `FamilyDocument`, `FamilyApiService`, `firebaseConfig`.
+  - Injected `FamilyApiService`.
+  - New signals: `familyDoc`, `isGeneratingInvite`, `generatedInviteCode`, `inviteCodeExpiry`, `isLeavingFamily`, `isLeaveFamilyModalOpen`.
+  - `ngOnInit` now calls `loadFamilyDoc()` when mode is 'family' and `firestoreFamilyId` is set.
+  - `loadFamilyDoc()`: dynamic firebase import → `getDoc(doc(db, 'families', familyId))` → sets `familyDoc` signal.
+  - `onGenerateInvite()`: calls `FamilyApiService.createFamilyInvite(familyId)`, sets `generatedInviteCode` and `inviteCodeExpiry`.
+  - `onCopyInviteCode()`: copies invite code to clipboard.
+  - `onLeaveFamily()`: opens leave family modal.
+  - `onLeaveFamilyConfirmed()`: calls `dissolveFamily` (owner only, non-fatal), clears `firestoreFamilyId`, closes modal, then calls existing `#executeModeSwitch()`.
+  - Family owner template block: replaced Drive folder ID input + Open-in-Drive link with partner email status + generate invite + leave family buttons.
+  - Family partner template block: replaced Drive folder ID input with owner email + leave family button.
+  - Added invite code modal (app-modal, showActions=false) with code field + copy button + done button.
+  - Added leave family confirmation modal with owner/partner-specific messaging and loading state.
+- **`assets/i18n/en.json`, `hi.json`, `ta.json`**: Added 6 keys — `settings.family.noPartner/partner/owner/generateInvite/inviteGenerated/inviteExpiry`.
+
+### Why these decisions were made
+- `dissolveFamily` as a Firebase Function keeps all write authority server-side — clients cannot directly modify `families/{familyId}` status per Firestore rules.
+- `onLeaveFamilyConfirmed` calls `dissolveFamily` for owner only (non-fatal failure) because the partner leaving doesn't dissolve the family — the owner must do that. Partner leaving is just local state cleanup + mode switch.
+- The existing `#executeModeSwitch()` already handles Drive family→single backup migration, `clearAll()`, sign-out, and navigation — reusing it avoids duplicating complex state cleanup.
+- `loadFamilyDoc()` uses the same dynamic Firebase import pattern as `FamilySyncService` and `SubscriptionService` — no new static dependency added to the component.
+- `familyDriveUrl()` and `onCopySharedFileId()` methods retained unchanged since they're still used by the owner switch-warning modal.
+
+### Build verification
+- `npm run build` in `functions/` — zero errors.
+- `npm run build -- --configuration production` in `personal-finance-pwa/` — zero errors.
+
+## 2026-06-06 - Remove Full Drive Scope + Auth Update (Prompt 5 of Family Sync Migration)
+
+### What was changed
+- **`auth.service.ts`**: Removed `DRIVE_SCOPE` constant (`https://www.googleapis.com/auth/drive`) and its explanatory comment. Updated `ALL_SCOPES` to exclude the full drive scope — now requests only `openid email profile spreadsheets drive.appdata`. Bumped `SCOPE_VERSION` from `'7'` to `'8'` with comment `v8 = removed full drive scope (family sync now uses Firestore)`. Removed `DRIVE_SCOPE` from the native `#nativeSignIn` scopes array.
+- **`google-drive.service.ts`**: Added `@deprecated LEGACY — shared Drive folder family mode. No longer called by new Firestore-backed family sync. Safe to delete after confirming no existing users are on old family mode.` JSDoc to `createFamilyFolderBundle()`, `findExistingFamilyFolderBundle()`, `findBackupFileInFolder()`, `findOrCreateReceiptsFolderInFamilyFolder()`. Methods are retained for migration path.
+- **`docs/OAUTH_SCOPE_JUSTIFICATION.md`**: Replaced the `## drive scope` section with `## drive scope — REMOVED` explaining the Firestore migration rationale.
+- **`docs/DATA_SAFETY.md`**: Updated "Google Drive file access (backup files only)" to "Google Drive AppData folder access (private backup files only, not user-visible files)" to accurately reflect that no user-visible Drive files are accessed.
+- **`ai/AI_RULES.md`**: Replaced the stale rule `Preserve full Drive scope unless a deliberate auth redesign is made: Family partner access depends on shared-file/folder access.` with `Do not re-add the full drive scope. Family sync uses Firestore. Only drive.appdata is needed.`
+- **`ai/PROJECT_CONTEXT.md`**: Updated Required scopes list (removed Full Drive entry) and `SCOPE_VERSION` from `'6'` → `'8'`.
+
+### Why
+- Prompt 5 of the Firestore-backed family sync migration. Now that family sync runs entirely through Firestore (Prompts 1–4), no user reads another user's Drive file. The full `drive` scope was the only reason for requesting access beyond AppData.
+- Dropping the scope shrinks the OAuth consent surface and removes the requirement that prompted Google's OAuth verification for the `drive` scope.
+- `SCOPE_VERSION` bump to `'8'` forces all users with cached auth state to re-consent on their next sign-in, which drops the previously granted `drive` scope from their OAuth grant.
+- `BackupModeService.setFamilyConfig()` null-handling was already done in Prompt 4 — no further changes needed.
+
+### Verification
+- `grep -r '"https://www.googleapis.com/auth/drive"' personal-finance-pwa/src` — 0 results.
+- `npm run build -- --configuration production` — zero errors.
+
+## 2026-06-06 - FamilySetupComponent: Invite-Code Flow (Prompt 4 of Family Sync Migration)
+
+### What was changed
+- **`family-setup.component.ts`** — complete rewrite:
+  - New step union type: `'role-select' | 'owner-creating' | 'owner-ready' | 'partner-enter-code' | 'partner-joining' | 'done' | 'owner-paywall'`.
+  - All `GoogleDriveService` references removed from the component (service itself kept for migration fallback).
+  - Owner flow: Pro gate → `createFamily()` → `createFamilyInvite()` → `setFirestoreFamilyId()` → `setFamilyConfig(null, null, 'owner')` → `startListening()` → owner-ready step shows invite code.
+  - Owner-ready: invite code displayed in large monospace font with copy-to-clipboard + 24h expiry note + instruction + "Continue to app" button.
+  - `createFamily` failure → `userFeedback.error` toast, back to role-select.
+  - `createFamilyInvite` failure → error banner in owner-creating step with retry button (retries from stored `#pendingFamilyId`).
+  - Partner flow: enter 8-char invite code (uppercase, maxlength 8) → `redeemFamilyInvite()` → `setFirestoreFamilyId()` → `setFamilyConfig(null, null, 'partner')` → `startListening()` → `/daily`.
+  - Partner errors: 404 → expired/invalid message; 409 → already-used message; other → network error message.
+  - Error messages are i18n keys rendered via TranslatePipe in template.
+  - Pro paywall step and `onGoToPro()` logic preserved unchanged.
+  - Services injected: `FamilyApiService`, `FamilySyncService`, `BackupModeService`, `SubscriptionService`, `AuthService`, `UserFeedbackService`, `Router`.
+  - Lucide icons: `Crown, Users, Copy, Check, Loader2, AlertCircle, Lock` (removed `ExternalLink` since Drive link is gone).
+- **`family-api.service.ts`**: Added `export class FamilyApiError extends Error` with `status: number` field. All three methods now throw `FamilyApiError(status, message)` instead of generic `Error`.
+- **`functions/src/family.ts`**: `redeemFamilyInvite` error handler now returns 409 for "already redeemed", 404 for "not found / expired / owner-self-redeem / family not found", 401 for unexpected failures. Was 400 for all client errors.
+- **`backup-mode.service.ts`**: `setFamilyConfig(fileId: string | null, ...)` — first parameter widened from `string` to `string | null`. Storage write now removes the `CACHE_KEY_SHARED_FILE_ID` key when null, same pattern already used for `folderId`.
+- **`en.json`, `ta.json`, `hi.json`**: 11 new `family.invite.*` keys: `ownerReady.title/expiry/instruction/continue`, `partner.title/description/placeholder/connect`, `error.expired/alreadyUsed/network`.
+
+### Why
+- Prompt 4 of the Firestore-backed family sync migration. Replaces the Drive-folder-sharing family setup with an invite-code flow backed by the Firebase Functions added in Prompt 1.
+- Drive-based family setup remains in place as a migration fallback — this prompt only replaces the setup component UI/logic.
+- `setFamilyConfig(null, null, role)` is intentional: the new flow does not create/share a Drive folder; `sharedFileId` and `familyFolderId` remain null for Firestore-backed families.
+- `FamilyApiError` was needed so the component can distinguish 404 (expired) from 409 (already used) without parsing error message strings.
+- Firebase function status codes were updated to match the semantics the component expects (404/409), making the HTTP contract explicit.
+
+### Verification
+- `npm run build -- --configuration production` — zero errors.
+
+## 2026-06-06 - ExpenseStore: Push Deltas + Merge Incoming Deltas (Prompt 3 of Family Sync Migration)
+
+### What was changed
+- **`BackupModeService`**: Added `CACHE_KEY_FIRESTORE_FAMILY_ID = 'spenza_firestore_family_id'` cache key; `readonly firestoreFamilyId = signal<string | null>(null)` signal; loads and persists the signal in `#loadFromCache()`; clears it in `clearFamilyState()`, `clearAll()`, and `clearLocalCacheForAccountSwitch()`; added `getFamilyId(): string | null` getter and `setFirestoreFamilyId(id: string | null): Promise<void>` setter.
+- **`expense-store.service.ts`**: Added imports for `FamilyActivityDelta` and `FamilySyncService`. Added module-level `buildDelta()` function that constructs an `Omit<FamilyActivityDelta, 'activityId'>` from an action, entry, and author context. Injected `familySyncService` in `withMethods`. Added `pushFamilyDelta()` private helper inside `withMethods` — fire-and-forget, only acts when mode is `'family'`, familyId, uid, and role are all set. Added delta pushes after `markLocalChangeAndPersist()` in: `addEntry` (create, skips debt-payment), `addEntries` (one create per entry), `deleteEntry` (delete, if entry was found), `updateEntry` (update), `recordDebtPayment` (create), `updateDebtPayment` (update), `deleteDebtPayment` (delete). Added `activity$` subscription before `return methods;` — merges partner deltas by skipping own-authored ones, handles create/update/delete on `entries` array only, sorts by timestamp desc, then increments `localRevision` and calls `persistToDrive()` fire-and-forget.
+- **`app.ts`**: Imported and injected `FamilySyncService`. Added private `tryStartFamilySync()` method that calls `familySyncService.startListening(familyId, uid)` when mode is `'family'` and both familyId and uid are present. Called from `bootstrapData()` (after cached restore path) and `bootstrapDriveInBackground()` (after Drive bootstrap). Added `familySyncService.stopListening()` to `ngOnDestroy()`.
+
+### Why
+- Prompt 3 of the Firestore-backed family sync migration. Wires `FamilySyncService` into `ExpenseStore` so that every owner/partner expense mutation publishes a delta to Firestore, and incoming partner deltas are merged into local state and Drive backup in real time.
+- Delta push is always fire-and-forget — never blocks the save path.
+- Incoming deltas only modify `entries` array; accounts/debts/limits/income continue to sync via Drive polling.
+- `getFamilyId()` in `BackupModeService` stores the Firestore family document ID (different from Drive folder ID) so the listener can be started from cached state on subsequent app loads.
+- `tryStartFamilySync()` is guarded so it silently no-ops for existing users who have not yet gone through the Firestore family invite flow.
+
+### Verification
+- `npx vitest run src/app/core/services/expense-store.service.spec.ts` — 32 tests passed.
+- `npm run build -- --configuration production` — zero errors.
+
+## 2026-06-06 - FamilySyncService + FamilyApiService (Prompt 2 of Family Sync Migration)
+
+### What was changed
+- **`AuthService`**: Added `getFirebaseIdToken(): Promise<string | null>` — calls `auth.authStateReady()` then returns `currentUser.getIdToken()` or `null` if no Firebase user is available. Does not attempt re-authentication. Used by `FamilyApiService`.
+- **NEW `family-sync.service.ts`**: providedIn root service that owns the real-time Firestore connection for family activity deltas.
+  - Signals: `familyId`, `partnerEmail`, `syncStatus` (`'idle'|'connected'|'error'`), `lastSyncAt`.
+  - `activity$: Observable<FamilyActivityDelta[]>` backed by a private RxJS `Subject`.
+  - `startListening(familyId, currentUid)`: calls `ensureFirebaseSignedInSilently`, then attaches `onSnapshot` on `families/{familyId}/activity` ordered by `timestamp` desc, limit 200. Tracks processed IDs in a `Set`; emits only unseen deltas. Sets `syncStatus='connected'` on first snapshot, `'error'` on Firestore failure with one 3s retry. Updates `lastSyncAt` on every snapshot. Follows same lazy `#getDb()` / private-field pattern as `SubscriptionService`.
+  - `stopListening()`: detaches listener, resets `familyId`/`partnerEmail`/`syncStatus` to idle.
+  - `pushDelta(familyId, delta)`: uses `addDoc` directly; no pre-auth (caller responsibility).
+- **NEW `family-api.service.ts`**: thin HTTP wrapper for the three Firebase Functions.
+  - `createFamily()`, `createFamilyInvite(familyId)`, `redeemFamilyInvite(inviteCode)`.
+  - Each method fetches a null-safe `getFirebaseIdToken()`, sends a POST with `Authorization: Bearer` and `Content-Type: application/json`, throws a descriptive `Error` on non-200.
+  - `functionsBase` is a getter pointing to `https://us-central1-spenza-notifications.cloudfunctions.net`.
+
+### Why
+- Phase 2 of the Firestore-backed family sync migration. Phase 1 added the data model, rules, and Cloud Functions. This phase adds the Angular services that will be consumed by `ExpenseStore` (subscribe to `activity$`) and `FamilySetupComponent` (call `FamilyApiService` methods).
+- `FamilySyncService` uses a `Subject` (not `BehaviorSubject`) deliberately — subscribers get only fresh deltas as they arrive; `ExpenseStore` is responsible for merging incoming deltas into Drive-backed state.
+- `getFirebaseIdToken()` returns null rather than throwing so `FamilyApiService` can surface a clean error without an uncaught exception path when Firebase Auth is unavailable.
+- No component or store wiring in this prompt — Drive-backed family mode remains unchanged.
+
+### Verification
+- `npm run build -- --configuration production` in `personal-finance-pwa` — passed, zero errors.
+
+## 2026-06-06 - Firestore Data Model + Security Rules for Firestore-Backed Family Sync (Additive)
+
+### What was changed
+- **NEW** `personal-finance-pwa/src/app/core/models/family-sync.model.ts`: Four TypeScript interfaces for the new Firestore-backed family sync architecture — `FamilyDocument`, `FamilyActivityDelta`, `ExpenseDeltaPayload`, `FamilyInvite`. No existing code touched.
+- **`personal-finance-pwa/src/app/core/models/index.ts`**: Added `export * from './family-sync.model'` at end of list.
+- **`personal-finance-pwa/firestore.rules`**: Replaced with expanded rules covering the new collections (`families`, `families/{id}/activity`, `familyInvites`) plus the existing subscription rule. Includes a `isFamilyMember()` helper. Activity deltas are client-writable but immutable after creation; family doc and invite doc writes are Functions-only.
+- **NEW** `personal-finance-pwa/functions/src/family.ts`: Three Firebase Functions v2 onRequest stubs — `createFamily` (idempotent), `createFamilyInvite` (owner-only, 24h TTL, 8-char code), `redeemFamilyInvite` (transactional partner join). Each uses a local `requireFamilyAuth` helper to get both `uid` and `email` from the bearer token (differs from the single-UID `requireFirebaseUid` helper because family flows also need email).
+- **`personal-finance-pwa/functions/src/index.ts`**: Added import and exports for `createFamily`, `createFamilyInvite`, `redeemFamilyInvite`.
+- **`personal-finance-pwa/functions/tsconfig.json`**: Added `"exclude": ["src/stripe.ts"]` — Stripe was removed from package.json and index.ts in a prior session but `stripe.ts` was left behind; without the exclusion TypeScript fails to find the `stripe` module type declarations, breaking the build.
+
+### Why
+- This is Phase 1 of the Drive-free family sync migration: replace the shared-Drive-folder model with Firestore so only the `drive.appdata` scope is needed (full Drive scope can be removed in a later prompt).
+- Doing this additively (no changes to BackupModeService, ExpenseStore, GoogleDriveService, or Angular components) means existing Drive-backed family mode keeps working until the client integration is wired in a follow-up prompt.
+- `FamilyDocument` and `FamilyActivityDelta` are intentionally separate collections so activity history can be queried and paginated independently of the family membership record.
+- Invites use a random 8-char alphanumeric code (stored as the document ID) so the partner can enter a short human-readable code rather than a Firestore auto-ID.
+- `redeemFamilyInvite` runs a Firestore transaction to prevent double-redemption under concurrent requests.
+
+### Verification
+- `npm run build` in `personal-finance-pwa/functions` — passed (0 errors).
+- `npm run build -- --configuration production` in `personal-finance-pwa` — passed.
+
 ## 2026-06-05 - Replace Native Browser alert/confirm With Design System UI
 
 ### What was changed

@@ -3,6 +3,8 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
 import { budgetThresholdExceeded$ } from './budget-events';
+import { FamilyActivityDelta } from '../models/family-sync.model';
+import { FamilySyncService } from './family-sync.service';
 import {
   AccountBalanceAdjustment,
   AdjustAccountBalanceInput,
@@ -68,6 +70,30 @@ interface WidgetAdjustmentQueueItem extends WidgetExpenseQueueItemBase {
 type WidgetExpenseQueueItem = WidgetExpenseEntryQueueItem | WidgetAdjustmentQueueItem;
 
 type AccountBalanceDelta = Map<string, number>;
+
+// ─── Family Sync Delta Builder ────────────────────────────────────────────────
+
+function buildDelta(
+  action: 'create' | 'update' | 'delete',
+  entry: ExpenseEntry,
+  familyId: string,
+  authorUid: string,
+  authorEmail: string,
+  authorRole: 'owner' | 'partner'
+): Omit<FamilyActivityDelta, 'activityId'> {
+  const now = new Date().toISOString();
+  return {
+    familyId,
+    authorUid,
+    authorEmail,
+    authorRole,
+    action,
+    expenseId: entry.id,
+    payload: action === 'delete' ? null : { ...entry },
+    timestamp: now,
+    clientWrittenAt: now,
+  };
+}
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -280,6 +306,7 @@ export const ExpenseStore = signalStore(
     backupModeService = inject(BackupModeService),
     currencyService = inject(CurrencyService),
     authService = inject(AuthService),
+    familySyncService = inject(FamilySyncService),
   ) => {
     let localRevision = 0;
     let persistedRevision = 0;
@@ -761,6 +788,21 @@ export const ExpenseStore = signalStore(
       return true;
     };
 
+    const pushFamilyDelta = (
+      action: 'create' | 'update' | 'delete',
+      entry: ExpenseEntry
+    ): void => {
+      if (backupModeService.getMode() !== 'family') return;
+      const familyId = backupModeService.getFamilyId();
+      const currentUid = authService.firebaseUid();
+      const currentRole = backupModeService.getOwnerRole();
+      if (!familyId || !currentUid || !currentRole) return;
+      const delta = buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole);
+      familySyncService.pushDelta(familyId, delta).catch((err) => {
+        console.warn('[ExpenseStore] Family delta push failed (non-blocking):', err);
+      });
+    };
+
     const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
       await methods.persistToDrive();
@@ -820,6 +862,9 @@ export const ExpenseStore = signalStore(
         }
         
         await markLocalChangeAndPersist();
+        if (entry.source !== 'debt-payment' && !entry.debtId) {
+          pushFamilyDelta('create', entry);
+        }
       },
 
       async addEntries(entries: ExpenseEntry[]): Promise<void> {
@@ -852,6 +897,9 @@ export const ExpenseStore = signalStore(
         }
 
         await markLocalChangeAndPersist();
+        for (const entry of entries) {
+          pushFamilyDelta('create', entry);
+        }
       },
 
       // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
@@ -1445,6 +1493,7 @@ export const ExpenseStore = signalStore(
           debtPayments: [payment, ...store.debtPayments()],
         });
         await markLocalChangeAndPersist();
+        pushFamilyDelta('create', entry);
       },
 
       async updateDebtPayment(paymentId: string, input: UpdateDebtPaymentInput): Promise<void> {
@@ -1529,6 +1578,7 @@ export const ExpenseStore = signalStore(
           ),
         });
         await markLocalChangeAndPersist();
+        pushFamilyDelta('update', updatedEntry);
       },
 
       async deleteDebtPayment(paymentId: string): Promise<void> {
@@ -1571,6 +1621,7 @@ export const ExpenseStore = signalStore(
           debtPayments: store.debtPayments().filter((candidate) => candidate.id !== payment.id),
         });
         await markLocalChangeAndPersist();
+        pushFamilyDelta('delete', existingEntry);
       },
 
       // ─── Task 6.7: deleteEntry ────────────────────────────────────────────
@@ -1590,6 +1641,9 @@ export const ExpenseStore = signalStore(
         );
         patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
         await markLocalChangeAndPersist();
+        if (existingEntry) {
+          pushFamilyDelta('delete', existingEntry);
+        }
       },
 
       // ─── Task 6.7: updateEntry ────────────────────────────────────────────
@@ -1614,6 +1668,7 @@ export const ExpenseStore = signalStore(
         );
         patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
         await markLocalChangeAndPersist();
+        pushFamilyDelta('update', updatedEntry);
       },
 
       // ─── Task 6.2: loadFromDrive ──────────────────────────────────────────
@@ -1811,6 +1866,40 @@ export const ExpenseStore = signalStore(
         }
       },
     };
+
+    // Subscribe to incoming partner deltas for the lifetime of the store.
+    familySyncService.activity$.subscribe((deltas) => {
+      if (!deltas.length) return;
+
+      patchState(store, (state) => {
+        let entries = [...state.entries];
+
+        for (const delta of deltas) {
+          // Skip our own deltas — already applied locally.
+          if (delta.authorUid === authService.firebaseUid()) continue;
+
+          if (delta.action === 'delete') {
+            entries = entries.filter((e) => e.id !== delta.expenseId);
+          } else if (delta.action === 'create') {
+            if (!entries.find((e) => e.id === delta.expenseId) && delta.payload) {
+              entries = [...entries, delta.payload as ExpenseEntry];
+            }
+          } else if (delta.action === 'update') {
+            if (delta.payload) {
+              entries = entries.map((e) =>
+                e.id === delta.expenseId ? (delta.payload as ExpenseEntry) : e
+              );
+            }
+          }
+        }
+
+        entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        return { entries };
+      });
+
+      localRevision += 1;
+      void methods.persistToDrive();
+    });
 
     return methods;
   })

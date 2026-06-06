@@ -1,14 +1,46 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Only the authenticated user may read their own subscription status.
-    // Writes come exclusively from Cloud Functions (Admin SDK) and are not
-    // permitted from the client at all.
+    // ── Existing: subscription status (read-only for authenticated user) ──
     match /users/{uid}/subscription/{document=**} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
+    }
+
+    // ── New: family document (read-only for members) ──
+    match /families/{familyId} {
+      allow read: if request.auth != null &&
+        (resource.data.ownerUid == request.auth.uid ||
+         resource.data.partnerUid == request.auth.uid);
+      allow write: if false; // Firebase Functions only
+    }
+
+    // ── New: family activity deltas (members read; author writes own delta) ──
+    match /families/{familyId}/activity/{activityId} {
+      allow read: if request.auth != null &&
+        isFamilyMember(familyId);
+      // Client writes their own delta directly (no Function needed for writes)
+      allow create: if request.auth != null &&
+        isFamilyMember(familyId) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        request.resource.data.familyId == familyId;
+      allow update, delete: if false; // deltas are immutable
+    }
+
+    // ── New: family invites (owner reads their own; redeemer reads by code) ──
+    match /familyInvites/{inviteCode} {
+      allow read: if request.auth != null &&
+        (resource.data.ownerUid == request.auth.uid ||
+         resource.data.redeemedAt == null);
+      allow write: if false; // Firebase Functions only
+    }
+
+    // ── Helper ──
+    function isFamilyMember(familyId) {
+      let family = get(/databases/$(database)/documents/families/$(familyId)).data;
+      return family.ownerUid == request.auth.uid ||
+             family.partnerUid == request.auth.uid;
     }
 
     // Deny everything else.

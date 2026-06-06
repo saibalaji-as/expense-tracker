@@ -5,23 +5,25 @@ used by Spenza, for submission to Google's OAuth verification form.
 
 ---
 
-## `drive` scope
+## `drive` scope — REMOVED
 
-Spenza supports a Family Mode where two users (owner and partner) share a
-single expense backup file stored in a Google Drive folder. The partner must
-access a file shared by the owner — this requires the full `drive` scope
-because `drive.file` only grants access to files created by the app itself,
-not files shared by another user. Without `drive` scope, the family sync
-feature cannot function.
+The `drive` scope was previously required for family mode's shared Google Drive
+folder. Family sync has been redesigned to use Firestore instead of a shared
+Drive file. Each user now stores data only in their own private Drive AppData
+folder. The `drive` scope is no longer requested.
 
 ---
 
 ## `drive.appdata` scope
 
-Spenza stores its configuration file (`spenza-config.json`) and single-user
-backup file (`spenza-backup.json`) in the Drive AppData folder — a private,
-hidden folder only accessible by Spenza. No user files are read or modified.
-This scope is used exclusively for Spenza's own backup data.
+Spenza stores its configuration file (`spenza-config.json`) and expense backup
+file (`spenza-backup.json`) in the Drive AppData folder — a private, hidden
+folder only accessible by Spenza. No user files are read or modified.
+
+This scope is used by **all users** (both single and family mode). Family sync
+now uses Firestore for real-time activity deltas; the shared Google Drive folder
+approach was removed in v8. The `drive.appdata` scope remains the sole Drive
+permission needed for backup and config storage regardless of family status.
 
 ---
 
@@ -35,8 +37,8 @@ used for ongoing data access.
 ---
 
 ## What Spenza Does NOT Do
-- Does not read any user files outside the Spenza Family folder
-- Does not modify any user files outside Spenza backup files
+- Does not read any user files outside the Drive AppData folder
+- Does not modify any user files outside Spenza backup/config files
 - Does not share any Drive data with third parties
 - Does not access Drive continuously — only on user action or the 30-second
-  background poll for family sync changes
+  background poll for changed backup data

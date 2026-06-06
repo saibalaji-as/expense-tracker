@@ -443,6 +443,12 @@ export class GoogleDriveService {
     return data.id as string;
   }
 
+  // TODO: Remove after 2026-09-01 — no users should be on old shared-Drive family mode by then.
+  /**
+   * @deprecated LEGACY — shared Drive folder family mode.
+   * No longer called by new Firestore-backed family sync.
+   * Safe to delete after confirming no existing users are on old family mode.
+   */
   async createFamilyFolderBundle(): Promise<{
     familyFolderId: string;
     backupFileId: string;
@@ -455,6 +461,12 @@ export class GoogleDriveService {
     return { familyFolderId, backupFileId, receiptFolderId };
   }
 
+  // TODO: Remove after 2026-09-01 — no users should be on old shared-Drive family mode by then.
+  /**
+   * @deprecated LEGACY — shared Drive folder family mode.
+   * No longer called by new Firestore-backed family sync.
+   * Safe to delete after confirming no existing users are on old family mode.
+   */
   async findExistingFamilyFolderBundle(): Promise<FamilyFolderCandidate | null> {
     const token = await this.#authService.ensureToken();
     const q = encodeURIComponent(
@@ -488,6 +500,12 @@ export class GoogleDriveService {
     return null;
   }
 
+  // TODO: Remove after 2026-09-01 — no users should be on old shared-Drive family mode by then.
+  /**
+   * @deprecated LEGACY — shared Drive folder family mode.
+   * No longer called by new Firestore-backed family sync.
+   * Safe to delete after confirming no existing users are on old family mode.
+   */
   async findBackupFileInFolder(folderId: string): Promise<string | null> {
     const token = await this.#authService.ensureToken();
     const q = encodeURIComponent(
@@ -508,6 +526,12 @@ export class GoogleDriveService {
     return files.length > 0 ? files[0].id : null;
   }
 
+  // TODO: Remove after 2026-09-01 — no users should be on old shared-Drive family mode by then.
+  /**
+   * @deprecated LEGACY — shared Drive folder family mode.
+   * No longer called by new Firestore-backed family sync.
+   * Safe to delete after confirming no existing users are on old family mode.
+   */
   async findOrCreateReceiptsFolderInFamilyFolder(familyFolderId: string): Promise<string> {
     const token = await this.#authService.ensureToken();
     const existing = await this.findFolderInParent(token, 'Receipts', familyFolderId);

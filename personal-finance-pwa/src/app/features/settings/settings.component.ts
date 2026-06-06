@@ -39,6 +39,9 @@ import { DailyExpenseDraftService } from '../../core/services/daily-expense-draf
 import { PaymentService } from '../../core/services/payment.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
+import { FamilyDocument } from '../../core/models/family-sync.model';
+import { FamilyApiService } from '../../core/services/family-api.service';
+import { firebaseConfig } from '../../core/config/firebase.config';
 import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
 import {
@@ -470,112 +473,76 @@ interface BeforeInstallPromptEvent extends Event {
           }
         }
 
-        <!-- ── Family mode — Owner ──────────────────────────────────────────── -->
-        @if (backupModeService.mode() === 'family' && backupModeService.ownerRole() === 'owner') {
-          <p class="text-sm font-medium">Family Backup — Owner</p>
-
-          <!-- Shared Family ID read-only field with Copy button -->
-          <div class="mt-3 flex items-center gap-2">
-            <input
-              type="text"
-              [value]="backupModeService.familyFolderId() ?? backupModeService.sharedFileId() ?? ''"
-              readonly
-              aria-label="Shared Family ID"
-              class="flex-1 rounded-2xl border border-border bg-muted/40 px-4 py-2.5 font-mono text-xs text-foreground outline-none cursor-default"
-            />
+        <!-- ── Old shared-Drive family mode — migration prompt ─────────────── -->
+        @if (backupModeService.mode() === 'family' && !backupModeService.firestoreFamilyId()) {
+          <div class="mt-3 rounded-xl border border-amber-400/60 bg-amber-50/60 dark:bg-amber-900/20 p-4">
+            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">Your family setup needs to be updated to continue syncing with your partner.</p>
             <button
               type="button"
-              (click)="onCopySharedFileId()"
-              aria-label="Copy shared family ID"
-              class="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs font-medium hover:border-primary/40"
+              routerLink="/family-setup"
+              class="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow"
             >
-              <lucide-icon [img]="copyIcon" class="h-4 w-4" />
-              Copy
+              Update now
+            </button>
+            <p class="mt-2 text-xs text-muted-foreground">This takes less than a minute. Both you and your partner will need to reconnect.</p>
+          </div>
+        }
+
+        <!-- ── Family mode — Owner ──────────────────────────────────────────── -->
+        @if (backupModeService.mode() === 'family' && backupModeService.firestoreFamilyId() && backupModeService.ownerRole() === 'owner') {
+          <p class="text-sm font-medium">Family mode — {{ 'settings.family.owner' | translate }}</p>
+
+          @if (familyDoc()?.partnerEmail) {
+            <p class="mt-1 text-sm text-muted-foreground">
+              {{ 'settings.family.partner' | translate }}: {{ familyDoc()!.partnerEmail }}
+            </p>
+          } @else {
+            <p class="mt-1 text-sm text-muted-foreground">{{ 'settings.family.noPartner' | translate }}</p>
+          }
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              (click)="onGenerateInvite()"
+              [disabled]="isGeneratingInvite()"
+              class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              @if (isGeneratingInvite()) {
+                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              } @else {
+                <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
+              }
+              {{ 'settings.family.generateInvite' | translate }}
+            </button>
+
+            <button
+              type="button"
+              (click)="onLeaveFamily()"
+              class="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              Leave family mode
             </button>
           </div>
-
-          <!-- Google Drive link -->
-          @if (backupModeService.familyFolderId() || backupModeService.sharedFileId()) {
-            <a
-              [href]="familyDriveUrl()"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-            >
-              <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
-              Open in Google Drive
-            </a>
-          }
-
-          <!-- Rotate shared file button — DISABLED (use Switch Backup Mode instead) -->
-          <!--
-          <button
-            type="button"
-            (click)="onRotateSharedFile()"
-            [disabled]="isRotating()"
-            class="mt-3 inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            @if (isRotating()) {
-              <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-              Rotating…
-            } @else {
-              <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
-              Rotate shared file
-            }
-          </button>
-
-          @if (rotateError()) {
-            <p class="mt-2 text-xs" style="color: var(--destructive)" role="alert">
-              {{ rotateError() }}
-            </p>
-          }
-
-          @if (rotatedFileId()) {
-            <div class="mt-3 rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
-              <p class="text-xs font-medium">New File ID created successfully</p>
-              <div class="flex items-center gap-2">
-                <input
-                  type="text"
-                  [value]="rotatedFileId() ?? ''"
-                  readonly
-                  aria-label="New shared File ID"
-                  class="flex-1 rounded-xl border border-border bg-card/60 px-3 py-2 font-mono text-xs text-foreground outline-none cursor-default"
-                />
-                <button
-                  type="button"
-                  (click)="onCopyRotatedFileId()"
-                  aria-label="Copy new shared file ID"
-                  class="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/40 px-3 py-2 text-xs font-medium hover:border-primary/40"
-                >
-                  <lucide-icon [img]="copyIcon" class="h-4 w-4" />
-                  Copy
-                </button>
-              </div>
-              <p class="text-xs text-muted-foreground">
-                Share this new File ID with your partner. The old file is no longer used by this app.
-              </p>
-            </div>
-          }
-          -->
-
-          @if (copyFileIdSuccess()) {
-            <p class="mt-2 text-xs" style="color: var(--success)" role="status">File ID copied to clipboard.</p>
-          }
         }
 
         <!-- ── Family mode — Partner ────────────────────────────────────────── -->
-        @if (backupModeService.mode() === 'family' && backupModeService.ownerRole() === 'partner') {
-          <p class="text-sm font-medium">Family Backup — Partner</p>
+        @if (backupModeService.mode() === 'family' && backupModeService.firestoreFamilyId() && backupModeService.ownerRole() === 'partner') {
+          <p class="text-sm font-medium">Family mode — {{ 'settings.family.partner' | translate }}</p>
 
-          <!-- Shared Family ID read-only field -->
+          @if (familyDoc()?.ownerEmail) {
+            <p class="mt-1 text-sm text-muted-foreground">
+              {{ 'settings.family.owner' | translate }}: {{ familyDoc()!.ownerEmail }}
+            </p>
+          }
+
           <div class="mt-3">
-            <input
-              type="text"
-              [value]="backupModeService.familyFolderId() ?? backupModeService.sharedFileId() ?? ''"
-              readonly
-              aria-label="Shared Family ID"
-              class="w-full rounded-2xl border border-border bg-muted/40 px-4 py-2.5 font-mono text-xs text-foreground outline-none cursor-default"
-            />
+            <button
+              type="button"
+              (click)="onLeaveFamily()"
+              class="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              Leave family mode
+            </button>
           </div>
         }
 
@@ -1219,6 +1186,84 @@ interface BeforeInstallPromptEvent extends Event {
       }
     </app-modal>
 
+    <!-- Generate invite code modal -->
+    <app-modal
+      [title]="'settings.family.inviteGenerated' | translate"
+      [isOpen]="!!generatedInviteCode()"
+      [showActions]="false"
+      (cancelled)="generatedInviteCode.set(null); inviteCodeExpiry.set(null)"
+    >
+      <p class="text-xs text-muted-foreground mb-3">{{ 'settings.family.inviteExpiry' | translate }}</p>
+      <div class="flex items-center gap-2">
+        <input
+          type="text"
+          [value]="generatedInviteCode() ?? ''"
+          readonly
+          aria-label="Invite code"
+          class="flex-1 rounded-2xl border border-border bg-muted/40 px-4 py-2.5 font-mono text-sm text-foreground outline-none cursor-default tracking-widest"
+        />
+        <button
+          type="button"
+          (click)="onCopyInviteCode()"
+          aria-label="Copy invite code"
+          class="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs font-medium hover:border-primary/40"
+        >
+          <lucide-icon [img]="copyIcon" class="h-4 w-4" />
+          Copy
+        </button>
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button
+          type="button"
+          (click)="generatedInviteCode.set(null); inviteCodeExpiry.set(null)"
+          class="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+        >
+          Done
+        </button>
+      </div>
+    </app-modal>
+
+    <!-- Leave family mode confirmation modal -->
+    <app-modal
+      title="Leave family mode?"
+      [isOpen]="isLeaveFamilyModalOpen()"
+      [showActions]="false"
+      (cancelled)="isLeaveFamilyModalOpen.set(false)"
+    >
+      <p class="text-sm text-muted-foreground">
+        @if (backupModeService.ownerRole() === 'owner') {
+          This will dissolve the family group. Your partner will lose access. Your expense data will be merged into your private backup.
+        } @else {
+          You will leave the family group. Your expense history will be merged into your private backup.
+        }
+      </p>
+      <div class="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          (click)="isLeaveFamilyModalOpen.set(false)"
+          [disabled]="isLeavingFamily()"
+          class="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          (click)="onLeaveFamilyConfirmed()"
+          [disabled]="isLeavingFamily()"
+          class="rounded-xl border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          @if (isLeavingFamily()) {
+            <span class="inline-flex items-center gap-2">
+              <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              Leaving…
+            </span>
+          } @else {
+            Leave family mode
+          }
+        </button>
+      </div>
+    </app-modal>
+
     <!-- Notification access prominent disclosure (shown before opening Android settings) -->
     @if (showNotifDisclosure()) {
       <app-notification-disclosure
@@ -1263,6 +1308,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly feedback = inject(UserFeedbackService);
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
   private readonly payService = inject(PaymentService);
+  private readonly familyApiService = inject(FamilyApiService);
 
   readonly isNativePlatform = Capacitor.isNativePlatform();
   readonly isProduction = environment.production;
@@ -1336,6 +1382,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isSigningIn = signal(false);
   readonly isOpeningSubscribePage = signal(false);
 
+  // ─── Family mode doc + invite ─────────────────────────────────────────────────
+  readonly familyDoc = signal<FamilyDocument | null>(null);
+  readonly isGeneratingInvite = signal(false);
+  readonly generatedInviteCode = signal<string | null>(null);
+  readonly inviteCodeExpiry = signal<string | null>(null);
+  readonly isLeavingFamily = signal(false);
+  readonly isLeaveFamilyModalOpen = signal(false);
+
   // ─── Subscription cancellation ────────────────────────────────────────────────
   protected readonly cancelling = signal(false);
   protected readonly showCancelConfirm = signal(false);
@@ -1365,6 +1419,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
 
+    // Load Firestore family doc for family-mode status display
+    if (this.backupModeService.mode() === 'family' && this.backupModeService.firestoreFamilyId()) {
+      void this.loadFamilyDoc();
+    }
   }
 
   async onThemeChange(theme: 'light' | 'dark' | 'system'): Promise<void> {
@@ -2438,6 +2496,91 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } finally {
       this.isRotating.set(false);
     }
+  }
+
+  // ─── Family mode: doc load, invite generation, leave flow ────────────────────
+
+  private async loadFamilyDoc(): Promise<void> {
+    const familyId = this.backupModeService.firestoreFamilyId();
+    if (!familyId) return;
+    try {
+      const { getApps, initializeApp } = await import('firebase/app');
+      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+      const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+      const snap = await getDoc(doc(db, 'families', familyId));
+      if (snap.exists()) {
+        this.familyDoc.set(snap.data() as FamilyDocument);
+      }
+    } catch (err) {
+      console.warn('[Settings] Failed to load family doc:', err);
+    }
+  }
+
+  async onGenerateInvite(): Promise<void> {
+    if (this.isGeneratingInvite()) return;
+    const familyId = this.backupModeService.firestoreFamilyId();
+    if (!familyId) {
+      this.feedback.error('Could not generate invite', 'Family ID not found. Try switching backup mode.');
+      return;
+    }
+    this.isGeneratingInvite.set(true);
+    try {
+      const result = await this.familyApiService.createFamilyInvite(familyId);
+      this.generatedInviteCode.set(result.inviteCode);
+      this.inviteCodeExpiry.set(result.expiresAt);
+    } catch (err) {
+      this.feedback.error(
+        'Could not generate invite code.',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+    } finally {
+      this.isGeneratingInvite.set(false);
+    }
+  }
+
+  async onCopyInviteCode(): Promise<void> {
+    const code = this.generatedInviteCode();
+    if (!code) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const input = document.createElement('input');
+        input.value = code;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      this.feedback.success('Invite code copied.', 'Share it with your partner — it expires in 24 hours.');
+    } catch (err) {
+      this.feedback.error('Could not copy the invite code.', 'Select the code manually and copy it.');
+    }
+  }
+
+  onLeaveFamily(): void {
+    this.isLeaveFamilyModalOpen.set(true);
+  }
+
+  async onLeaveFamilyConfirmed(): Promise<void> {
+    if (this.isLeavingFamily()) return;
+    this.isLeavingFamily.set(true);
+    try {
+      const familyId = this.backupModeService.firestoreFamilyId();
+      if (this.backupModeService.ownerRole() === 'owner' && familyId) {
+        try {
+          await this.familyApiService.dissolveFamily(familyId);
+        } catch (err) {
+          console.warn('[Settings] dissolveFamily failed, proceeding with local cleanup:', err);
+        }
+      }
+      await this.backupModeService.setFirestoreFamilyId(null);
+    } finally {
+      this.isLeavingFamily.set(false);
+    }
+    this.isLeaveFamilyModalOpen.set(false);
+    void this.#executeModeSwitch();
   }
 
   // ─── Dev-only debug helpers ───────────────────────────────────────────────────

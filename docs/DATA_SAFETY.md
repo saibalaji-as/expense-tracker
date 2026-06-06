@@ -26,8 +26,17 @@ completion of the Google Play Data Safety form.
 - Timezone — for scheduling reminders, stored in Firestore
 
 ### App Activity
-- Google Drive file access (backup files only)
+- Google Drive AppData folder access (private backup files only, not user-visible files) — used by ALL users (single and family mode)
 - Google Sheets access (import only, user-initiated)
+
+---
+
+## Family Sync
+
+- Family sync uses **Firestore**, not a shared Google Drive file.
+- Only expense activity deltas (amounts, categories, dates) are stored in Firestore — no comments, no receipts.
+- Receipt files remain in the user's own Google Drive; they are never written to Firestore.
+- Firestore family data is deleted automatically when the family group is dissolved by the owner.
 
 ---
 

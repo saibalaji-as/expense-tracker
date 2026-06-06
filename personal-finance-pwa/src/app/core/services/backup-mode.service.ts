@@ -11,6 +11,7 @@ const CACHE_KEY_SHARED_FILE_ID = 'spenza_shared_file_id';
 const CACHE_KEY_FAMILY_FOLDER_ID = 'spenza_family_folder_id';
 const CACHE_KEY_OWNER_ROLE = 'spenza_owner_role';
 const CACHE_KEY_CONFIG_FILE_ID = 'spenza_config_file_id';
+const CACHE_KEY_FIRESTORE_FAMILY_ID = 'spenza_firestore_family_id';
 const DRIVE_CONFIG_CACHE_MS = 60_000;
 
 @Injectable({ providedIn: 'root' })
@@ -22,6 +23,7 @@ export class BackupModeService {
   readonly sharedFileId = signal<string | null>(null);
   readonly familyFolderId = signal<string | null>(null);
   readonly ownerRole = signal<OwnerRole | null>(null);
+  readonly firestoreFamilyId = signal<string | null>(null);
 
   // Drive file ID of spenza-config.json (cached locally)
   #configFileId: string | null = null;
@@ -39,18 +41,20 @@ export class BackupModeService {
   }
 
   async #loadFromCache(): Promise<void> {
-    const [mode, sharedFileId, familyFolderId, ownerRole, configFileId] = await Promise.all([
+    const [mode, sharedFileId, familyFolderId, ownerRole, configFileId, firestoreFamilyId] = await Promise.all([
       this.storageService.get(CACHE_KEY_MODE),
       this.storageService.get(CACHE_KEY_SHARED_FILE_ID),
       this.storageService.get(CACHE_KEY_FAMILY_FOLDER_ID),
       this.storageService.get(CACHE_KEY_OWNER_ROLE),
       this.storageService.get(CACHE_KEY_CONFIG_FILE_ID),
+      this.storageService.get(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
     if (mode === 'single' || mode === 'family') this.mode.set(mode);
     if (sharedFileId) this.sharedFileId.set(sharedFileId);
     if (familyFolderId) this.familyFolderId.set(familyFolderId);
     if (ownerRole === 'owner' || ownerRole === 'partner') this.ownerRole.set(ownerRole);
     if (configFileId) this.#configFileId = configFileId;
+    if (firestoreFamilyId) this.firestoreFamilyId.set(firestoreFamilyId);
   }
 
   /**
@@ -222,7 +226,7 @@ export class BackupModeService {
     await this.#saveConfig({ ownerRole: role });
   }
 
-  async setFamilyConfig(fileId: string, folderId: string | null, role: OwnerRole): Promise<void> {
+  async setFamilyConfig(fileId: string | null, folderId: string | null, role: OwnerRole): Promise<void> {
     this.mode.set('family');
     this.sharedFileId.set(fileId);
     this.familyFolderId.set(folderId);
@@ -230,7 +234,9 @@ export class BackupModeService {
 
     await Promise.all([
       this.storageService.set(CACHE_KEY_MODE, 'family'),
-      this.storageService.set(CACHE_KEY_SHARED_FILE_ID, fileId),
+      fileId
+        ? this.storageService.set(CACHE_KEY_SHARED_FILE_ID, fileId)
+        : this.storageService.remove(CACHE_KEY_SHARED_FILE_ID),
       folderId
         ? this.storageService.set(CACHE_KEY_FAMILY_FOLDER_ID, folderId)
         : this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
@@ -250,10 +256,12 @@ export class BackupModeService {
     this.sharedFileId.set(null);
     this.familyFolderId.set(null);
     this.ownerRole.set(null);
+    this.firestoreFamilyId.set(null);
     await Promise.all([
       this.storageService.remove(CACHE_KEY_SHARED_FILE_ID),
       this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
+      this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
     await this.#saveConfig({ sharedFileId: null, familyFolderId: null, ownerRole: null });
   }
@@ -263,11 +271,13 @@ export class BackupModeService {
     this.sharedFileId.set(null);
     this.familyFolderId.set(null);
     this.ownerRole.set(null);
+    this.firestoreFamilyId.set(null);
     await Promise.all([
       this.storageService.remove(CACHE_KEY_MODE),
       this.storageService.remove(CACHE_KEY_SHARED_FILE_ID),
       this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
+      this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
     await this.#saveConfig({ mode: null, sharedFileId: null, familyFolderId: null, ownerRole: null });
     this.#lastDriveLoadAt = 0;
@@ -278,6 +288,7 @@ export class BackupModeService {
     this.sharedFileId.set(null);
     this.familyFolderId.set(null);
     this.ownerRole.set(null);
+    this.firestoreFamilyId.set(null);
     this.#configFileId = null;
     this.#driveLoadPromise = null;
     this.#lastDriveLoadAt = 0;
@@ -288,6 +299,7 @@ export class BackupModeService {
       this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID),
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
       this.storageService.remove(CACHE_KEY_CONFIG_FILE_ID),
+      this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
   }
 
@@ -295,4 +307,14 @@ export class BackupModeService {
   getSharedFileId(): string | null { return this.sharedFileId(); }
   getFamilyFolderId(): string | null { return this.familyFolderId(); }
   getOwnerRole(): OwnerRole | null { return this.ownerRole(); }
+  getFamilyId(): string | null { return this.firestoreFamilyId(); }
+
+  async setFirestoreFamilyId(id: string | null): Promise<void> {
+    this.firestoreFamilyId.set(id);
+    if (id) {
+      await this.storageService.set(CACHE_KEY_FIRESTORE_FAMILY_ID, id);
+    } else {
+      await this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID);
+    }
+  }
 }

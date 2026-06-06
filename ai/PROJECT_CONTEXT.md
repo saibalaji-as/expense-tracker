@@ -141,9 +141,9 @@
 - Required scopes:
   - Sheets: `https://www.googleapis.com/auth/spreadsheets`.
   - Drive appDataFolder: `https://www.googleapis.com/auth/drive.appdata`.
-  - Full Drive: `https://www.googleapis.com/auth/drive`.
+  - Full Drive scope removed in v8 — family sync now uses Firestore, not shared Drive files.
 - Scope version:
-  - `SCOPE_VERSION = '6'`.
+  - `SCOPE_VERSION = '8'`.
   - Mismatch clears cached auth state to force re-consent.
 - Cached auth keys:
   - `gapi_auth_state`

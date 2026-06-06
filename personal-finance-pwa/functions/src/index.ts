@@ -8,6 +8,7 @@ import { extractReceipt } from './ai-receipt';
 import { generateInsights } from './ai-insights';
 import { parseVoiceExpense } from './ai-voice';
 import { testNotification } from './test-notification';
+import { createFamily, createFamilyInvite, redeemFamilyInvite, dissolveFamily } from './family';
 
 admin.initializeApp();
 
@@ -27,4 +28,8 @@ export {
   generateInsights,
   parseVoiceExpense,
   testNotification,
+  createFamily,
+  createFamilyInvite,
+  redeemFamilyInvite,
+  dissolveFamily,
 };

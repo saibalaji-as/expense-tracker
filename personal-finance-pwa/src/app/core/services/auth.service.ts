@@ -13,15 +13,11 @@ const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 // Scopes required for Google Sheets API access
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
-// Use full drive scope to allow access to shared files (required for family mode partner access)
-// drive.file scope only allows access to files created by the app, not shared files
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
-
 // Always request all required scopes — openid/email/profile for Firebase Auth identity
-// verification (userinfo endpoint), drive.appdata for config file, drive for family shared
-// backup (includes shared file access), spreadsheets for Sheets import.
-const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
-const SCOPE_VERSION = '7'; // v7 = added openid/email/profile for Firebase Auth userinfo
+// verification (userinfo endpoint), drive.appdata for private config/backup file,
+// spreadsheets for Sheets import migration. Full drive scope removed in v8.
+const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE}`;
+const SCOPE_VERSION = '8'; // v8 = removed full drive scope (family sync now uses Firestore)
 const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
 const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
 const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
@@ -285,6 +281,22 @@ export class AuthService {
     }
   }
 
+  /**
+   * Returns a Firebase ID token for the currently signed-in Firebase user,
+   * or null if no Firebase user is available. Does not attempt re-authentication.
+   */
+  async getFirebaseIdToken(): Promise<string | null> {
+    try {
+      const auth = await this.#getFirebaseAuth();
+      await auth.authStateReady();
+      const user = auth.currentUser;
+      if (!user) return null;
+      return user.getIdToken();
+    } catch {
+      return null;
+    }
+  }
+
   async ensureFirebaseIdToken(): Promise<string> {
     const auth = await this.#getFirebaseAuth();
 
@@ -363,7 +375,7 @@ export class AuthService {
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
-    const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
+    const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE];
 
     // First attempt may throw "No credentials found" on Android Credential Manager
     // when there is no cached credential (e.g., cold first-time launch). A second

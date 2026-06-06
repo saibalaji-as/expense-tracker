@@ -62,8 +62,9 @@
 - Do not manually cache or pass access tokens outside existing service boundaries.
 - Exception: native Android may persist the latest short-lived access token via `AuthService` only for the standalone home screen widget sync path. Keep keys scoped to `gapi_access_token` / `gapi_access_token_expires_at`, clear them on sign-out/scope mismatch/account-local clears, and do not use this pattern for web.
 - Do not clear persisted signed-in state just because a silent web access-token refresh fails; users should remain locally signed in and re-consent only when Drive access is actually needed.
-- Preserve full Drive scope unless a deliberate auth redesign is made:
-  - Family partner access depends on shared-file/folder access.
+- Do not re-add the full drive scope. Family sync uses Firestore. Only drive.appdata is needed.
+- Keep family mode folder-based logic deprecated. Do not add new features against GoogleDriveService shared-folder methods (`createFamilyFolderBundle`, `findExistingFamilyFolderBundle`, `findBackupFileInFolder`, `findOrCreateReceiptsFolderInFamilyFolder`). These are marked for removal after 2026-09-01.
+- Family sync uses Firestore activity deltas. Only expense create/update/delete are synced via Firestore. Accounts, debts, limits, and income sync via Drive polling only.
 - Preserve `SCOPE_VERSION` behavior when changing scopes.
 - Keep one stable Android signing keystore for distributed APK updates. Before testing native Google sign-in, register the exact final APK signer SHA-1 with the Google Cloud Android OAuth client for `com.spenza.app`; do not rely on machine-specific debug keystores for production updates.
 - Drive errors should include operation context and flow through `driveError$` when user-visible.

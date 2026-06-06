@@ -9,6 +9,7 @@ import { ExpenseStore, driveError$ } from './core/services/expense-store.service
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
 import { SubscriptionService } from './core/services/subscription.service';
+import { FamilySyncService } from './core/services/family-sync.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
 import { shouldRedirectToIncomeSetup } from './core/guards/setup-income-gate';
 
@@ -29,10 +30,13 @@ export class App implements OnInit, OnDestroy {
   private readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
   private readonly subscriptionService = inject(SubscriptionService);
+  private readonly familySyncService = inject(FamilySyncService);
   private readonly router = inject(Router);
 
   readonly isLoading = signal(true);
   readonly loadingError = signal<string | null>(null);
+  readonly needsFamilyMigration = signal(false);
+  readonly migrationBannerDismissed = signal(false);
   private loadingTimeoutId: number | null = null;
   private drivePollIntervalId: number | null = null;
   private driveErrorSubscription: Subscription | null = null;
@@ -94,6 +98,9 @@ export class App implements OnInit, OnDestroy {
       this.subscriptionService.ensureStarted(restoredUid);
     }
 
+    // Start family sync listener if Firestore family ID is already cached
+    this.tryStartFamilySync();
+
     if (!this.authService.isAuthenticated()) {
       this.clearLoadingTimeout();
       this.isLoading.set(false);
@@ -144,6 +151,8 @@ export class App implements OnInit, OnDestroy {
       throw err;
     }
 
+    this.checkLegacyFamilyMode();
+
     const mode = this.backupModeService.getMode();
     if (mode === null) {
       this.clearLoadingTimeout();
@@ -151,7 +160,9 @@ export class App implements OnInit, OnDestroy {
       await this.router.navigate(['/mode-select']);
       return;
     }
-    if (mode === 'family' && !this.backupModeService.getSharedFileId()) {
+    // Only redirect to family-setup when both the old Drive IDs and the new Firestore ID are absent.
+    // Firestore-backed family users have no sharedFileId by design.
+    if (mode === 'family' && !this.backupModeService.getSharedFileId() && !this.backupModeService.getFamilyId()) {
       this.clearLoadingTimeout();
       this.isLoading.set(false);
       await this.router.navigate(['/family-setup']);
@@ -190,7 +201,7 @@ export class App implements OnInit, OnDestroy {
     const mode = this.backupModeService.getMode();
     const localSetupComplete =
       mode === 'single' ||
-      (mode === 'family' && !!this.backupModeService.getSharedFileId());
+      (mode === 'family' && (!!this.backupModeService.getSharedFileId() || !!this.backupModeService.getFamilyId()));
 
     if (!localSetupComplete) return false;
 
@@ -224,9 +235,10 @@ export class App implements OnInit, OnDestroy {
   private async bootstrapDriveInBackground(): Promise<void> {
     try {
       await this.backupModeService.loadFromDrive();
+      this.checkLegacyFamilyMode();
 
       const mode = this.backupModeService.getMode();
-      if (mode === null || (mode === 'family' && !this.backupModeService.getSharedFileId())) {
+      if (mode === null || (mode === 'family' && !this.backupModeService.getSharedFileId() && !this.backupModeService.getFamilyId())) {
         return;
       }
 
@@ -243,6 +255,7 @@ export class App implements OnInit, OnDestroy {
 
       await this.expenseStore.loadFromDrive();
       if (this.expenseStore.syncStatus() !== 'error') {
+        this.tryStartFamilySync();
         this.startDrivePollLoop();
         await this.redirectAfterDataAvailable();
       }
@@ -269,6 +282,14 @@ export class App implements OnInit, OnDestroy {
     }
 
     throw lastError;
+  }
+
+  private tryStartFamilySync(): void {
+    const familyId = this.backupModeService.getFamilyId();
+    const uid = this.authService.firebaseUid();
+    if (this.backupModeService.getMode() === 'family' && familyId && uid) {
+      this.familySyncService.startListening(familyId, uid);
+    }
   }
 
   private startDrivePollLoop(): void {
@@ -410,10 +431,25 @@ export class App implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearLoadingTimeout();
     this.stopDrivePollLoop();
+    this.familySyncService.stopListening();
     this.driveErrorSubscription?.unsubscribe();
     this.routeScrollSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     window.removeEventListener('focus', this.focusHandler);
+  }
+
+  dismissMigrationBanner(): void {
+    this.migrationBannerDismissed.set(true);
+  }
+
+  private checkLegacyFamilyMode(): void {
+    const isOldFamilyMode =
+      this.backupModeService.getMode() === 'family'
+      && (this.backupModeService.sharedFileId() || this.backupModeService.familyFolderId())
+      && !this.backupModeService.getFamilyId();
+    if (isOldFamilyMode) {
+      this.needsFamilyMigration.set(true);
+    }
   }
 
   private scrollToPageTop(): void {
