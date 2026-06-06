@@ -98,6 +98,18 @@ public class ExpenseWidgetActivity extends Activity {
         super.onCreate(savedInstanceState);
         palette = Palette.from(isDarkMode());
         prefs = WidgetExpenseQueue.prefs(this);
+
+        // Guard: user must be signed in
+        if (!"1".equals(prefs.getString(WidgetExpenseConstants.AUTH_STATE_KEY, null))) {
+            showLockedSheet("Sign in to use the widget", "Open the Spenza app and sign in first.");
+            return;
+        }
+        // Guard: widget is a Pro feature
+        if (!"1".equals(prefs.getString(WidgetExpenseConstants.PRO_TIER_KEY, null))) {
+            showLockedSheet("Spenza Pro required", "Upgrade to Spenza Pro to use the quick-expense widget.");
+            return;
+        }
+
         String requestedType = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_CATEGORY_EXTRA);
         prefillAmount = getIntent().getDoubleExtra(WidgetExpenseConstants.WIDGET_AMOUNT_EXTRA, 0);
         prefillComment = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA);
@@ -126,6 +138,58 @@ public class ExpenseWidgetActivity extends Activity {
         }
         executor.shutdownNow();
         super.onDestroy();
+    }
+
+    private void showLockedSheet(String title, String message) {
+        configureWindow();
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(24), dp(24), dp(24), dp(48));
+        root.setBackground(sheetBackground());
+
+        View handle = new View(this);
+        handle.setBackground(handleBackground());
+        LinearLayout.LayoutParams handleParams = new LinearLayout.LayoutParams(dp(74), dp(5));
+        handleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        root.addView(handle, handleParams);
+
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(palette.text);
+        titleView.setTextSize(22);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(titleView, marginTop(matchWrap(), 24));
+
+        TextView msgView = new TextView(this);
+        msgView.setText(message);
+        msgView.setTextColor(palette.muted);
+        msgView.setTextSize(14);
+        msgView.setLineSpacing(dp(2), 1f);
+        root.addView(msgView, marginTop(matchWrap(), 10));
+
+        Button openButton = actionButton("Open Spenza");
+        styleButton(openButton, ButtonTone.PRIMARY);
+        openButton.setOnClickListener(v -> {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launch != null) startActivity(launch);
+            finish();
+        });
+        root.addView(openButton, marginTop(matchWrap(), 24));
+
+        Button dismissButton = actionButton("Dismiss");
+        styleButton(dismissButton, ButtonTone.SECONDARY);
+        dismissButton.setOnClickListener(v -> finish());
+        root.addView(dismissButton, marginTop(matchWrap(), 12));
+
+        FrameLayout container = new FrameLayout(this);
+        FrameLayout.LayoutParams sheetParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        );
+        container.addView(root, sheetParams);
+        setContentView(container);
+        animateSheetIn(root);
     }
 
     private void configureWindow() {

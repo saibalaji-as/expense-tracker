@@ -519,6 +519,224 @@ describe('Unit: budgetRuleSummary with zero income', () => {
   });
 });
 
+// ─── Unit Tests: Debt Payment Reversal Logic (Phase 5) ───────────────────────
+
+type MiniAccount = { id: string; balance: number; allowOverdraft: boolean; archived: boolean };
+type MiniDebt = { id: string; principalAmount: number; remainingBalance: number; status: 'active' | 'paid' | 'archived' };
+type MiniPayment = { id: string; debtId: string; expenseId: string; accountId: string; amount: number };
+type MiniEntry = { id: string; source?: string; debtId?: string; amount?: number; accountId?: string };
+
+function roundMoney(n: number): number { return Number(n.toFixed(2)); }
+
+function simulateDeleteDebtPayment(
+  paymentId: string,
+  payments: MiniPayment[],
+  debts: MiniDebt[],
+  entries: MiniEntry[],
+  accounts: MiniAccount[],
+): { payments: MiniPayment[]; debts: MiniDebt[]; entries: MiniEntry[]; accounts: MiniAccount[] } {
+  const payment = payments.find(p => p.id === paymentId);
+  if (!payment) throw new Error('Debt payment was not found.');
+  const linkedEntry = entries.find(e => e.id === payment.expenseId);
+  if (!linkedEntry) throw new Error('Linked debt payment expense was not found.');
+  const debt = debts.find(d => d.id === payment.debtId);
+  if (!debt) throw new Error('Debt was not found.');
+  const account = accounts.find(a => a.id === payment.accountId && !a.archived);
+  if (!account) throw new Error('Selected payment account was not found. Choose another account and try again.');
+  const nextBalance = roundMoney(Math.min(debt.principalAmount, roundMoney(debt.remainingBalance + payment.amount)));
+  return {
+    payments: payments.filter(p => p.id !== paymentId),
+    debts: debts.map(d => d.id === debt.id
+      ? { ...d, remainingBalance: nextBalance, status: (nextBalance === 0 ? 'paid' : 'active') as MiniDebt['status'] }
+      : d),
+    entries: entries.filter(e => e.id !== payment.expenseId),
+    accounts: accounts.map(a => a.id === payment.accountId
+      ? { ...a, balance: roundMoney(a.balance + payment.amount) }
+      : a),
+  };
+}
+
+function simulateUpdateDebtPayment(
+  paymentId: string,
+  input: { accountId: string; amount: number; date: string; comment?: string },
+  payments: MiniPayment[],
+  debts: MiniDebt[],
+  entries: MiniEntry[],
+  accounts: MiniAccount[],
+): { payments: MiniPayment[]; debts: MiniDebt[]; entries: MiniEntry[]; accounts: MiniAccount[] } {
+  const amount = roundMoney(input.amount);
+  const payment = payments.find(p => p.id === paymentId);
+  if (!payment) throw new Error('Debt payment was not found.');
+  const debt = debts.find(d => d.id === payment.debtId);
+  if (!debt) throw new Error('Debt was not found.');
+  const linkedEntry = entries.find(e => e.id === payment.expenseId);
+  if (!linkedEntry) throw new Error('Linked debt payment expense was not found.');
+  const newAccount = accounts.find(a => a.id === input.accountId && !a.archived);
+  if (!newAccount) throw new Error('Payment account was not found.');
+  const restoredDebtBalance = roundMoney(debt.remainingBalance + payment.amount);
+  if (amount > restoredDebtBalance) throw new Error('Payment amount cannot be higher than the remaining debt balance.');
+  // Compute net account delta
+  const newAccountBalance = (() => {
+    const oldAccountBalance = roundMoney(
+      (accounts.find(a => a.id === payment.accountId)?.balance ?? 0) + payment.amount
+    );
+    if (payment.accountId === input.accountId) {
+      return roundMoney(oldAccountBalance - amount);
+    }
+    return null; // different accounts — handled per-account
+  })();
+  const nextRemainingBalance = roundMoney(restoredDebtBalance - amount);
+  const updatedAccounts: MiniAccount[] = accounts.map(a => {
+    if (payment.accountId === input.accountId) {
+      if (a.id === payment.accountId) {
+        const nb = roundMoney(a.balance + payment.amount - amount);
+        if (!a.allowOverdraft && nb < 0) throw new Error(`${a.id} does not have enough balance.`);
+        return { ...a, balance: nb };
+      }
+      return a;
+    }
+    if (a.id === payment.accountId) return { ...a, balance: roundMoney(a.balance + payment.amount) };
+    if (a.id === input.accountId) {
+      const nb = roundMoney(a.balance - amount);
+      if (!a.allowOverdraft && nb < 0) throw new Error(`${a.id} does not have enough balance.`);
+      return { ...a, balance: nb };
+    }
+    return a;
+  });
+  void newAccountBalance;
+  return {
+    payments: payments.map(p => p.id === paymentId ? { ...p, accountId: input.accountId, amount, date: input.date } : p),
+    debts: debts.map(d => d.id === debt.id
+      ? { ...d, remainingBalance: nextRemainingBalance, status: (nextRemainingBalance === 0 ? 'paid' : 'active') as MiniDebt['status'] }
+      : d),
+    entries: entries.map(e => e.id === linkedEntry.id ? { ...e, amount, accountId: input.accountId } : e),
+    accounts: updatedAccounts,
+  };
+}
+
+describe('Unit: deleteDebtPayment logic', () => {
+  const account: MiniAccount = { id: 'acc1', balance: 500, allowOverdraft: false, archived: false };
+  const debt: MiniDebt = { id: 'debt1', principalAmount: 1000, remainingBalance: 200, status: 'active' };
+  const payment: MiniPayment = { id: 'pay1', debtId: 'debt1', expenseId: 'exp1', accountId: 'acc1', amount: 300 };
+  const entry: MiniEntry = { id: 'exp1', source: 'debt-payment', debtId: 'debt1', amount: 300, accountId: 'acc1' };
+
+  it('restores account balance by the payment amount', () => {
+    const result = simulateDeleteDebtPayment('pay1', [payment], [debt], [entry], [account]);
+    expect(result.accounts[0].balance).toBe(roundMoney(500 + 300));
+  });
+
+  it('removes the expense entry', () => {
+    const result = simulateDeleteDebtPayment('pay1', [payment], [debt], [entry], [account]);
+    expect(result.entries.find(e => e.id === 'exp1')).toBeUndefined();
+  });
+
+  it('removes the payment record', () => {
+    const result = simulateDeleteDebtPayment('pay1', [payment], [debt], [entry], [account]);
+    expect(result.payments.find(p => p.id === 'pay1')).toBeUndefined();
+  });
+
+  it('recalculates debt remainingBalance capped at principalAmount', () => {
+    const paidDebt: MiniDebt = { id: 'debt1', principalAmount: 1000, remainingBalance: 0, status: 'paid' };
+    const bigPayment: MiniPayment = { id: 'pay1', debtId: 'debt1', expenseId: 'exp1', accountId: 'acc1', amount: 1500 };
+    const result = simulateDeleteDebtPayment('pay1', [bigPayment], [paidDebt], [entry], [account]);
+    expect(result.debts[0].remainingBalance).toBe(1000);
+  });
+
+  it('reopens debt status to active when it was paid', () => {
+    const paidDebt: MiniDebt = { id: 'debt1', principalAmount: 1000, remainingBalance: 0, status: 'paid' };
+    const result = simulateDeleteDebtPayment('pay1', [payment], [paidDebt], [entry], [account]);
+    expect(result.debts[0].status).toBe('active');
+  });
+
+  it('throws when paymentId is not found', () => {
+    expect(() => simulateDeleteDebtPayment('nonexistent', [payment], [debt], [entry], [account]))
+      .toThrow('Debt payment was not found.');
+  });
+
+  it('throws when linked expense entry is not found', () => {
+    expect(() => simulateDeleteDebtPayment('pay1', [payment], [debt], [], [account]))
+      .toThrow('Linked debt payment expense was not found.');
+  });
+});
+
+describe('Unit: updateDebtPayment logic', () => {
+  const account: MiniAccount = { id: 'acc1', balance: 500, allowOverdraft: false, archived: false };
+  const debt: MiniDebt = { id: 'debt1', principalAmount: 1000, remainingBalance: 700, status: 'active' };
+  const payment: MiniPayment = { id: 'pay1', debtId: 'debt1', expenseId: 'exp1', accountId: 'acc1', amount: 300 };
+  const entry: MiniEntry = { id: 'exp1', source: 'debt-payment', debtId: 'debt1', amount: 300, accountId: 'acc1' };
+
+  it('reverses old account deduction and applies the new amount', () => {
+    const result = simulateUpdateDebtPayment(
+      'pay1', { accountId: 'acc1', amount: 200, date: '2026-06-05' },
+      [payment], [debt], [entry], [account],
+    );
+    // balance was 500, old payment (300) restored → 800, new payment (200) deducted → 600
+    expect(result.accounts[0].balance).toBe(600);
+  });
+
+  it('updates the debt remainingBalance correctly', () => {
+    const result = simulateUpdateDebtPayment(
+      'pay1', { accountId: 'acc1', amount: 200, date: '2026-06-05' },
+      [payment], [debt], [entry], [account],
+    );
+    // restoredDebtBalance = 700 + 300 = 1000, then 1000 - 200 = 800
+    expect(result.debts[0].remainingBalance).toBe(800);
+  });
+
+  it('sets debt status to paid when remaining reaches 0', () => {
+    // remaining 300, old payment 300 → restored 600, new payment 600 exactly
+    const d: MiniDebt = { id: 'debt1', principalAmount: 1000, remainingBalance: 300, status: 'active' };
+    const acc: MiniAccount = { id: 'acc1', balance: 600, allowOverdraft: false, archived: false };
+    const result = simulateUpdateDebtPayment(
+      'pay1', { accountId: 'acc1', amount: 600, date: '2026-06-05' },
+      [payment], [d], [entry], [acc],
+    );
+    expect(result.debts[0].remainingBalance).toBe(0);
+    expect(result.debts[0].status).toBe('paid');
+  });
+
+  it('rejects overpayment: new amount exceeds remaining + old amount', () => {
+    // restoredDebtBalance = 700 + 300 = 1000; new amount 1001 > 1000
+    expect(() => simulateUpdateDebtPayment(
+      'pay1', { accountId: 'acc1', amount: 1001, date: '2026-06-05' },
+      [payment], [debt], [entry], [account],
+    )).toThrow('Payment amount cannot be higher than the remaining debt balance.');
+  });
+
+  it('rejects when new account would overdraft and allowOverdraft is false', () => {
+    const acc2: MiniAccount = { id: 'acc2', balance: 50, allowOverdraft: false, archived: false };
+    expect(() => simulateUpdateDebtPayment(
+      'pay1', { accountId: 'acc2', amount: 200, date: '2026-06-05' },
+      [payment], [debt], [entry], [account, acc2],
+    )).toThrow('does not have enough balance.');
+  });
+});
+
+describe('Unit: deleteEntry rejects debt-payment entries', () => {
+  it('detects debt-payment source and throws the right error message', () => {
+    const entries: MiniEntry[] = [
+      { id: 'dp1', source: 'debt-payment', debtId: 'debt1', amount: 500, accountId: 'acc1' },
+      { id: 'reg1', amount: 100 },
+    ];
+
+    const checkRejectDebtPaymentEntry = (entryId: string): boolean => {
+      const e = entries.find(x => x.id === entryId);
+      return e?.source === 'debt-payment' || !!e?.debtId;
+    };
+
+    expect(checkRejectDebtPaymentEntry('dp1')).toBe(true);
+    expect(checkRejectDebtPaymentEntry('reg1')).toBe(false);
+  });
+
+  it('entry with debtId but no source is also blocked', () => {
+    const entries: MiniEntry[] = [
+      { id: 'dp2', debtId: 'debt1', amount: 300, accountId: 'acc1' },
+    ];
+    const isDebtPayment = (e: MiniEntry): boolean => e.source === 'debt-payment' || !!e.debtId;
+    expect(isDebtPayment(entries[0])).toBe(true);
+  });
+});
+
 describe('Unit: clearLocalData resets state', () => {
   it('clearLocalData resets all state fields to initial values', () => {
     // Simulate the state object

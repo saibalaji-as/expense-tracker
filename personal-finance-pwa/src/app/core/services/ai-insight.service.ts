@@ -1,5 +1,4 @@
 import { Injectable, inject } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
 import { StorageService } from './storage.service';
@@ -234,7 +233,7 @@ export class AiInsightService {
       const nextLocaleCallCount = (usage.localeCallCount ?? usage.callCount) + 1;
       await this.setUsage(todayKey, signature.locale, nextLocaleCallCount);
 
-      const response = await fetch(`${this.functionsBaseUrl()}/generate-insights`, {
+      const response = await fetch(`${this.functionsBaseUrl()}/generateInsights`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -280,9 +279,7 @@ export class AiInsightService {
   }
 
   private functionsBaseUrl(): string {
-    return Capacitor.isNativePlatform()
-      ? environment.netlifyFunctionsUrl
-      : '/.netlify/functions';
+    return environment.firebaseFunctionsUrl;
   }
 
   private async parseFailureResponse(response: Response): Promise<{ code?: string; message: string; retryAfter?: string }> {

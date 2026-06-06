@@ -2,12 +2,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   signal,
   inject,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Location } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { PaymentService, PRICING_PLANS, PricingPlan } from '../../core/services/payment.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
 
 @Component({
   selector: 'app-subscribe',
@@ -38,7 +41,7 @@ import { AuthService } from '../../core/services/auth.service';
 
         <!-- Pricing cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          @for (plan of plans; track plan.id) {
+          @for (plan of visiblePlans(); track plan.id) {
             <button
               (click)="selectPlan(plan)"
               [class]="selectedPlan()?.id === plan.id
@@ -66,24 +69,23 @@ import { AuthService } from '../../core/services/auth.service';
 
         <button
           (click)="pay()"
-          [disabled]="!selectedPlan() || loading() || payService.detecting()"
+          [disabled]="!selectedPlan() || loading() || authorizing()"
           class="w-full py-4 rounded-2xl text-white font-semibold text-base transition-all
                  bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          @if (loading()) {
+          @if (authorizing()) {
+            Connecting your Spenza account...
+          } @else if (loading()) {
             Processing...
-          } @else if (payService.detecting()) {
-            Detecting your region...
-          } @else if (payService.provider() === 'razorpay') {
-            Pay with Razorpay
+          } @else if (isUpgradeMode()) {
+            Upgrade Plan
           } @else {
-            Pay with Stripe
+            Pay with Razorpay
           }
         </button>
 
         <p class="text-xs text-center text-gray-400 mt-4">
-          Secure payments via {{ payService.provider() === 'razorpay' ? 'Razorpay' : 'Stripe' }}.
-          Cancel anytime. By subscribing you agree to our
+          Secure payments via Razorpay. Cancel anytime. By subscribing you agree to our
           <a routerLink="/terms" class="underline">Terms</a> and
           <a routerLink="/privacy" class="underline">Privacy Policy</a>.
         </p>
@@ -91,6 +93,40 @@ import { AuthService } from '../../core/services/auth.service';
         <p class="text-center mt-6">
           <a routerLink="/" class="text-sm text-indigo-600 hover:underline">Continue with Free plan</a>
         </p>
+
+        <!-- Restore subscription for users who paid but weren't activated -->
+        <div class="mt-8 pt-6 border-t border-gray-100">
+          <p class="text-xs text-center text-gray-400 mb-3">Already paid but not activated?</p>
+          @if (!showRestore()) {
+            <button
+              (click)="showRestore.set(true)"
+              class="w-full py-2 text-sm text-indigo-600 hover:underline"
+            >
+              Restore my subscription
+            </button>
+          } @else {
+            <div class="flex gap-2">
+              <input
+                #subIdInput
+                type="text"
+                placeholder="Razorpay subscription ID (sub_...)"
+                class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                (click)="restore(subIdInput.value)"
+                [disabled]="restoring()"
+                class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl disabled:opacity-50"
+              >
+                {{ restoring() ? '…' : 'Restore' }}
+              </button>
+            </div>
+            @if (restoreMsg()) {
+              <p class="text-xs text-center mt-2" [class]="restoreSuccess() ? 'text-green-600' : 'text-red-500'">
+                {{ restoreMsg() }}
+              </p>
+            }
+          }
+        </div>
       </div>
     </div>
   `,
@@ -98,11 +134,27 @@ import { AuthService } from '../../core/services/auth.service';
 export class SubscribeComponent implements OnInit {
   protected readonly payService = inject(PaymentService);
   private readonly authService = inject(AuthService);
+  protected readonly subscriptionService = inject(SubscriptionService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly location = inject(Location);
 
   protected readonly plans = PRICING_PLANS;
   protected readonly selectedPlan = signal<PricingPlan | null>(PRICING_PLANS[0]);
   protected readonly loading = signal(false);
+  protected readonly authorizing = signal(false);
   protected readonly errorMsg = signal<string | null>(null);
+  protected readonly showRestore = signal(false);
+  protected readonly restoring = signal(false);
+  protected readonly restoreMsg = signal<string | null>(null);
+  protected readonly restoreSuccess = signal(false);
+  protected readonly isUpgradeMode = signal(false);
+  protected readonly currentPlanType = signal<'monthly' | 'yearly' | null>(null);
+  protected readonly visiblePlans = computed(() =>
+    this.isUpgradeMode()
+      ? this.plans.filter(p => p.planType !== this.currentPlanType())
+      : this.plans
+  );
 
   protected readonly features = [
     'Advanced spending insights',
@@ -113,8 +165,28 @@ export class SubscribeComponent implements OnInit {
     'Priority support',
   ];
 
-  ngOnInit(): void {
-    this.payService.detectProvider();
+  async ngOnInit(): Promise<void> {
+    const handoff = this.route.snapshot.queryParamMap.get('handoff');
+    if (handoff) {
+      this.authorizing.set(true);
+      this.location.replaceState('/subscribe');
+      try {
+        await this.authService.redeemSubscriptionHandoff(handoff);
+      } catch (err) {
+        this.errorMsg.set(err instanceof Error ? err.message : 'Could not authorize this subscription link.');
+      } finally {
+        this.authorizing.set(false);
+      }
+    }
+
+    await this.subscriptionService.waitUntilLoaded();
+    const status = this.subscriptionService.status();
+    if (status.tier === 'pro' && status.isActive) {
+      this.isUpgradeMode.set(true);
+      this.currentPlanType.set(status.planType);
+      const otherPlan = this.plans.find(p => p.planType !== status.planType);
+      if (otherPlan) this.selectedPlan.set(otherPlan);
+    }
   }
 
   protected selectPlan(plan: PricingPlan): void {
@@ -122,32 +194,34 @@ export class SubscribeComponent implements OnInit {
     this.errorMsg.set(null);
   }
 
+  protected async restore(subscriptionId: string): Promise<void> {
+    if (!subscriptionId.trim() || this.restoring()) return;
+    this.restoring.set(true);
+    this.restoreMsg.set(null);
+    try {
+      await this.payService.restoreSubscription(subscriptionId);
+      this.restoreSuccess.set(true);
+      this.restoreMsg.set('Subscription restored! Redirecting…');
+      await this.router.navigate(['/'], { replaceUrl: true });
+    } catch (err) {
+      this.restoreSuccess.set(false);
+      this.restoreMsg.set(err instanceof Error ? err.message : 'Restore failed. Please try again.');
+    } finally {
+      this.restoring.set(false);
+    }
+  }
+
   protected async pay(): Promise<void> {
     const plan = this.selectedPlan();
     if (!plan || this.loading()) return;
 
-    if (!this.authService.isAuthenticated()) {
-      this.errorMsg.set('Please sign in before subscribing.');
-      return;
-    }
-
     this.loading.set(true);
     this.errorMsg.set(null);
 
-    const uid = await this.authService.ensureUserId();
-    if (!uid) {
-      this.errorMsg.set('Could not identify your account. Please sign out and sign in again.');
-      this.loading.set(false);
-      return;
-    }
-
     try {
-      const provider = this.payService.provider() ?? await this.payService.detectProvider();
-      if (provider === 'razorpay') {
-        await this.payService.openRazorpay(plan, uid, this.authService.userEmail());
-      } else {
-        await this.payService.redirectToStripe(plan, uid);
-      }
+      const idToken = await this.authService.ensureFirebaseIdToken();
+      await this.payService.openRazorpay(plan, idToken, this.authService.userEmail());
+      await this.router.navigate(['/'], { replaceUrl: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Payment failed. Please try again.';
       if (msg !== 'Payment cancelled') this.errorMsg.set(msg);

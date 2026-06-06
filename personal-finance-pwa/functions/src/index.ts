@@ -1,16 +1,30 @@
 import * as admin from 'firebase-admin';
-import { createRazorpaySubscription, verifyRazorpayPayment } from './razorpay';
-import { createStripeSession, stripeWebhook } from './stripe';
-import { razorpayWebhook } from './razorpay-webhook';
+import { createRazorpaySubscription, verifyRazorpayPayment, restoreRazorpaySubscription, cancelRazorpaySubscription } from './razorpay';
+import { razorpayWebhook, webhookHealthCheck } from './razorpay-webhook';
+import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
 import { sendReminders } from './send-reminders';
+import { registerToken, unregisterToken } from './fcm';
+import { extractReceipt } from './ai-receipt';
+import { generateInsights } from './ai-insights';
+import { parseVoiceExpense } from './ai-voice';
+import { testNotification } from './test-notification';
 
 admin.initializeApp();
 
 export {
   createRazorpaySubscription,
   verifyRazorpayPayment,
+  restoreRazorpaySubscription,
+  cancelRazorpaySubscription,
   razorpayWebhook,
-  createStripeSession,
-  stripeWebhook,
+  webhookHealthCheck,
+  createSubscriptionHandoff,
+  redeemSubscriptionHandoff,
   sendReminders,
+  registerToken,
+  unregisterToken,
+  extractReceipt,
+  generateInsights,
+  parseVoiceExpense,
+  testNotification,
 };

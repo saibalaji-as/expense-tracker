@@ -1,7 +1,8 @@
-import { computed, inject } from '@angular/core';
+import { computed, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
+import { budgetThresholdExceeded$ } from './budget-events';
 import {
   AccountBalanceAdjustment,
   AdjustAccountBalanceInput,
@@ -20,7 +21,6 @@ import {
   UpdateDebtAccountInput,
   UpdateDebtPaymentInput,
 } from '../models';
-import { BudgetThresholdEvent } from '../models/local-notification.model';
 import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { BackupDocument, DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
@@ -72,10 +72,6 @@ type AccountBalanceDelta = Map<string, number>;
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
 export const driveError$ = new Subject<DriveApiError | DriveParseError>();
-
-// ─── Budget Threshold Event Subject ──────────────────────────────────────────
-
-export const budgetThresholdExceeded$ = new Subject<BudgetThresholdEvent>();
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 
@@ -395,7 +391,7 @@ export const ExpenseStore = signalStore(
       try {
         return await googleDriveService.getFileModifiedTime(fileId);
       } catch (err) {
-        console.warn('[ExpenseStore] Could not read Drive modifiedTime:', err);
+        if (isDevMode()) { console.warn('[ExpenseStore] Could not read Drive modifiedTime:', err); }
         return null;
       }
     };
@@ -511,7 +507,7 @@ export const ExpenseStore = signalStore(
         const parsed = JSON.parse(raw) as unknown;
         return Array.isArray(parsed) ? parsed : [];
       } catch (err) {
-        console.warn('[ExpenseStore] Failed to parse widget expense queue:', err);
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to parse widget expense queue:', err); }
         return [];
       }
     };
@@ -612,10 +608,10 @@ export const ExpenseStore = signalStore(
       await methods.persistToDrive();
 
       if (store.syncStatus() === 'error') {
-        console.warn('[ExpenseStore] Widget expenses were added locally but Drive persistence is pending.');
+        if (isDevMode()) { console.warn('[ExpenseStore] Widget expenses were added locally but Drive persistence is pending.'); }
       }
 
-      console.log('[ExpenseStore] Flushed widget queue:', newEntries.length, newAdjustments.length);
+      if (isDevMode()) { console.log('[ExpenseStore] Flushed widget queue:', newEntries.length, newAdjustments.length); }
       return true;
     };
 
@@ -647,7 +643,7 @@ export const ExpenseStore = signalStore(
           doc: parsed.doc,
         };
       } catch (err) {
-        console.warn('[ExpenseStore] Failed to parse local backup snapshot:', err);
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to parse local backup snapshot:', err); }
         return null;
       }
     };
@@ -697,7 +693,7 @@ export const ExpenseStore = signalStore(
       try {
         await ExpenseWidget.refresh();
       } catch (error) {
-        console.warn('[ExpenseStore] Failed to refresh native expense widget:', error);
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to refresh native expense widget:', error); }
       }
     };
 
@@ -714,7 +710,7 @@ export const ExpenseStore = signalStore(
 
       if (!healed) return { doc, healed };
 
-      console.warn('[ExpenseStore] Remote backup is missing finance arrays; preserving cached finance state and upgrading backup schema.');
+      if (isDevMode()) { console.warn('[ExpenseStore] Remote backup is missing finance arrays; preserving cached finance state and upgrading backup schema.'); }
       return {
         doc: {
           ...doc,
@@ -864,49 +860,49 @@ export const ExpenseStore = signalStore(
        * into the local entries (deduplicating by id), and optionally updates selectedMonth.
        */
       async loadMonth(month: string, updateSelectedMonth: boolean = true): Promise<void> {
-        console.log('[ExpenseStore] loadMonth called for:', month, '| updateSelectedMonth:', updateSelectedMonth);
+        if (isDevMode()) { console.log('[ExpenseStore] loadMonth called for:', month, '| updateSelectedMonth:', updateSelectedMonth); }
         const sheetId = await storageService.get('pf_sheet_id') ?? '';
         if (!sheetId) {
-          console.warn('[ExpenseStore] loadMonth - no sheet ID configured');
+          if (isDevMode()) { console.warn('[ExpenseStore] loadMonth - no sheet ID configured'); }
           return;   // no sheet configured yet
         }
 
         // Only update selectedMonth if explicitly requested (not for background trend loading)
         if (updateSelectedMonth) {
           patchState(store, { syncStatus: 'syncing', selectedMonth: month });
-          console.log('[ExpenseStore] loadMonth - selectedMonth updated to:', month);
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - selectedMonth updated to:', month); }
         } else {
           patchState(store, { syncStatus: 'syncing' });
-          console.log('[ExpenseStore] loadMonth - loading data without updating selectedMonth');
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - loading data without updating selectedMonth'); }
         }
-        console.log('[ExpenseStore] loadMonth - current entries count:', store.entries().length);
+        if (isDevMode()) { console.log('[ExpenseStore] loadMonth - current entries count:', store.entries().length); }
 
         try {
           const fetched = await sheetsService.readExpenses(sheetId, month);
-          console.log('[ExpenseStore] loadMonth - fetched', fetched.length, 'entries');
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - fetched', fetched.length, 'entries'); }
 
           // Merge: build a map of existing entries by id, then overlay fetched ones
           const existingById = new Map<string, ExpenseEntry>(
             store.entries().map((e) => [e.id, e])
           );
-          console.log('[ExpenseStore] loadMonth - existing entries in map:', existingById.size);
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - existing entries in map:', existingById.size); }
 
           for (const entry of fetched) {
             existingById.set(entry.id, entry);
           }
-          console.log('[ExpenseStore] loadMonth - after merge, map size:', existingById.size);
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - after merge, map size:', existingById.size); }
 
           const mergedEntries = Array.from(existingById.values());
-          console.log('[ExpenseStore] loadMonth - merged total:', mergedEntries.length, 'entries');
-          console.log('[ExpenseStore] loadMonth - entries for month', month, ':',
-            mergedEntries.filter(e => e.date.startsWith(month)).length);
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - merged total:', mergedEntries.length, 'entries'); }
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - entries for month', month, ':',
+            mergedEntries.filter(e => e.date.startsWith(month)).length); }
 
           patchState(store, {
             entries: mergedEntries,
             syncStatus: 'idle',
           });
 
-          console.log('[ExpenseStore] loadMonth - state updated, entries count:', store.entries().length);
+          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - state updated, entries count:', store.entries().length); }
         } catch (err) {
           console.error('[ExpenseStore] loadMonth - error:', err);
           patchState(store, { syncStatus: 'error' });
@@ -919,13 +915,13 @@ export const ExpenseStore = signalStore(
        * and updates the store state.
        */
       async loadLimits(): Promise<void> {
-        console.log('[ExpenseStore] loadLimits called');
+        if (isDevMode()) { console.log('[ExpenseStore] loadLimits called'); }
         const sheetId = await storageService.get('pf_sheet_id') ?? '';
         if (!sheetId) {
-          console.warn('[ExpenseStore] loadLimits - no sheet ID configured');
+          if (isDevMode()) { console.warn('[ExpenseStore] loadLimits - no sheet ID configured'); }
           return;   // no sheet configured yet
         }
-        console.log('[ExpenseStore] loadLimits - fetching from sheet:', sheetId);
+        if (isDevMode()) { console.log('[ExpenseStore] loadLimits - fetching from sheet:', sheetId); }
         try {
           const [limits, metadata] = await Promise.all([
             sheetsService.readLimits(sheetId),
@@ -933,7 +929,7 @@ export const ExpenseStore = signalStore(
           ]);
 
           const monthlyIncome = parseFloat(metadata[METADATA_MONTHLY_INCOME] ?? '0') || 0;
-          console.log('[ExpenseStore] loadLimits - fetched limits:', limits.length, '| income:', monthlyIncome);
+          if (isDevMode()) { console.log('[ExpenseStore] loadLimits - fetched limits:', limits.length, '| income:', monthlyIncome); }
 
           patchState(store, { limits, monthlyIncome });
         } catch (err) {
@@ -1502,6 +1498,8 @@ export const ExpenseStore = signalStore(
           accountId: input.accountId,
           debtId: debt.id,
           source: 'debt-payment',
+          updatedByEmail: actor.email,
+          updatedByRole: actor.role,
         };
 
         patchState(store, {
@@ -1537,6 +1535,10 @@ export const ExpenseStore = signalStore(
         const payment = store.debtPayments().find((candidate) => candidate.id === paymentId);
         if (!payment) {
           throw new Error('Debt payment was not found.');
+        }
+        const existingEntry = store.entries().find((entry) => entry.id === payment.expenseId);
+        if (!existingEntry) {
+          throw new Error('Linked debt payment expense was not found.');
         }
         const debt = store.debts().find((candidate) => candidate.id === payment.debtId);
         if (!debt) {
@@ -1621,15 +1623,15 @@ export const ExpenseStore = signalStore(
        * flow against appDataFolder.
        */
       async loadFromDrive(): Promise<void> {
-        console.log('[ExpenseStore] loadFromDrive — start');
+        if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — start'); }
         patchState(store, { syncStatus: 'syncing' });
 
         const mode = backupModeService.getMode();
-        console.log('[ExpenseStore] loadFromDrive — mode:', mode);
+        if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — mode:', mode); }
 
         try {
           if (await flushDirtyLocalSnapshot()) {
-            console.log('[ExpenseStore] loadFromDrive — flushed local backup snapshot');
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — flushed local backup snapshot'); }
             return;
           }
 
@@ -1637,41 +1639,65 @@ export const ExpenseStore = signalStore(
             // Family mode: read directly from the shared file ID — no find/create
             const fileId = backupModeService.getSharedFileId();
             if (!fileId) {
-              console.warn('[ExpenseStore] loadFromDrive — family mode but no sharedFileId, emitting FAMILY_SETUP_INCOMPLETE');
+              if (isDevMode()) { console.warn('[ExpenseStore] loadFromDrive — family mode but no sharedFileId, emitting FAMILY_SETUP_INCOMPLETE'); }
               patchState(store, { syncStatus: 'error' });
               driveError$.next({ status: 0, message: 'FAMILY_SETUP_INCOMPLETE', operation: 'loadFromDrive' } as DriveApiError);
               return;
             }
-            console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId);
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId); }
             const doc = await googleDriveService.readBackupFile(fileId);
             const modifiedTime = await readModifiedTimeSafely(fileId);
-            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length, '| monthlyIncome:', doc.metadata.monthlyIncome);
-            console.log('[ExpenseStore] loadFromDrive — document structure:', {
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length, '| monthlyIncome:', doc.metadata.monthlyIncome); }
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — document structure:', {
               version: doc.version,
               lastUpdated: doc.lastUpdated,
               hasExpenses: doc.expenses.length > 0,
               hasLimits: doc.limits.length > 0,
               currency: doc.metadata.currency
-            });
+            }); }
             applyBackupDocument(fileId, doc, modifiedTime);
             await flushPendingWidgetExpenses();
-            console.log('[ExpenseStore] loadFromDrive — state updated. Store now has:', {
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — state updated. Store now has:', {
               entriesCount: store.entries().length,
               limitsCount: store.limits().length,
               monthlyIncome: store.monthlyIncome(),
               driveFileId: store.driveFileId()
-            });
-            console.log('[ExpenseStore] loadFromDrive — done (family backup loaded)');
+            }); }
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — done (family backup loaded)'); }
           } else {
             // Single user mode (or null): existing find-or-create flow using appDataFolder
-            console.log('[ExpenseStore] loadFromDrive — single mode, calling findBackupFile...');
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — single mode, calling findBackupFile...'); }
             let fileId = await googleDriveService.findBackupFile();
-            console.log('[ExpenseStore] loadFromDrive — findBackupFile result:', fileId);
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — findBackupFile result:', fileId); }
 
             if (fileId === null) {
-              console.log('[ExpenseStore] loadFromDrive — no backup found, creating new file...');
+              // Before treating this as a new user, check the local cache.
+              // If it has data, the appDataFolder is likely inaccessible due to an OAuth
+              // client ID change — restore the cached data into the new Drive file
+              // rather than wiping everything with an empty backup.
+              const cachedSnapshot = await readLocalBackupSnapshot();
+              const snapshotHasData = !!(
+                cachedSnapshot?.doc &&
+                (cachedSnapshot.doc.expenses.length > 0 ||
+                  (cachedSnapshot.doc.accounts?.length ?? 0) > 0 ||
+                  cachedSnapshot.doc.limits.length > 0 ||
+                  cachedSnapshot.doc.metadata.monthlyIncome > 0)
+              );
+
+              if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — no backup found, creating new file...'); }
               fileId = await googleDriveService.createBackupFile();
-              console.log('[ExpenseStore] loadFromDrive — created backup file, id:', fileId);
+              if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — created backup file, id:', fileId); }
+
+              if (snapshotHasData) {
+                if (isDevMode()) { console.warn('[ExpenseStore] loadFromDrive — appDataFolder was empty but local cache has data; restoring cache into new Drive file.'); }
+                const docToRestore = cachedSnapshot!.doc;
+                const modifiedTime = await googleDriveService.writeBackupFile(fileId, docToRestore);
+                applyBackupDocument(fileId, docToRestore, modifiedTime);
+                await flushPendingWidgetExpenses();
+                if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — done (cache restored to new Drive file)'); }
+                return;
+              }
+
               patchState(store, {
                 entries: [],
                 limits: [],
@@ -1687,17 +1713,17 @@ export const ExpenseStore = signalStore(
               });
               await writeLocalBackupSnapshot(fileId, buildBackupDocument(), store.lastKnownDriveModifiedTime(), false);
               await flushPendingWidgetExpenses();
-              console.log('[ExpenseStore] loadFromDrive — done (new empty backup)');
+              if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — done (new empty backup)'); }
               return;
             }
 
-            console.log('[ExpenseStore] loadFromDrive — reading backup file...');
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — reading backup file...'); }
             const doc = await googleDriveService.readBackupFile(fileId);
             const modifiedTime = await readModifiedTimeSafely(fileId);
-            console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length);
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — read complete. expenses:', doc.expenses.length, '| limits:', doc.limits.length); }
             applyBackupDocument(fileId, doc, modifiedTime);
             await flushPendingWidgetExpenses();
-            console.log('[ExpenseStore] loadFromDrive — done (existing backup loaded)');
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — done (existing backup loaded)'); }
           }
         } catch (err) {
           console.error('[ExpenseStore] loadFromDrive — ERROR:', err);
@@ -1734,7 +1760,7 @@ export const ExpenseStore = signalStore(
 
           const fileId = store.driveFileId();
           if (!fileId) {
-            console.warn('[ExpenseStore] persistToDrive called before driveFileId is set — skipping');
+            if (isDevMode()) { console.warn('[ExpenseStore] persistToDrive called before driveFileId is set — skipping'); }
             return;
           }
 
@@ -1770,13 +1796,13 @@ export const ExpenseStore = signalStore(
             return false;
           }
 
-          console.log('[ExpenseStore] Remote backup changed, loading latest Drive data.');
+          if (isDevMode()) { console.log('[ExpenseStore] Remote backup changed, loading latest Drive data.'); }
           const doc = await googleDriveService.readBackupFile(fileId);
           applyBackupDocument(fileId, doc, remoteModifiedTime);
           await flushPendingWidgetExpenses();
           return true;
         } catch (err) {
-          console.warn('[ExpenseStore] refreshFromDriveIfChanged failed:', err);
+          if (isDevMode()) { console.warn('[ExpenseStore] refreshFromDriveIfChanged failed:', err); }
           const driveErr = err as DriveApiError;
           if (driveErr.status === 403 || driveErr.status === 404) {
             driveError$.next(err as DriveApiError | DriveParseError);

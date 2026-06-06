@@ -427,29 +427,34 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                   </form>
                 }
 
-                @if (debtPaymentsForDebt(debt.id).length > 0) {
-                  <div class="mt-4 rounded-2xl border border-border bg-muted/20 p-3">
-                    <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.paymentHistory' | translate }}</p>
+                <div class="mt-4 rounded-2xl border border-border bg-muted/20 p-3">
+                  <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.payments.history' | translate }}</p>
+                  @if (debtPaymentsForDebt(debt.id).length === 0) {
+                    <p class="mt-2 text-xs text-muted-foreground">{{ 'finances.payments.noHistory' | translate }}</p>
+                  } @else {
                     <div class="mt-2 grid gap-2">
                       @for (payment of debtPaymentsForDebt(debt.id); track payment.id) {
-                        <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-background/70 px-3 py-2 text-xs">
-                          <div>
+                        <div class="flex flex-wrap items-start justify-between gap-2 rounded-xl bg-background/70 px-3 py-2 text-xs">
+                          <div class="min-w-0">
                             <p class="font-semibold tabular-nums">{{ payment.amount | currencyFormat }}</p>
-                            <p class="text-muted-foreground">{{ payment.date }} · {{ accountName(payment.accountId) }}</p>
+                            <p class="text-muted-foreground">{{ payment.date | dateFormat }} · {{ accountName(payment.accountId) }}</p>
+                            @if (paymentComment(payment)) {
+                              <p class="mt-0.5 break-words text-foreground">{{ paymentComment(payment) }}</p>
+                            }
                           </div>
-                          <div class="flex gap-2">
+                          <div class="flex shrink-0 gap-2">
                             <button type="button" class="grid h-8 w-8 place-items-center rounded-xl border border-border text-muted-foreground transition hover:bg-accent" (click)="startDebtPayment(debt, payment)" [attr.aria-label]="'common.edit' | translate">
                               <lucide-icon name="pencil" class="h-4 w-4" />
                             </button>
-                            <button type="button" class="grid h-8 w-8 place-items-center rounded-xl border border-destructive/20 text-destructive transition hover:bg-destructive/10" (click)="requestDebtPaymentDelete(payment)" [attr.aria-label]="'common.delete' | translate">
+                            <button type="button" class="grid h-8 w-8 place-items-center rounded-xl border border-destructive/20 text-destructive transition hover:bg-destructive/10" (click)="requestPaymentDelete(payment)" [attr.aria-label]="'common.delete' | translate">
                               <lucide-icon name="trash-2" class="h-4 w-4" />
                             </button>
                           </div>
                         </div>
                       }
                     </div>
-                  </div>
-                }
+                  }
+                </div>
               </article>
             }
           </div>
@@ -482,14 +487,38 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
 
       <app-modal
         class="contents"
-        [isOpen]="!!deleteDebtPaymentTarget()"
-        [title]="'finances.debts.deletePaymentTitle' | translate"
-        (cancelled)="deleteDebtPaymentTarget.set(null)"
-        (confirmed)="confirmDebtPaymentDelete()"
+        [isOpen]="!!confirmingDeletePayment()"
+        [title]="'finances.payments.deleteConfirmTitle' | translate"
+        [showActions]="false"
+        (cancelled)="cancelPaymentDelete()"
       >
         <p class="text-sm text-muted-foreground">
-          {{ 'finances.debts.deletePaymentDescription' | translate }}
+          {{ 'finances.payments.deleteConfirmMessage' | translate }}
         </p>
+        <div class="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            (click)="cancelPaymentDelete()"
+            class="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+          >
+            {{ 'common.cancel' | translate }}
+          </button>
+          <button
+            type="button"
+            (click)="confirmPaymentDelete()"
+            [disabled]="isDeletingPayment()"
+            class="rounded-xl border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            @if (isDeletingPayment()) {
+              <span class="inline-flex items-center gap-2">
+                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                {{ 'common.loading' | translate }}
+              </span>
+            } @else {
+              {{ 'common.delete' | translate }}
+            }
+          </button>
+        </div>
       </app-modal>
     </div>
   `,
@@ -517,7 +546,8 @@ export class FinancesComponent {
   readonly payingDebt = signal<DebtAccount | null>(null);
   readonly deleteTarget = signal<AssetAccount | null>(null);
   readonly deleteDebtTarget = signal<DebtAccount | null>(null);
-  readonly deleteDebtPaymentTarget = signal<DebtPayment | null>(null);
+  readonly confirmingDeletePayment = signal<DebtPayment | null>(null);
+  readonly isDeletingPayment = signal(false);
   readonly saving = signal(false);
 
   readonly accountForm = new FormBuilder().nonNullable.group({
@@ -843,8 +873,12 @@ export class FinancesComponent {
     this.deleteDebtTarget.set(debt);
   }
 
-  requestDebtPaymentDelete(payment: DebtPayment): void {
-    this.deleteDebtPaymentTarget.set(payment);
+  requestPaymentDelete(payment: DebtPayment): void {
+    this.confirmingDeletePayment.set(payment);
+  }
+
+  cancelPaymentDelete(): void {
+    this.confirmingDeletePayment.set(null);
   }
 
   async confirmDelete(): Promise<void> {
@@ -889,11 +923,11 @@ export class FinancesComponent {
     }
   }
 
-  async confirmDebtPaymentDelete(): Promise<void> {
-    const payment = this.deleteDebtPaymentTarget();
+  async confirmPaymentDelete(): Promise<void> {
+    const payment = this.confirmingDeletePayment();
     if (!payment) return;
-    this.deleteDebtPaymentTarget.set(null);
-    this.saving.set(true);
+    this.confirmingDeletePayment.set(null);
+    this.isDeletingPayment.set(true);
     try {
       await this.expenseStore.deleteDebtPayment(payment.id);
       this.feedback.success(
@@ -902,11 +936,11 @@ export class FinancesComponent {
       );
     } catch (error) {
       this.feedback.error(
-        this.i18n.t('finances.feedback.debtPaymentNotDeleted'),
+        this.i18n.t('finances.feedback.debtPaymentDeleteFailed'),
         error instanceof Error ? error.message : this.i18n.t('finances.feedback.tryAgain')
       );
     } finally {
-      this.saving.set(false);
+      this.isDeletingPayment.set(false);
     }
   }
 
@@ -967,6 +1001,10 @@ export class FinancesComponent {
 
   accountName(accountId: string): string {
     return this.expenseStore.accounts().find((account) => account.id === accountId)?.name ?? this.i18n.t('finances.summary.none');
+  }
+
+  paymentComment(payment: DebtPayment): string {
+    return this.expenseStore.entries().find((e) => e.id === payment.expenseId)?.comment ?? '';
   }
 
   debtTypeIcon(type: DebtAccountType): string {

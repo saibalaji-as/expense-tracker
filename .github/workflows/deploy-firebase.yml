@@ -1,0 +1,97 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: personal-finance-pwa/package-lock.json
+
+      - name: Write environment.prod.ts
+        working-directory: personal-finance-pwa
+        env:
+          NETLIFY_FUNCTIONS_URL: ${{ secrets.NETLIFY_FUNCTIONS_URL }}
+          FIREBASE_FUNCTIONS_URL: ${{ secrets.FIREBASE_FUNCTIONS_URL }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            fs.writeFileSync('src/environments/environment.prod.ts',
+              \`export const environment = {
+            production: true,
+            netlifyFunctionsUrl: '\${process.env.NETLIFY_FUNCTIONS_URL}',
+            firebaseFunctionsUrl: '\${process.env.FIREBASE_FUNCTIONS_URL}',
+          };\`
+            );
+          "
+
+      - name: Install dependencies
+        working-directory: personal-finance-pwa
+        run: npm ci
+
+      - name: Build
+        working-directory: personal-finance-pwa
+        run: npm run build -- --configuration production
+
+      - name: Install Firebase Functions dependencies
+        working-directory: personal-finance-pwa/functions
+        run: npm ci
+
+      - name: Build Firebase Functions
+        working-directory: personal-finance-pwa/functions
+        run: npm run build
+
+      - name: Inject Razorpay live key into index.html
+        working-directory: personal-finance-pwa
+        env:
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('dist/personal-finance-pwa/browser/index.html', 'utf8');
+            fs.writeFileSync('dist/personal-finance-pwa/browser/index.html',
+              html.replace(/RAZORPAY_LIVE_KEY_PLACEHOLDER/g, process.env.RAZORPAY_KEY_ID)
+            );
+          "
+
+      - name: Validate Razorpay key injection
+        working-directory: personal-finance-pwa
+        run: |
+          BUILT_HTML="dist/personal-finance-pwa/browser/index.html"
+          if grep -q "RAZORPAY_LIVE_KEY_PLACEHOLDER" "$BUILT_HTML"; then
+            echo "ERROR: RAZORPAY_LIVE_KEY_PLACEHOLDER was not replaced in $BUILT_HTML"
+            echo "Check that the RAZORPAY_KEY_ID secret is set in GitHub Actions repo settings."
+            exit 1
+          fi
+          KEY=$(grep -oP "(?<=__RAZORPAY_KEY_ID__ = ')[^']+" "$BUILT_HTML" || true)
+          if [[ -z "$KEY" ]]; then
+            echo "ERROR: __RAZORPAY_KEY_ID__ value is empty in $BUILT_HTML — RAZORPAY_KEY_ID secret may be blank."
+            exit 1
+          fi
+          if [[ "$KEY" != rzp_live_* && "$KEY" != rzp_test_* ]]; then
+            echo "ERROR: Injected Razorpay key does not start with 'rzp_live_' or 'rzp_test_' (got: ${KEY:0:12}...). Refusing to deploy."
+            exit 1
+          fi
+          if [[ "$KEY" == rzp_test_* ]]; then
+            echo "WARNING: Deploying with a TEST Razorpay key (${KEY:0:12}...). Switch to live key before going live."
+          else
+            echo "Razorpay key injection OK: ${KEY:0:12}..."
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy Firebase Hosting and subscription Functions
+        working-directory: personal-finance-pwa
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription --project spenza-notifications --non-interactive

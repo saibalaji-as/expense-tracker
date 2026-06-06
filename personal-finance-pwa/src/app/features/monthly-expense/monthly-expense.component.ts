@@ -5,8 +5,7 @@ import {
   OnInit,
   computed,
   inject,
-  signal,
-} from '@angular/core';
+  signal, isDevMode } from '@angular/core';
 import { ChartData, ChartOptions } from 'chart.js/auto';
 import {
   LucideAngularModule,
@@ -441,7 +440,7 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
   readonly totalSpent = computed(() => {
     const entries = this.expenseStore.selectedMonthEntries();
     const total = entries.reduce((sum, e) => sum + e.amount, 0);
-    console.log('[MonthlyExpense] totalSpent computed - entries:', entries.length, '| total:', total, '| store.selectedMonth:', this.expenseStore.selectedMonth());
+    if (isDevMode()) { console.log('[MonthlyExpense] totalSpent computed - entries:', entries.length, '| total:', total, '| store.selectedMonth:', this.expenseStore.selectedMonth()); }
     return total;
   });
 

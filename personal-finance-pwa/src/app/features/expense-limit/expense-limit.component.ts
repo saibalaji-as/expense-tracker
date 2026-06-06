@@ -32,7 +32,7 @@ import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
-import { ClearableInputDirective, ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
+import { ButtonComponent, ClearableInputDirective, ModalComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { SectionCardComponent } from '../../shared/components/section-card/section-card.component';
 import { CategoryIconComponent } from '../../shared/components/category-icon/category-icon.component';
@@ -65,6 +65,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    ButtonComponent,
     ModalComponent,
     ThemedSelectComponent,
     ClearableInputDirective,
@@ -340,10 +341,15 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         <div class="sticky z-30 md:static md:bottom-auto">
           <button
             type="submit"
-            [disabled]="!isAllocationBalanced() || form.invalid"
+            [disabled]="!isAllocationBalanced() || form.invalid || isSaving()"
             class="gradient-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:px-8"
           >
-	            <lucide-icon [img]="saveIcon" class="h-4 w-4" /> {{ 'limits.save' | translate }}
+            @if (isSaving()) {
+              <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            } @else {
+              <lucide-icon [img]="saveIcon" class="h-4 w-4" />
+            }
+            {{ 'limits.save' | translate }}
           </button>
         </div>
 
@@ -360,6 +366,20 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
       <p class="text-sm text-muted-foreground">
 	        {{ 'limits.lowSavings.description' | translate }}
       </p>
+    </app-modal>
+
+    <!-- Delete Custom Limit Confirmation Modal -->
+    <app-modal
+      [title]="'limits.deleteConfirm.title' | translate"
+      [isOpen]="showLimitDeleteModal()"
+      [showActions]="false"
+      (cancelled)="onLimitDeleteCancelled()"
+    >
+      <p class="text-sm text-muted-foreground">{{ 'limits.deleteConfirm.message' | translate }}</p>
+      <div class="mt-6 flex justify-end gap-3">
+        <app-button variant="ghost" (click)="onLimitDeleteCancelled()">{{ 'common.cancel' | translate }}</app-button>
+        <app-button variant="danger" (click)="onLimitDeleteConfirmed()">{{ 'common.confirm' | translate }}</app-button>
+      </div>
     </app-modal>
   `,
 })
@@ -409,6 +429,9 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   // Task 10.5: modal and save state
   readonly showSavingsWarning = signal(false);
   readonly saveSuccess = signal(false);
+  readonly isSaving = signal(false);
+  readonly showLimitDeleteModal = signal(false);
+  readonly pendingDeleteLimitIndex = signal<number | null>(null);
 
   private subscription?: Subscription;
   private pendingSave = false;
@@ -538,13 +561,26 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
   // Remove custom type
   removeCustomType(index: number): void {
     if (this.isPredefined(index)) {
-      return; // Safety check - should never happen
+      return;
     }
-    if (confirm(this.i18n.t('limits.custom.deleteConfirm'))) {
+    this.pendingDeleteLimitIndex.set(index);
+    this.showLimitDeleteModal.set(true);
+  }
+
+  onLimitDeleteConfirmed(): void {
+    const index = this.pendingDeleteLimitIndex();
+    this.showLimitDeleteModal.set(false);
+    this.pendingDeleteLimitIndex.set(null);
+    if (index !== null) {
       this.limitsArray.removeAt(index);
       this.recalculateAmounts();
       this.updateRunningTotal();
     }
+  }
+
+  onLimitDeleteCancelled(): void {
+    this.showLimitDeleteModal.set(false);
+    this.pendingDeleteLimitIndex.set(null);
   }
 
   // Task 10.5: Save handler
@@ -688,7 +724,7 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
       userPercentage: Number(ctrl.get('userPercentage')?.value) || 0,
     }));
 
-    // setLimitsAndIncome automatically persists to Google Drive
+    this.isSaving.set(true);
     try {
       await this.expenseStore.setLimitsAndIncome(limits, income);
       this.feedback.success(
@@ -704,6 +740,8 @@ export class ExpenseLimitComponent implements OnInit, OnDestroy {
           ? error.message
           : 'Check your connection and Drive access, then try again.'
       );
+    } finally {
+      this.isSaving.set(false);
     }
   }
 

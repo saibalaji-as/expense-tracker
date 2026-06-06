@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "spenza-notifications"
+  },
+  "targets": {
+    "spenza-notifications": {
+      "hosting": {
+        "spenza-site": [
+          "spenza-finance"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

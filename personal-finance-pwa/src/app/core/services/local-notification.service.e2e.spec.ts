@@ -13,7 +13,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { LocalNotificationService } from './local-notification.service';
 import { StorageService } from './storage.service';
-import { budgetThresholdExceeded$ } from './expense-store.service';
+import { budgetThresholdExceeded$ } from './budget-events';
 import { NotificationPreferences } from '../models/notification-preferences.model';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 

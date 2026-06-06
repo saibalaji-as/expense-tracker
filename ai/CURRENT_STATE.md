@@ -11,13 +11,13 @@
 - The setup script installs Graphify when needed, configures Codex and VS Code Copilot Chat, builds the local graph, and installs a machine-local Git `post-merge` hook for automatic refresh after future `git pull` merges.
 
 ## Last Memory Refresh
-- Date: 2026-05-29.
+- Date: 2026-06-03.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
   - Netlify functions under `personal-finance-pwa/netlify/functions`.
-  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
-- Existing memory files were present but empty before this refresh.
+  - Firebase functions under `personal-finance-pwa/functions`.
+  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `firebase.json`, `.firebaserc`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
 
 ## Active Project Shape
 - App is a Drive-backed Angular 21 PWA/Capacitor app named Spenza.
@@ -29,6 +29,61 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Native browser alert/confirm replacement (2026-06-05):
+  - All four remaining native `alert()`/`confirm()` call sites replaced with `ModalComponent` or `UserFeedbackService` toasts.
+  - Daily voice-unsupported warning now calls `feedback.warning()` using i18n key `daily.voice.unsupportedBrowser`.
+  - Daily delete-expense confirm now uses `ModalComponent` with `daily.deleteConfirm.title` title and `daily.deleteConfirm.message` body paragraph.
+  - Expense-limit custom-category delete confirm now uses `ModalComponent` with `limits.deleteConfirm.title` and `limits.deleteConfirm.message`.
+  - Settings test-notification handler now calls `feedback.success()` using i18n key `settings.notifications.testSent`.
+  - All six new i18n keys added to `en.json`, `ta.json`, and `hi.json`.
+  - `npx vitest run` (3 spec files, 91 tests) passed; `npm run build -- --configuration production` passed.
+- Subscription cancellation flow (2026-06-04):
+  - `cancelRazorpaySubscription` Firebase Function added to `razorpay.ts` and exported from `index.ts`; deployed via updated `deploy-firebase.yml` alongside other Razorpay Functions.
+  - Function calls `rzp.subscriptions.cancel(id, { cancel_at_cycle_end: true })` — user keeps Pro access until `expiresAt`; webhook fires `tier: free` at period end.
+  - Guards: POST-only, requires Firebase ID token, validates `tier === 'pro'`, `expiresAt` not past, and `cancelPending !== true` (no double-cancel).
+  - On success writes `{ cancelPending: true, cancelledAt, updatedAt }` to Firestore with `merge: true`.
+  - `SubscriptionStatus` interface now includes `cancelPending: boolean`; `FREE_STATUS` defaults to `false`; `startListening()` and `fetchOnce()` read it from Firestore.
+  - `PaymentService.cancelSubscription()` added — same pattern as `restoreSubscription()`; calls `FN_CANCEL_SUBSCRIPTION` Cloud Run URL.
+  - `SettingsComponent` Pro card now shows "Cancels {date} · Access until then" in amber when `cancelPending`, otherwise "Renews {date}". Cancel button (hidden when `cancelPending`) opens a ModalComponent confirmation with "Keep Pro" as primary action and "Cancel subscription" as destructive secondary; `cancelling` and `showCancelConfirm` signals guard re-entry.
+  - `razorpayWebhook` cancel handler now also writes `cancelPending: false` when setting `tier: free`, so resubscriptions start clean.
+  - `createRazorpaySubscription` resubscription edge case: if same-plan but `cancelPending === true`, clears the flag and proceeds to create a new subscription instead of returning a 400.
+  - `npm run build -- --configuration production` passed. `npm run build` in `functions/` passed.
+- Subscription duplicate protection and upgrade/downgrade flow (2026-06-04):
+  - `SubscriptionStatus` interface now includes `planType: 'monthly' | 'yearly' | null`; `FREE_STATUS` defaults to `null`.
+  - `SubscriptionService.startListening()` and `fetchOnce()` read `planType` from Firestore and expose it via the `status()` signal.
+  - `createRazorpaySubscription` Firebase Function now gates subscription creation: same-plan → 400 with clear error; yearly → monthly downgrade → 400 with clear error; monthly → yearly upgrade → cancels the old monthly subscription at cycle end before creating the new yearly one.
+  - `razorpayWebhook` cancel handler now reads the current Firestore doc before writing `tier: free`; if a *different* (newer) subscription ID is already active it skips the downgrade and logs the upgrade-flow scenario, preventing a race condition where the cancelled-at-cycle-end monthly event would wipe out the new yearly Pro status.
+  - `SubscribeComponent` now detects Pro users and shows upgrade mode instead of redirecting to settings: hides the currently active plan card, pre-selects the other plan, and labels the action button "Upgrade Plan". Handoff param is now redeemed before the subscription status check.
+  - `npm run build -- --configuration production` passed. `npm run build` in `functions/` passed.
+- Firebase Hosting and subscription/payment phase:
+  - Firebase Hosting is the canonical PWA deployment at `https://spenza-finance.web.app`; `.github/workflows/deploy-firebase.yml` builds and deploys Hosting, both subscription-handoff Functions, and all three Razorpay Functions from `main`.
+  - Firebase Functions runtime is Node.js 22; Node.js 20 was removed after Firebase CLI reported its deprecation.
+  - Firebase deploy workflow currently uses `actions/checkout@v4`, `actions/setup-node@v5`, and `google-github-actions/auth@v3`.
+  - The deploy workflow injects the live Razorpay key into built `index.html` from the `RAZORPAY_KEY_ID` GitHub secret and refuses deployment if the placeholder remains, the key is blank, or it does not start with `rzp_live_`.
+  - Firebase Functions under `personal-finance-pwa/functions` cover Razorpay subscription creation, signature verification, webhook handling, and reminder export.
+  - Added Firebase Auth bridging in `AuthService`: Google credentials sign into Firebase when possible, `firebase_uid` is cached, and Drive-backed features remain usable when Firebase sign-in fails.
+  - Added Firestore-backed `SubscriptionService`, read-only per-user subscription rules, `/subscribe`, Terms, Privacy, Settings plan UI, Family-mode gating, and Dashboard Gemini-insight gating.
+  - Native Android does not render `/subscribe` in the Capacitor WebView. Settings and Pro redirects request a five-minute Firebase handoff code and open `https://spenza-finance.web.app/#/subscribe?handoff=...` through `@capacitor/browser`.
+  - The subscription page removes the handoff query parameter from browser history before redeeming it. The backend allows same-code redemption retries for 60 seconds after the first redemption so mobile-browser route re-entry cannot consume the handoff before Firebase Auth completes.
+  - The external browser redeems the handoff code into Firebase Auth silently, avoiding a second user sign-in before checkout.
+  - The Functions runtime service account has `roles/iam.serviceAccountTokenCreator` on itself so Firebase Admin can sign handoff custom tokens. Redemption records `redeemedAt` only after custom-token creation succeeds.
+  - Razorpay client calls send Firebase ID tokens; Firebase Functions verify the token and derive UID server-side instead of trusting client-supplied account IDs.
+  - Active checkout is Razorpay-only. Stripe client redirects, Firebase exports, backend source, dependency, and legal copy were removed until Stripe is fully implemented. `PaymentService.detectProvider()`, `#readCountryCache()`, the `spenza_payment_country` cache key, the 7-day TTL constant, and the `StorageService` inject were removed on 2026-06-05 as dead code; do not rewire country-based provider selection or ipapi.co calls.
+  - Production Hosting is deployed with Razorpay-only checkout, and the old deployed `createStripeSession` and `stripeWebhook` Functions were deleted.
+  - Razorpay creation, verification, and webhook Functions were redeployed on Node.js 22 so production derives UID from the verified Firebase bearer token instead of the obsolete client request body.
+  - Razorpay verification fetches the subscription from Razorpay to resolve the authoritative plan ID/current period end before writing Firestore subscription status.
+  - The Firebase deploy workflow ships Hosting, both handoff Functions, and all three Razorpay Functions together so client and payment-backend contracts stay aligned.
+  - `google-services.json`, `GoogleService-Info.plist`, signing key files, and `sha-keys.md` are ignored so generated Firebase/mobile signing secrets do not return to version control.
+  - Netlify app URLs remain only for legacy API calls such as AI and FCM endpoints; they are not app-page destinations.
+- Drive OAuth recovery hardening:
+  - Drive config bootstrap 403 now stops retries, clears the in-memory Google token, and routes returning users to `/auth/callback` for fresh consent instead of new-user setup.
+  - When single-user Drive discovery finds no backup file but the account-scoped local snapshot contains real data, `ExpenseStore` restores that snapshot into the newly created Drive file before initializing state.
+- Bill extraction modern drag-to-crop UI:
+  - Replaced legacy 4 range-sliders (Crop Left / Top / Width / Height) with an interactive drag overlay on the image itself.
+  - Overlay shows dark masks outside the crop region, rule-of-thirds grid inside, 4 corner handles (large touch targets), 4 pill-shaped edge handles, and a draggable crop box interior.
+  - Crop state is driven by pointer events with document-level capture for reliable drag outside the element.
+  - `rotateReceiptEditor()` is now async and pre-renders the rotated image to a canvas blob URL so the overlay always aligns with the visual orientation (no CSS transform on the preview image).
+  - Hint text "Drag corners or edges to crop · Drag inside to move" replaces the slider labels.
 - Daily expense voice-input separation:
   - Daily now exposes a dedicated top-of-form `Speak expense` Gemini smart-fill action with an example utterance and explicit AI badge.
   - The mic attached to the optional comment input is comment-only dictation and no longer invokes Gemini or changes expense fields.
@@ -67,8 +122,22 @@
   - Supported currency markers include INR forms (`₹`, `INR`, `Rs`, rupee), USD forms (`$`, `US$`, `USD`, dollar), and AED forms (`AED`, `د.إ`, `dh/dhs`, dirham).
   - The listener reads the current currency from `spenza_currency`, falls back to the cached Drive backup snapshot metadata, and uses that currency in the prompt amount display/dedupe key.
   - Added Android unit coverage for non-SMS rejection, selected-currency mismatch, USD SMS classification, and bare-amount rejection.
+- Finances payment history UI polish (2026-06-05):
+  - Payment history section under each debt card now always renders (even when empty), showing a "No payments recorded yet" message via `finances.payments.noHistory`.
+  - Each payment row now shows the linked ExpenseEntry comment when present.
+  - Delete confirmation modal refactored to use `showActions=false` with custom buttons (matching subscription cancel pattern); `isDeletingPayment` signal isolates delete loading state.
+  - Replaced `deleteDebtPaymentTarget`/`requestDebtPaymentDelete`/`confirmDebtPaymentDelete` with `confirmingDeletePayment`, `isDeletingPayment`, `requestPaymentDelete`, `cancelPaymentDelete`, `confirmPaymentDelete`.
+  - New helper `paymentComment(payment)` resolves comment from linked ExpenseEntry by `expenseId`.
+  - Added `finances.payments.*` and `finances.feedback.debtPaymentDeleteFailed` i18n keys in en, ta, hi; updated `debtPaymentDeleted` copy.
+  - `npm run build` — passed.
+- Debt/EMI Phase 5 — payment reversal store hardening (2026-06-05):
+  - `deleteDebtPayment` now explicitly throws if the linked `ExpenseEntry` is not found before mutating state.
+  - `updateDebtPayment` now sets `updatedByEmail` and `updatedByRole` on the updated expense entry for family activity attribution.
+  - Added 14 focused pure-logic spec tests covering `deleteDebtPayment`, `updateDebtPayment`, overpayment, overdraft rejection, and Daily `deleteEntry` debt-payment guard.
+  - `npx vitest run expense-store.service.spec.ts` — 32 tests passed.
+  - `npm run build` — passed.
 - Debt/EMI edit/delete logs:
-  - `ExpenseStore` now supports `deleteDebt`, `updateDebtPayment`, and `deleteDebtPayment`.
+  - `ExpenseStore` supports `deleteDebt`, `updateDebtPayment`, and `deleteDebtPayment`.
   - Debt payment edits reverse the previous payment effect, apply the new account/date/amount/comment, update the generated `Debt Payment` expense, update account balances, and recalculate debt remaining/status in one persisted mutation.
   - Debt payment deletes remove the generated `Debt Payment` expense, restore the payment account balance, increase the debt remaining balance, and persist the updated debt/account/payment arrays.
   - Finances now shows per-debt payment history with edit/delete controls.
@@ -364,7 +433,41 @@
   - Clear local cache.
   - Delete Spenza account data.
 
+- Dead-code removal and DATA_SAFETY.md cleanup (2026-06-05):
+  - Removed `detectProvider()`, `#readCountryCache()`, `spenza_payment_country` cache key, 7-day TTL, `StorageService` import/inject from `PaymentService`; only Razorpay-related methods remain.
+  - `docs/DATA_SAFETY.md` updated: Payment Info section now references only Razorpay; removed country code detection bullet from Device Info; cleaned up "No location" note.
+  - `npm run build -- --configuration production` passed.
+
+- beforeunload guard for unsaved Daily expense drafts (2026-06-05):
+  - Added `@HostListener('window:beforeunload')` to `DailyExpenseComponent`.
+  - Guard fires when the form is touched AND has a non-zero amount, OR when a receipt extraction is in progress/completed but not yet applied.
+  - Guard is skipped on native Capacitor platforms (`Capacitor.isNativePlatform() === true`).
+  - Added `HostListener` to `@angular/core` import; added `Capacitor` import from `@capacitor/core`.
+  - No changes to `DailyExpenseDraftService` or draft persistence behavior.
+  - `npm run build -- --configuration production` passed.
+
+- SyncService legacy hardening (2026-06-05):
+  - File-level comment block (already present) explicitly marks the class as LEGACY and directs readers to Drive/ExpenseStore for primary persistence.
+  - Added `pf_sheet_id` guard at the top of `enqueueDelete()` and `enqueueUpdate()`; both now return immediately when no Sheets ID is configured, matching the existing guard in `enqueue()`.
+  - Updated `flushQueue()` guard warning message to canonical format: `[SyncService] flushQueue skipped — no Sheets ID configured.`
+  - Existing callers in `DailyExpenseComponent` remain unchanged — they are harmless because all paths return early when `sheetId` is absent.
+  - Added explicit rules to `ai/AI_RULES.md` under Offline / Legacy Sheets Rules: do not delete SyncService methods, do not change callers, do not change the IndexedDB schema.
+  - `npm run build -- --configuration production` passed.
+
 ## Files Actively Touched In This Session
+- `personal-finance-pwa/functions/src/razorpay.ts`: added `cancelRazorpaySubscription` function; updated `createRazorpaySubscription` same-plan check to allow resubscription when `cancelPending === true`.
+- `personal-finance-pwa/functions/src/index.ts`: exported `cancelRazorpaySubscription`.
+- `personal-finance-pwa/functions/src/razorpay-webhook.ts`: cancel handler now writes `cancelPending: false` alongside `tier: free`.
+- `personal-finance-pwa/src/app/core/services/subscription.service.ts`: added `cancelPending: boolean` to `SubscriptionStatus` interface and `FREE_STATUS`; propagated from Firestore in both `startListening()` and `fetchOnce()`.
+- `personal-finance-pwa/src/app/core/services/payment.service.ts`: added `FN_CANCEL_SUBSCRIPTION` URL constant and `cancelSubscription()` method.
+- `personal-finance-pwa/src/app/features/settings/settings.component.ts`: Pro card shows conditional renew/cancel line; cancel button + ModalComponent confirmation; `cancelling`/`showCancelConfirm` signals; `cancelSubscription()` method; injected `PaymentService`; added `XCircle` icon.
+- `.github/workflows/deploy-firebase.yml`: added `functions:cancelRazorpaySubscription` to the deploy command.
+- `personal-finance-pwa/functions/src/razorpay.ts`: replaced flat duplicate-subscription check with upgrade/downgrade logic — same-plan 400, downgrade 400, upgrade cancels old monthly at cycle end.
+- `personal-finance-pwa/functions/src/razorpay-webhook.ts`: added upgrade-flow guard in cancel handler — reads current Firestore sub ID and skips free-downgrade if a newer subscription is already active.
+- `personal-finance-pwa/src/app/core/services/subscription.service.ts`: added `planType` to `SubscriptionStatus` interface and `FREE_STATUS`; propagated from Firestore data in `startListening()` and `fetchOnce()`.
+- `personal-finance-pwa/src/app/features/subscribe/subscribe.component.ts`: added `isUpgradeMode`, `currentPlanType` signals, `visiblePlans` computed; restructured `ngOnInit` to handle handoff before checking pro status; shows upgrade-mode UI (filtered plans, "Upgrade Plan" button label).
+- `personal-finance-pwa/src/app/features/daily-expense/daily-expense.component.ts`: replaced 4-slider crop UI with interactive drag-to-crop overlay; added `cropDragState`, `startCropDrag`, `onCropPointerMove`, `stopCropDrag`, `renderRotatedPreview`; made `rotateReceiptEditor` async with canvas pre-render; removed `receiptEditorClipPath` and `updateReceiptEditorCrop`; added `Image` icon; added crop hint text.
+- `personal-finance-pwa/src/app/core/services/i18n.service.ts`: removed legacy crop slider i18n keys; added `daily.receipt.editor.cropHint`.
 - `personal-finance-pwa/android/app/src/main/AndroidManifest.xml`: registered standalone `ExpenseWidgetActivity` and `ExpenseWidgetProvider`.
 - `personal-finance-pwa/android/app/build.gradle`: added WorkManager runtime for network-constrained widget sync.
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added the home screen widget provider with quick expense actions and a direct credit action.
@@ -385,6 +488,7 @@
 - `personal-finance-pwa/android/app/src/main/java/com/spenza/app/ExpenseWidgetProvider.java`: added daily insight binding from local backup snapshot and current-account widget queue; widget refreshes after queue save.
 - `personal-finance-pwa/android/app/src/main/res/xml/expense_widget_info.xml`: resized widget target to support insight dashboard layout.
 - `personal-finance-pwa/android/app/src/main/res/values/styles.xml`, `AndroidManifest.xml`: added translucent keyboard-resizing widget Activity theme.
+- `personal-finance-pwa/src/app/core/services/auth.service.ts`: added `computed` import and `displayName` computed signal that derives a friendly display name from the email username part (e.g., `saibalaji315` from `saibalaji315@gmail.com`); use for UI display only — Firestore paths continue to use `firebaseUid`.
 - `personal-finance-pwa/src/app/core/services/auth.service.ts`: native sign-in now stores a short-lived access token/expiry in Capacitor Preferences for widget Drive sync and clears those keys on sign-out/scope mismatch.
 - `personal-finance-pwa/src/app/core/services/expense-store.service.ts`: added app-side flushing of current-account pending widget queue entries from `spenza_widget_expense_queue_v1` during cached startup, Drive bootstrap, and Drive refresh.
 - `personal-finance-pwa/src/app/core/services/auth.service.ts`: silent web token refresh errors no longer clear persisted auth state.
@@ -494,23 +598,22 @@
 - Some strings are still hardcoded English and bypass i18n.
 - `SettingsComponent` includes disabled/commented rotate-file UI and live rotation methods; treat as legacy unless revived deliberately.
 - `SyncService` and Sheets write paths remain but are not primary data path.
-- Browser alert/confirm are still used in some flows:
-  - Daily voice unsupported alert.
-  - Daily delete confirm.
-  - Expense limit custom delete confirm.
-  - Settings test notification alert.
 - `firebase.config.ts` contains public Firebase web config and stale TODO text; private credentials must remain in Netlify env only.
 
 ## Current Technical Debt
 - Split large standalone components into smaller presentational components and domain helpers.
 - Replace `console.log` debugging with quieter logging conventions or remove before production hardening.
-- Replace browser `alert()`/`confirm()` with `ModalComponent`/toast-style UI.
 - Decide whether legacy Sheets sync/offline queue should be removed, isolated behind migration naming, or revived intentionally.
 - Review i18n coverage and move remaining UI text into translation JSON.
 - Add/maintain tests around Drive mode switching, family folder access errors, receipt extraction fallback, and budget threshold calculations.
+- Yearly → monthly downgrade is intentionally blocked mid-cycle. Decision: requires the yearly plan to expire before switching. This avoids complexity around prorated refunds and Razorpay subscription replacement. Revisit if refund support is added.
 
 ## Current Blockers
 - No runtime blocker identified during static analysis.
+- Latest subscription upgrade/downgrade verification on 2026-06-04:
+  - `npm run build -- --configuration production` passed (Angular PWA).
+  - `npm run build` in `personal-finance-pwa/functions` passed (Firebase Functions TS).
+  - `npx vitest run src/app/core/services/expense-store.service.spec.ts` — 18 tests passed; no subscription.service.spec.ts exists.
 - Latest verification on 2026-05-22:
 - Latest verification on 2026-05-23:
   - `npx vitest run src/app/core/services/ai-insight.service.spec.ts` passed after exact Gemini block top scroll changes.
@@ -598,12 +701,21 @@
 - Latest save acknowledgment verification on 2026-05-21:
   - `npx vitest run src/app/features/expense-limit/expense-limit.component.spec.ts src/app/features/daily-expense/daily-expense.component.spec.ts src/app/features/settings/settings.component.spec.ts` passed.
   - `npm run build` passed.
+- Latest Firebase-hosted native subscription redirect verification on 2026-06-02:
+  - `npm run build -- --configuration production` passed with the existing initial-bundle budget warning.
+  - `./gradlew :app:assembleDebug` passed with the Capacitor Browser module wired into Android.
+  - `git diff --check` passed.
+  - `./scripts/refresh-ai-context.sh` rebuilt the local Graphify AST index.
+- Latest native-to-web subscription handoff verification on 2026-06-02:
+  - `npm run build -- --configuration production` passed with the existing initial-bundle budget warning.
+  - `npm run build` passed from `personal-finance-pwa/functions`.
+  - `./gradlew :app:assembleDebug` passed.
+  - `git diff --check` passed.
 
 ## Immediate Next Steps
 - Human-facing project documentation has been consolidated into `docs/README.md`.
   - Historical feature-completion, phase-status, and duplicate troubleshooting Markdown files were removed.
   - Required AI workflow files remain in their structural locations: `AGENTS.md`, `.github/copilot-instructions.md`, `drive-ai.md`, and `ai/*.md`.
-- Commit or otherwise preserve the new `ai/*.md` memory files.
 - For future feature work:
   - Start by reading `ai/AI_RULES.md` and `ai/PROJECT_CONTEXT.md`.
   - Verify whether a feature should touch Drive-backed store or legacy Sheets migration paths.

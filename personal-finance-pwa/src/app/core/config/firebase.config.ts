@@ -1,6 +1,4 @@
 // Firebase Configuration
-// TODO: Replace these values with your actual Firebase project credentials
-// Get these from Firebase Console > Project Settings > General > Your apps > Web app
 
 export const firebaseConfig = {
   apiKey: 'AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg',

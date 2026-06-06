@@ -4,11 +4,20 @@ import {
   OnInit,
   OnDestroy,
   inject,
-  signal,
-} from '@angular/core';
+  signal, isDevMode } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+
+interface ExpenseWidgetPlugin {
+  refresh(): Promise<void>;
+  isSupported(): Promise<{ supported: boolean }>;
+  requestPin(): Promise<{ supported: boolean }>;
+}
+const ExpenseWidget = registerPlugin<ExpenseWidgetPlugin>('ExpenseWidget');
+import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/services/auth.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -27,9 +36,10 @@ import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settin
 import { SpendNotificationAccessService } from '../../core/services/spend-notification-access.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
+import { PaymentService } from '../../core/services/payment.service';
 import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
-import { ClearableInputDirective, SectionCardComponent, ModalComponent } from '../../shared/components';
+import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
 import {
   LucideAngularModule,
@@ -52,6 +62,7 @@ import {
   Pencil,
   Languages,
   Mic,
+  XCircle,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -63,12 +74,12 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic, XCircle }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -82,17 +93,38 @@ interface BeforeInstallPromptEvent extends Event {
 
       <!-- Spenza Pro -->
       @if (subscriptionService.isPro()) {
-        <div class="flex items-center gap-3 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
-          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
-            @if (subscriptionService.status().expiresAt) {
-              <p class="text-xs text-muted-foreground">
-                Renews {{ subscriptionService.status().expiresAt | date:'mediumDate' }}
-              </p>
-            }
+        <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
+              @if (subscriptionService.status().expiresAt) {
+                @if (subscriptionService.status().cancelPending) {
+                  <p class="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    Cancels {{ subscriptionService.status().expiresAt | date:'mediumDate' }} · Access until then
+                  </p>
+                } @else {
+                  <p class="text-xs text-muted-foreground">
+                    Renews {{ subscriptionService.status().expiresAt | date:'mediumDate' }}
+                  </p>
+                }
+              }
+            </div>
+            <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Pro</span>
           </div>
-          <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Pro</span>
+          @if (!subscriptionService.status().cancelPending) {
+            <div class="mt-3 border-t border-primary/15 pt-3">
+              <button
+                type="button"
+                (click)="showCancelConfirm.set(true)"
+                [disabled]="cancelling()"
+                class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <lucide-icon [img]="xCircleIcon" class="h-3.5 w-3.5" />
+                Cancel subscription
+              </button>
+            </div>
+          }
         </div>
       } @else {
         <div class="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-5 dark:border-indigo-800 dark:from-indigo-950/50 dark:to-purple-950/50">
@@ -102,18 +134,34 @@ interface BeforeInstallPromptEvent extends Event {
               <p class="font-semibold text-gray-900 dark:text-white">Upgrade to Spenza Pro</p>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Advanced insights · Family sync · Receipt scanner · Priority support</p>
               <div class="mt-3 flex flex-wrap gap-2">
-                <a
-                  routerLink="/subscribe"
-                  class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
-                >
-                  ✨ Upgrade — ₹499/month
-                </a>
-                <a
-                  routerLink="/subscribe"
-                  class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
-                >
-                  ₹3,999/year — Save 33%
-                </a>
+                @if (isNativePlatform) {
+                  <button
+                    type="button"
+                    (click)="openSubscribePage()"
+                    [disabled]="isOpeningSubscribePage()"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    @if (isOpeningSubscribePage()) {
+                      <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                    } @else {
+                      ✨
+                    }
+                    Manage Subscription
+                  </button>
+                } @else {
+                  <a
+                    routerLink="/subscribe"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                  >
+                    ✨ Upgrade — ₹499/month
+                  </a>
+                  <a
+                    routerLink="/subscribe"
+                    class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
+                  >
+                    ₹3,999/year — Save 33%
+                  </a>
+                }
               </div>
             </div>
           </div>
@@ -537,16 +585,24 @@ interface BeforeInstallPromptEvent extends Event {
             <button
               type="button"
               (click)="onSignOut()"
-              class="inline-flex items-center justify-center rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              [disabled]="isSigningOut()"
+              class="inline-flex items-center gap-2 justify-center rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              @if (isSigningOut()) {
+                <span class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              }
               {{ 'settings.action.signOut' | translate }}
             </button>
           } @else {
             <button
               type="button"
               (click)="onSignIn()"
-              class="inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow"
+              [disabled]="isSigningIn()"
+              class="inline-flex items-center gap-2 justify-center rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              @if (isSigningIn()) {
+                <span class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              }
               {{ 'settings.action.signInGoogle' | translate }}
             </button>
           }
@@ -726,25 +782,39 @@ interface BeforeInstallPromptEvent extends Event {
                     }}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  [attr.aria-checked]="spendNotificationAccess.promptEnabled()"
-                  (click)="onSpendPromptToggle()"
-                  [disabled]="spendNotificationAccess.isLoading()"
-                  [class]="
-                    'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ' +
-                    (spendNotificationAccess.promptEnabled() ? 'bg-primary' : 'bg-muted')
-                  "
-                  aria-label="Toggle spend prompts"
-                >
-                  <span
+                @if (subscriptionService.isPro()) {
+                  <button
+                    type="button"
+                    role="switch"
+                    [attr.aria-checked]="spendNotificationAccess.promptEnabled()"
+                    (click)="onSpendPromptToggle()"
+                    [disabled]="spendNotificationAccess.isLoading()"
                     [class]="
-                      'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
-                      (spendNotificationAccess.promptEnabled() ? 'translate-x-5' : 'translate-x-0')
+                      'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ' +
+                      (spendNotificationAccess.promptEnabled() ? 'bg-primary' : 'bg-muted')
                     "
-                  ></span>
-                </button>
+                    aria-label="Toggle spend prompts"
+                  >
+                    <span
+                      [class]="
+                        'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                        (spendNotificationAccess.promptEnabled() ? 'translate-x-5' : 'translate-x-0')
+                      "
+                    ></span>
+                  </button>
+                } @else {
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                    <button
+                      type="button"
+                      routerLink="/subscribe"
+                      class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent bg-muted opacity-50"
+                      aria-label="Upgrade to Pro to enable spend prompts"
+                    >
+                      <span class="pointer-events-none block h-5 w-5 translate-x-0 rounded-full bg-white shadow-lg ring-0"></span>
+                    </button>
+                  </div>
+                }
               </div>
 
               <div class="mt-4 flex flex-wrap gap-2">
@@ -775,6 +845,7 @@ interface BeforeInstallPromptEvent extends Event {
               <p class="text-xs text-muted-foreground">
                 {{ 'settings.local.dailyReminderHint' | translate }}
               </p>
+              <p class="text-xs text-muted-foreground">Required for reliable daily expense reminders</p>
             </div>
             <button
               type="button"
@@ -812,33 +883,52 @@ interface BeforeInstallPromptEvent extends Event {
           }
 
           <!-- Budget Warnings Toggle -->
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
-              <p class="text-xs text-muted-foreground">
-                {{ 'settings.local.budgetWarningsHint' | translate }}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              [attr.aria-checked]="notificationPrefs().budgetWarningsEnabled"
-              (click)="onBudgetWarningsToggle()"
-              [disabled]="localNotificationService.permissionStatus() === 'denied'"
-              [class]="
-                'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
-                (notificationPrefs().budgetWarningsEnabled ? 'bg-primary' : 'bg-muted')
-              "
-              aria-label="Toggle budget warnings"
-            >
-              <span
+          @if (subscriptionService.isPro()) {
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
+                <p class="text-xs text-muted-foreground">
+                  {{ 'settings.local.budgetWarningsHint' | translate }}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                [attr.aria-checked]="notificationPrefs().budgetWarningsEnabled"
+                (click)="onBudgetWarningsToggle()"
+                [disabled]="localNotificationService.permissionStatus() === 'denied'"
                 [class]="
-                  'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
-                  (notificationPrefs().budgetWarningsEnabled ? 'translate-x-5' : 'translate-x-0')
+                  'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
+                  (notificationPrefs().budgetWarningsEnabled ? 'bg-primary' : 'bg-muted')
                 "
-              ></span>
-            </button>
-          </div>
+                aria-label="Toggle budget warnings"
+              >
+                <span
+                  [class]="
+                    'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                    (notificationPrefs().budgetWarningsEnabled ? 'translate-x-5' : 'translate-x-0')
+                  "
+                ></span>
+              </button>
+            </div>
+          } @else {
+            <div class="flex items-center justify-between cursor-pointer" routerLink="/subscribe">
+              <div>
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
+                  <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  {{ 'settings.local.budgetWarningsHint' | translate }}
+                </p>
+              </div>
+              <div class="pointer-events-none opacity-50">
+                <div class="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent bg-muted">
+                  <span class="pointer-events-none block h-5 w-5 translate-x-0 rounded-full bg-white shadow-lg ring-0"></span>
+                </div>
+              </div>
+            </div>
+          }
 
           <!-- Test Notification Button (for debugging) -->
           @if (localNotificationService.permissionStatus() === 'granted') {
@@ -947,7 +1037,87 @@ interface BeforeInstallPromptEvent extends Event {
           </p>
         }
       </app-section-card>
+
+      <!-- Legal -->
+      <app-section-card [title]="'settings.legal.title' | translate">
+        <div class="space-y-2">
+          <button
+            type="button"
+            (click)="openPrivacyPolicy()"
+            class="flex w-full items-center gap-3 rounded-xl border border-border bg-card/40 px-4 py-3 text-left text-sm font-medium hover:border-primary/40"
+          >
+            <lucide-icon [img]="externalLinkIcon" class="h-4 w-4 shrink-0 text-muted-foreground" />
+            {{ 'settings.privacyPolicy' | translate }}
+          </button>
+          <button
+            type="button"
+            (click)="openTerms()"
+            class="flex w-full items-center gap-3 rounded-xl border border-border bg-card/40 px-4 py-3 text-left text-sm font-medium hover:border-primary/40"
+          >
+            <lucide-icon [img]="externalLinkIcon" class="h-4 w-4 shrink-0 text-muted-foreground" />
+            {{ 'settings.terms' | translate }}
+          </button>
+        </div>
+      </app-section-card>
+
+      @if (!isProduction) {
+        <div style="border: 2px dashed orange; padding: 16px; border-radius: 12px; margin-top: 24px;">
+          <p style="font-size: 12px; font-weight: 600; color: orange;">DEV ONLY — Subscription Debug</p>
+          <p style="font-size: 11px; color: var(--color-text-secondary); margin: 4px 0 12px;">
+            Tier: {{ subscriptionService.status().tier }} |
+            Active: {{ subscriptionService.status().isActive }} |
+            Loaded: {{ subscriptionService.loaded() }} |
+            Expires: {{ subscriptionService.status().expiresAt | date:'short' }}
+          </p>
+          <button (click)="devForceRefreshSubscription()"
+            style="padding: 8px 16px; border: 1px solid orange; border-radius: 8px; font-size: 12px; cursor: pointer;">
+            Force refresh subscription from Firestore
+          </button>
+          <button (click)="devClearSubscriptionCache()"
+            style="padding: 8px 16px; border: 1px solid red; border-radius: 8px; font-size: 12px; cursor: pointer; margin-left: 8px;">
+            Reset to free (clear cache)
+          </button>
+        </div>
+      }
     </div>
+
+    <!-- Cancel subscription confirmation modal -->
+    <app-modal
+      title="Cancel subscription?"
+      [isOpen]="showCancelConfirm()"
+      [showActions]="false"
+      (cancelled)="showCancelConfirm.set(false)"
+    >
+      <p class="text-sm text-muted-foreground">
+        Your Pro access continues until
+        <strong>{{ subscriptionService.status().expiresAt | date:'mediumDate' }}</strong>.
+        After that date, your subscription will not renew and your account will move to the free plan.
+      </p>
+      <div class="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          (click)="showCancelConfirm.set(false)"
+          class="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+        >
+          Keep Pro
+        </button>
+        <button
+          type="button"
+          (click)="cancelSubscription()"
+          [disabled]="cancelling()"
+          class="rounded-xl border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          @if (cancelling()) {
+            <span class="inline-flex items-center gap-2">
+              <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              Cancelling…
+            </span>
+          } @else {
+            Cancel subscription
+          }
+        </button>
+      </div>
+    </app-modal>
 
     <!-- Clear Local Data confirmation modal -->
     <app-modal
@@ -1049,6 +1219,14 @@ interface BeforeInstallPromptEvent extends Event {
       }
     </app-modal>
 
+    <!-- Notification access prominent disclosure (shown before opening Android settings) -->
+    @if (showNotifDisclosure()) {
+      <app-notification-disclosure
+        (allow)="onDisclosureAllow()"
+        (deny)="onDisclosureDeny()"
+      />
+    }
+
     <!-- Rotate shared file — confirmation modal — DISABLED (use Switch Backup Mode instead) -->
     <!--
     <app-modal
@@ -1084,6 +1262,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly spendNotificationAccess = inject(SpendNotificationAccessService);
   private readonly feedback = inject(UserFeedbackService);
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
+  private readonly payService = inject(PaymentService);
+
+  readonly isNativePlatform = Capacitor.isNativePlatform();
+  readonly isProduction = environment.production;
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [
@@ -1104,6 +1286,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly arrowLeftRightIcon = ArrowLeftRight;
   readonly monitorIcon = Monitor;
   readonly editIcon = Pencil;
+  readonly xCircleIcon = XCircle;
 
   // ─── Import from Sheets ───────────────────────────────────────────────────────
   importSheetId = '';
@@ -1122,6 +1305,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // ─── Task 12.4: PWA install prompt ───────────────────────────────────────────
   readonly deferredPrompt = signal<BeforeInstallPromptEvent | null>(null);
+
+  // ─── Notification access prominent disclosure ─────────────────────────────────
+  readonly showNotifDisclosure = signal(false);
 
   // ─── Task 12.6: Clear modal state ────────────────────────────────────────────
   readonly isClearModalOpen = signal<boolean>(false);
@@ -1146,6 +1332,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly deleteAccountCountdown = signal(10);
   readonly isDeletingAccount = signal(false);
   readonly deleteAccountError = signal<string | null>(null);
+  readonly isSigningOut = signal(false);
+  readonly isSigningIn = signal(false);
+  readonly isOpeningSubscribePage = signal(false);
+
+  // ─── Subscription cancellation ────────────────────────────────────────────────
+  protected readonly cancelling = signal(false);
+  protected readonly showCancelConfirm = signal(false);
 
   private deleteAccountTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -1163,14 +1356,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
     // Capture the beforeinstallprompt event
     window.addEventListener('beforeinstallprompt', this.beforeInstallHandler);
     document.addEventListener('visibilitychange', this.visibilityHandler);
-    
+
     // Load notification preferences from storage
     this.loadNotificationPreferences();
     this.loadAiSettings();
     void this.spendNotificationAccess.refreshStatus();
-    
+
     // Reschedule notifications if they were previously enabled
     this.rescheduleNotificationsIfNeeded();
+
   }
 
   async onThemeChange(theme: 'light' | 'dark' | 'system'): Promise<void> {
@@ -1307,7 +1501,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       const prefs = await this.storageService.getNotificationPreferences();
       this.notificationPrefs.set(prefs);
-      console.log('[Settings] Loaded notification preferences:', prefs);
+      if (isDevMode()) { console.log('[Settings] Loaded notification preferences:', prefs); }
     } catch (error) {
       console.error('[Settings] Failed to load notification preferences:', error);
       // Keep default preferences on error
@@ -1329,18 +1523,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
       
       // Only reschedule if permission is granted and daily reminder was enabled
       if (permissionStatus === 'granted' && prefs.dailyReminderEnabled) {
-        console.log('[Settings] Rescheduling notifications on app start');
+        if (isDevMode()) { console.log('[Settings] Rescheduling notifications on app start'); }
         await this.localNotificationService.scheduleDailyReminder(
           prefs.reminderHour,
           prefs.reminderMinute
         );
         await this.localNotificationService.scheduleMonthlyNudge();
-        console.log('[Settings] Notifications rescheduled successfully');
+        if (isDevMode()) { console.log('[Settings] Notifications rescheduled successfully'); }
       } else {
-        console.log('[Settings] Notifications not rescheduled:', {
+        if (isDevMode()) { console.log('[Settings] Notifications not rescheduled:', {
           permissionGranted: permissionStatus === 'granted',
           reminderEnabled: prefs.dailyReminderEnabled
-        });
+        }); }
       }
     } catch (error) {
       console.error('[Settings] Failed to reschedule notifications:', error);
@@ -1354,21 +1548,73 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.stopDeleteAccountCountdown();
   }
 
+  // ─── Subscription upgrade (Android Reader App exemption) ─────────────────────
+
+  async openSubscribePage(): Promise<void> {
+    if (this.isOpeningSubscribePage()) return;
+    this.isOpeningSubscribePage.set(true);
+    try {
+      const url = await this.authService.createSubscriptionPageUrl();
+      await Browser.open({ url });
+    } catch (err) {
+      this.feedback.error(
+        'Subscription page could not be opened.',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+    } finally {
+      this.isOpeningSubscribePage.set(false);
+    }
+  }
+
+  protected async cancelSubscription(): Promise<void> {
+    if (this.cancelling()) return;
+    this.cancelling.set(true);
+    this.showCancelConfirm.set(false);
+    try {
+      await this.payService.cancelSubscription();
+      // onSnapshot will update cancelPending: true automatically within seconds
+      this.feedback.success(
+        'Subscription cancelled',
+        'You have Pro access until ' +
+          (this.subscriptionService.status().expiresAt?.toLocaleDateString() ?? 'end of period')
+      );
+    } catch (err) {
+      this.feedback.error(
+        'Could not cancel',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+    } finally {
+      this.cancelling.set(false);
+    }
+  }
+
   // ─── Connection: sign-out / sign-in ──────────────────────────────────────────
 
   async onSignOut(): Promise<void> {
-    await Promise.allSettled([
-      this.notificationService.disable(),
-      this.localNotificationService.cancelDailyReminder(),
-      this.localNotificationService.cancelMonthlyNudge(),
-      this.authService.signOut(),
-    ]);
-
-    await this.clearSignedOutLocalState();
-    await this.router.navigate(['/auth/callback'], { replaceUrl: true });
+    if (this.isSigningOut()) return;
+    this.isSigningOut.set(true);
+    try {
+      await Promise.allSettled([
+        this.notificationService.disable(),
+        this.localNotificationService.cancelDailyReminder(),
+        this.localNotificationService.cancelMonthlyNudge(),
+        this.authService.signOut(),
+      ]);
+      await this.clearSignedOutLocalState();
+      // Refresh the native widget so it shows the signed-out locked state
+      // (storage is now cleared so auth_state key is gone).
+      if (this.isNativePlatform) {
+        await ExpenseWidget.refresh().catch(() => undefined);
+      }
+      await this.router.navigate(['/auth/callback'], { replaceUrl: true });
+    } finally {
+      this.isSigningOut.set(false);
+    }
   }
 
   async onSignIn(): Promise<void> {
+    if (this.isSigningIn()) return;
+    this.isSigningIn.set(true);
     try {
       const signInResult = await this.authService.signIn();
       if (signInResult.accountChanged) {
@@ -1382,6 +1628,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.expenseStore.loadFromDrive();
     } catch (err) {
       console.error('[Settings] Sign-in failed:', err);
+    } finally {
+      this.isSigningIn.set(false);
     }
   }
 
@@ -1466,8 +1714,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (enabled) {
         await this.notificationService.requestPermission();
         if (this.notificationService.permissionState() === 'granted') {
-          await this.notificationService.enable();
-          this.feedback.success('Push reminders saved.', 'Spenza can now send reminder notifications.');
+          const success = await this.notificationService.enable();
+          if (success) {
+            this.feedback.success('Push reminders enabled.', 'Spenza can now send reminder notifications.');
+          } else {
+            this.feedback.error(
+              'Push reminders could not be enabled.',
+              'FCM registration failed. Check your internet connection and try again.'
+            );
+          }
         } else {
           this.feedback.warning(
             'Push reminders were not enabled.',
@@ -1538,8 +1793,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  async onOpenSpendNotificationAccess(): Promise<void> {
+  onOpenSpendNotificationAccess(): void {
+    this.showNotifDisclosure.set(true);
+  }
+
+  async onDisclosureAllow(): Promise<void> {
+    this.showNotifDisclosure.set(false);
     await this.spendNotificationAccess.openSettings();
+  }
+
+  onDisclosureDeny(): void {
+    this.showNotifDisclosure.set(false);
   }
 
   async onRefreshSpendNotificationAccess(): Promise<void> {
@@ -1565,7 +1829,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (this.localNotificationService.permissionStatus() !== 'granted') {
         const status = await this.localNotificationService.requestPermission();
         if (status !== 'granted') {
-          console.log('[Settings] Permission denied, cannot enable daily reminder');
+          if (isDevMode()) { console.log('[Settings] Permission denied, cannot enable daily reminder'); }
           this.feedback.warning(
             'Daily reminder was not enabled.',
             'Allow notification permission first, then turn on the reminder again.'
@@ -1573,42 +1837,53 @@ export class SettingsComponent implements OnInit, OnDestroy {
           return;
         }
       }
-
-      // Enable: schedule both daily reminder and monthly nudge
-      await this.localNotificationService.scheduleDailyReminder(
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      await this.localNotificationService.scheduleMonthlyNudge();
-      await this.notificationService.syncDailyReminder(
-        true,
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      
-      console.log('[Settings] Daily reminder enabled and scheduled');
-    } else {
-      // Disable: cancel both notifications
-      await this.localNotificationService.cancelDailyReminder();
-      await this.localNotificationService.cancelMonthlyNudge();
-      await this.notificationService.syncDailyReminder(
-        false,
-        updated.reminderHour,
-        updated.reminderMinute
-      );
-      
-      console.log('[Settings] Daily reminder disabled and cancelled');
     }
 
-    // Save updated preferences
-    await this.storageService.setNotificationPreferences(updated);
+    // Optimistically update UI before async operations
     this.notificationPrefs.set(updated);
-    this.feedback.success(
-      updated.dailyReminderEnabled ? 'Daily reminder saved.' : 'Daily reminder turned off.',
-      updated.dailyReminderEnabled
-        ? `Spenza will remind you at ${this.formatTime(updated.reminderHour, updated.reminderMinute)}.`
-        : 'Spenza will stop scheduling the daily reminder on this device.'
-    );
+
+    try {
+      if (updated.dailyReminderEnabled) {
+        // Enable: schedule both daily reminder and monthly nudge
+        await this.localNotificationService.scheduleDailyReminder(
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        await this.localNotificationService.scheduleMonthlyNudge();
+        await this.notificationService.syncDailyReminder(
+          true,
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        if (isDevMode()) { console.log('[Settings] Daily reminder enabled and scheduled'); }
+      } else {
+        // Disable: cancel both notifications
+        await this.localNotificationService.cancelDailyReminder();
+        await this.localNotificationService.cancelMonthlyNudge();
+        await this.notificationService.syncDailyReminder(
+          false,
+          updated.reminderHour,
+          updated.reminderMinute
+        );
+        if (isDevMode()) { console.log('[Settings] Daily reminder disabled and cancelled'); }
+      }
+
+      // Save updated preferences
+      await this.storageService.setNotificationPreferences(updated);
+      this.feedback.success(
+        updated.dailyReminderEnabled ? 'Daily reminder saved.' : 'Daily reminder turned off.',
+        updated.dailyReminderEnabled
+          ? `Spenza will remind you at ${this.formatTime(updated.reminderHour, updated.reminderMinute)}.`
+          : 'Spenza will stop scheduling the daily reminder on this device.'
+      );
+    } catch (error) {
+      // Revert on failure
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Daily reminder setting was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
   }
 
   /**
@@ -1646,15 +1921,23 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const current = this.notificationPrefs();
     const updated = { ...current, budgetWarningsEnabled: !current.budgetWarningsEnabled };
 
-    // Save updated preferences
-    await this.storageService.setNotificationPreferences(updated);
     this.notificationPrefs.set(updated);
-    this.feedback.success(
-      updated.budgetWarningsEnabled ? 'Budget alerts saved.' : 'Budget alerts turned off.',
-      updated.budgetWarningsEnabled
-        ? 'Spenza will alert you when a category reaches 80% of its monthly limit.'
-        : 'Spenza will stop sending budget limit alerts.'
-    );
+
+    try {
+      await this.storageService.setNotificationPreferences(updated);
+      this.feedback.success(
+        updated.budgetWarningsEnabled ? 'Budget alerts saved.' : 'Budget alerts turned off.',
+        updated.budgetWarningsEnabled
+          ? 'Spenza will alert you when a category reaches 80% of its monthly limit.'
+          : 'Spenza will stop sending budget limit alerts.'
+      );
+    } catch (error) {
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Budget alert setting was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
   }
 
   /**
@@ -1672,12 +1955,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Used for debugging notification issues
    */
   async onTestNotification(): Promise<void> {
-    console.log('[Settings] Triggering test notification...');
+    if (isDevMode()) { console.log('[Settings] Triggering test notification...'); }
     await this.localNotificationService.scheduleTestNotification();
-    this.feedback.success(
-      'Test notification scheduled.',
-      'It should appear in about 10 seconds if notifications are allowed.'
-    );
+    this.feedback.success(this.i18n.t('settings.notifications.testSent'));
   }
 
   // ─── Task 12.4: PWA install ───────────────────────────────────────────────────
@@ -1882,7 +2162,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       ]);
       const failed = deletionResults.filter((item) => !item.deleted);
       if (failed.length > 0) {
-        console.warn('[Settings] Some Spenza Drive items could not be deleted:', failed);
+        if (isDevMode()) { console.warn('[Settings] Some Spenza Drive items could not be deleted:', failed); }
       }
 
       await this.syncService.clearQueue();
@@ -2083,11 +2363,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
           // Write merged data back to the private file
           await this.googleDriveService.writeBackupFile(privateFileId, mergedDoc);
-          console.log(`[Settings] Merged ${sharedDoc.expenses.length} shared + ${privateDoc.expenses.length} private entries → ${mergedExpenses.length} total`);
+          if (isDevMode()) { console.log(`[Settings] Merged ${sharedDoc.expenses.length} shared + ${privateDoc.expenses.length} private entries → ${mergedExpenses.length} total`); }
         } catch (err) {
           // Non-critical — if merge fails, private file keeps its existing data
           // The shared file data is still accessible in Google Drive
-          console.warn('[Settings] Could not merge family backup into private backup:', err);
+          if (isDevMode()) { console.warn('[Settings] Could not merge family backup into private backup:', err); }
         }
       }
     }
@@ -2157,6 +2437,40 @@ export class SettingsComponent implements OnInit, OnDestroy {
       );
     } finally {
       this.isRotating.set(false);
+    }
+  }
+
+  // ─── Dev-only debug helpers ───────────────────────────────────────────────────
+
+  async devForceRefreshSubscription(): Promise<void> {
+    const uid = this.authService.firebaseUid();
+    if (!uid) return;
+    await this.subscriptionService.startListening(uid);
+    this.feedback.success('Subscription refreshed', 'Pulled latest subscription status from Firestore.');
+  }
+
+  devClearSubscriptionCache(): void {
+    this.subscriptionService.stopListening();
+    this.feedback.success('Cache cleared', 'Local subscription state reset to free — reload to restore real status.');
+  }
+
+  // ─── Legal links ──────────────────────────────────────────────────────────────
+
+  openPrivacyPolicy(): void {
+    const url = 'https://saibalaji-as.github.io/spenza-legal/';
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url });
+    } else {
+      window.open(url, '_blank');
+    }
+  }
+
+  openTerms(): void {
+    const url = 'https://saibalaji-as.github.io/spenza-legal/terms';
+    if (Capacitor.isNativePlatform()) {
+      void Browser.open({ url });
+    } else {
+      window.open(url, '_blank');
     }
   }
 }

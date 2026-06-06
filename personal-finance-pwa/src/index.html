@@ -10,6 +10,7 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="privacy-policy" href="https://saibalaji-as.github.io/spenza-legal/">
   <!-- Google Identity Services (OAuth 2.0 sign-in) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <!-- Google API client (Sheets API calls) -->
@@ -18,8 +19,8 @@
 <body>
   <script>
     window.__GOOGLE_CLIENT_ID__ = '663004583066-qlukpjhedfrr3s81gufarglktmqd07dg.apps.googleusercontent.com';
-    // Razorpay Key ID — public, safe to expose in frontend
-    window.__RAZORPAY_KEY_ID__ = 'rzp_test_SwMl3LRKkrUVbR';
+    // Injected at build time via CI — replace with rzp_live_ key
+    window.__RAZORPAY_KEY_ID__ = 'RAZORPAY_LIVE_KEY_PLACEHOLDER';
   </script>
   <app-root></app-root>
   <noscript>Please enable JavaScript to continue using this application.</noscript>

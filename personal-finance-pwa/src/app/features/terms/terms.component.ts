@@ -44,7 +44,7 @@ import { RouterLink } from '@angular/router';
             <li>Pro Monthly: ₹499/month (India) or equivalent in other currencies.</li>
             <li>Pro Yearly: ₹3,999/year (India) or equivalent in other currencies.</li>
             <li>Subscriptions auto-renew unless cancelled at least 24 hours before the renewal date.</li>
-            <li>Payments are processed by Razorpay (India) or Stripe (international). No card details are stored by us.</li>
+            <li>Payments are processed by Razorpay. No card details are stored by us.</li>
             <li>Refunds are handled at our discretion within 7 days of purchase if the service is materially not as described.</li>
           </ul>
         </section>

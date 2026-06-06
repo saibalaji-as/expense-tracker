@@ -1,12 +1,27 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { ActivatedRouteSnapshot, CanActivateFn, Router, UrlTree } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { AuthService } from '../services/auth.service';
-import { SubscriptionService } from '../services/subscription.service';
+import { SubscriptionService, SubscriptionStatus } from '../services/subscription.service';
 
-const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
+async function redirectToSubscribe(
+  authService: AuthService,
+  router: Router
+): Promise<boolean | UrlTree> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const url = await authService.createSubscriptionPageUrl();
+      await Browser.open({ url });
+    } catch (err) {
+      console.error('[subscriptionGuard] Could not open subscription page:', err);
+    }
+    return false;
+  }
+  return router.createUrlTree(['/subscribe']);
+}
 
-export const subscriptionGuard: CanActivateFn = async () => {
+export const subscriptionGuard: CanActivateFn = async (route: ActivatedRouteSnapshot) => {
   const authService = inject(AuthService);
   const subscriptionService = inject(SubscriptionService);
   const router = inject(Router);
@@ -14,24 +29,21 @@ export const subscriptionGuard: CanActivateFn = async () => {
   await authService.sessionRestored;
 
   const uid = authService.firebaseUid();
-  if (!uid) {
-    // No Firebase UID yet — allow through (authGuard already gates authentication)
-    return true;
-  }
+  if (!uid) return true;
 
-  const sub = await subscriptionService.fetchOnce(uid);
+  // Guarantee the listener is running, then wait for the first snapshot (max 6s).
+  subscriptionService.ensureStarted(uid);
+  await subscriptionService.waitUntilLoaded();
 
-  // Free tier always gets through — guard only blocks pro-only routes
-  if (sub.tier === 'free') return true;
+  const sub: SubscriptionStatus = subscriptionService.status();
 
-  if (!sub.isActive) {
-    if (Capacitor.isNativePlatform()) {
-      // On Android: open the web subscribe page.
-      // Install @capacitor/browser and replace this with Browser.open() for in-app browser.
-      window.open(SUBSCRIBE_URL, '_system');
-      return false;
-    }
-    return router.createUrlTree(['/subscribe']);
+  const requiresPro = route.data?.['requiresPro'] === true;
+
+  if (!requiresPro) return true;
+
+  // Pro-only route: block free users and users with expired subscriptions.
+  if (sub.tier === 'free' || !sub.isActive) {
+    return redirectToSubscribe(authService, router);
   }
 
   return true;

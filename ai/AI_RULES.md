@@ -1,11 +1,11 @@
 # AI Operating Rules
 
 ## Mandatory Startup Rules
-- Always read these memory files before architecture-affecting work:
+- Use project memory selectively. For substantial code changes, read:
   - `ai/PROJECT_CONTEXT.md`
-  - `ai/CURRENT_STATE.md`
   - `ai/AI_RULES.md`
-  - `ai/TASK_HISTORY.md`
+- Check `ai/CURRENT_STATE.md` for active bugs, blockers, unfinished work, or immediate next steps when relevant.
+- Search `ai/TASK_HISTORY.md` with `rg` when historical reasoning, prior fixes, or rejected approaches matter. Do not read the full archive by default.
 - Verify code before changing it; do not assume current behavior from old docs.
 - Treat `/ai` files as curated decision memory and `graphify-out/graph.json` as generated live code intelligence.
 - When `graphify-out/graph.json` exists, query Graphify before broad code searches:
@@ -67,6 +67,11 @@
 - Preserve `SCOPE_VERSION` behavior when changing scopes.
 - Keep one stable Android signing keystore for distributed APK updates. Before testing native Google sign-in, register the exact final APK signer SHA-1 with the Google Cloud Android OAuth client for `com.spenza.app`; do not rely on machine-specific debug keystores for production updates.
 - Drive errors should include operation context and flow through `driveError$` when user-visible.
+- Treat Drive config bootstrap 403 as an auth/scope failure:
+  - Re-throw it from `BackupModeService.loadFromDrive()`.
+  - Clear the in-memory Google token and route to `/auth/callback` for fresh consent.
+  - Do not fall through to new-user mode selection.
+- If single-user Drive discovery returns no backup file but the account-scoped local backup snapshot contains real data, restore that snapshot into the newly created Drive backup before initializing empty state.
 - Returning users with a valid local backup snapshot should not be blocked on Drive bootstrap before entering the app.
 - Keep Drive JSON as authoritative, but maintain the local backup snapshot (`spenza_drive_backup_snapshot_v1`) for fast startup and offline read access.
 - Scope local backup snapshots and backup-mode/config caches to the signed-in Google account; when explicit sign-in returns a different email, clear account-scoped local state before loading that account's Drive config.
@@ -255,8 +260,21 @@
 - FCM token registration must go through Netlify functions.
 - Native function URLs must use `environment.netlifyFunctionsUrl`.
 - Web function URLs should use `/.netlify/functions`.
-- Firestore private credentials must stay in Netlify env vars, not client code.
+- Firestore Admin and payment-provider private credentials must stay in backend environment variables for Netlify or Firebase Functions as appropriate, never in client code.
 - Scheduler utilities must remain pure and unit-testable.
+
+## Hosting And Subscription Rules
+- Treat Firebase Hosting as the canonical web-app host: `https://spenza-finance.web.app`.
+- Use `https://spenza-finance.web.app/#/subscribe` for subscription-page navigation from Android and external redirects.
+- Do not use `https://spenzaio.netlify.app` as an app-page destination. Netlify remains valid only for legacy serverless API calls under `/.netlify/functions`.
+- Keep `/subscribe` web-only inside the Angular router. Native Android should request a short-lived Firebase handoff code and open the Firebase-hosted subscription page through `@capacitor/browser`.
+- Keep subscription handoff codes short-lived. Redeem them transactionally, allow only a brief same-code retry window for mobile-browser route re-entry, and exchange them for Firebase custom tokens only in Firebase Functions.
+- Keep `roles/iam.serviceAccountTokenCreator` granted to the Firebase Functions runtime service account on itself. Mark a subscription handoff as redeemed only after custom-token creation succeeds.
+- Payment API identity must come from a verified Firebase ID token. Never trust a client-supplied UID for subscription creation or verification.
+- Keep checkout Razorpay-only until another provider is fully implemented end to end. Do not add country-based provider selection or expose placeholder payment routes.
+- Keep payment-provider secrets, signature verification, and Firestore subscription writes in Firebase Functions; never move them into Angular client code.
+- Keep Firestore subscription rules read-only for clients and scoped to the authenticated user's own `users/{uid}/subscription/status` path.
+- Firebase Auth failure must not block Drive-backed expense features; it may prevent subscription-state lookup until identity is available.
 
 ## Native Android Widget Rules
 - Keep the home screen widget standalone and removable:
@@ -292,7 +310,10 @@
 
 ## Offline / Legacy Sheets Rules
 - Treat `SyncService` as legacy/Sheets queue unless a task explicitly revives it.
+- Do not delete `SyncService` or any of its methods; the service is retained for Google Sheets migration import compatibility.
 - Do not wire new Drive-backed expense mutations into `SyncService`.
+- All `SyncService` enqueue methods and `flushQueue()` guard on `pf_sheet_id` and return immediately when absent; existing callers in `DailyExpenseComponent` are harmless — do not remove or change those call sites.
+- Do not change the IndexedDB DB name (`pf-pwa-db`) or store name (`offline-queue`).
 - Keep Google Sheets import flow bulk-based:
   - Read Sheets data.
   - Write once to Drive through `ExpenseStore.importFromSheets()`.
@@ -311,6 +332,7 @@
 
 ## Security And Privacy Rules
 - Never commit private Firebase Admin credentials or service account JSON.
+- Never commit generated mobile/web Firebase client config or signing material such as `google-services.json`, `GoogleService-Info.plist`, `sha-keys.md`, `*.keystore`, `*.jks`, or `*.p12`.
 - Never persist OAuth access tokens outside `AuthService` ownership. The only current exception is the native-only short-lived widget sync cache described in Google Auth / Drive Rules.
 - Do not log Gemini API keys, OAuth tokens, FCM tokens, raw receipts, or sensitive receipt text.
 - Existing code logs some FCM tokens/debug data; do not add more sensitive logging.

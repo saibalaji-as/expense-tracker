@@ -4,6 +4,7 @@ import { Subscription, filter } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
 import { ToastComponent } from './shared/components/toast/toast.component';
 import { AppShellComponent } from './shared/components/app-shell/app-shell.component';
+import { WidgetPromoDialogComponent } from './shared/components/widget-promo-dialog/widget-promo-dialog.component';
 import { ExpenseStore, driveError$ } from './core/services/expense-store.service';
 import { AuthService } from './core/services/auth.service';
 import { BackupModeService } from './core/services/backup-mode.service';
@@ -18,7 +19,7 @@ const BOOTSTRAP_RETRY_DELAYS_MS = [750, 2000];
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, AppShellComponent],
+  imports: [RouterOutlet, OfflineBannerComponent, ToastComponent, AppShellComponent, WidgetPromoDialogComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,10 +88,10 @@ export class App implements OnInit, OnDestroy {
 
     console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
 
-    // Start Firestore subscription listener if Firebase UID is already restored from storage
+    // Ensure subscription listener is running before any route guard fires
     const restoredUid = this.authService.firebaseUid();
     if (restoredUid) {
-      this.subscriptionService.startListening(restoredUid);
+      this.subscriptionService.ensureStarted(restoredUid);
     }
 
     if (!this.authService.isAuthenticated()) {
@@ -126,7 +127,22 @@ export class App implements OnInit, OnDestroy {
     }
 
     // Load config from Drive to get cross-device mode/sharedFileId.
-    await this.withBootstrapRetries(() => this.backupModeService.loadFromDrive(), 'backup config');
+    try {
+      await this.withBootstrapRetries(() => this.backupModeService.loadFromDrive(), 'backup config');
+    } catch (err: unknown) {
+      if ((err as any)?.status === 403) {
+        // The token is invalid or missing the required scopes. Discard it so
+        // the next ensureToken() call forces a fresh interactive consent, then
+        // send the user to the re-auth page rather than the new-user flow.
+        this.authService.clearToken();
+        this.clearLoadingTimeout();
+        this.isLoading.set(false);
+        console.warn('[App] Drive config returned 403 — redirecting to re-auth:', err);
+        await this.router.navigate(['/auth/callback']);
+        return;
+      }
+      throw err;
+    }
 
     const mode = this.backupModeService.getMode();
     if (mode === null) {
@@ -140,6 +156,20 @@ export class App implements OnInit, OnDestroy {
       this.isLoading.set(false);
       await this.router.navigate(['/family-setup']);
       return;
+    }
+
+    // ── Loophole 2: owner subscription lapse check ────────────────────────────
+    // The subscription listener is already running (started above). Wait for it
+    // to settle (max 6s), then block the owner if their Pro subscription lapsed.
+    // Partners are free-tier by design — skip the check for them.
+    if (mode === 'family' && this.backupModeService.getOwnerRole() === 'owner') {
+      await this.subscriptionService.waitUntilLoaded();
+      if (!this.subscriptionService.isPro()) {
+        this.clearLoadingTimeout();
+        this.isLoading.set(false);
+        await this.router.navigate(['/subscribe']);
+        return;
+      }
     }
 
     console.log('[App] Starting Drive bootstrap...');
@@ -200,6 +230,17 @@ export class App implements OnInit, OnDestroy {
         return;
       }
 
+      // ── Loophole 2 (cached path): owner subscription lapse check ─────────────
+      // Same gate as the non-cached path — owner whose Pro lapsed gets redirected
+      // to /subscribe even when they had a valid local cache on startup.
+      if (mode === 'family' && this.backupModeService.getOwnerRole() === 'owner') {
+        await this.subscriptionService.waitUntilLoaded();
+        if (!this.subscriptionService.isPro()) {
+          await this.router.navigate(['/subscribe']);
+          return;
+        }
+      }
+
       await this.expenseStore.loadFromDrive();
       if (this.expenseStore.syncStatus() !== 'error') {
         this.startDrivePollLoop();
@@ -218,6 +259,8 @@ export class App implements OnInit, OnDestroy {
         return await operation();
       } catch (err) {
         lastError = err;
+        // 403 is an auth failure — retrying won't help, bail immediately.
+        if ((err as any)?.status === 403) break;
         const delay = BOOTSTRAP_RETRY_DELAYS_MS[attempt];
         if (delay === undefined) break;
         console.warn(`[App] ${label} load failed, retrying in ${delay}ms:`, err);
@@ -286,6 +329,8 @@ export class App implements OnInit, OnDestroy {
     // Handle DriveApiError with status codes
     if ('status' in err) {
       switch (err.status) {
+        case 401:
+          return 'Google session expired. Please sign out and sign in again.';
         case 403:
           return 'Access denied. Please check sharing permissions.';
         case 404:
@@ -314,6 +359,12 @@ export class App implements OnInit, OnDestroy {
 
       if (driveErr.message === 'FAMILY_SETUP_INCOMPLETE') {
         void this.router.navigate(['/family-setup']);
+        return;
+      }
+
+      if (driveErr.status === 401) {
+        this.authService.clearToken();
+        console.warn('[App] Drive returned 401 — token cleared, user must re-sign-in:', driveErr);
         return;
       }
 

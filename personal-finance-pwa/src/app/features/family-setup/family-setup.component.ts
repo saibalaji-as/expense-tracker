@@ -1,16 +1,20 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, isDevMode } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import {
   LucideAngularModule, LucideIconProvider, LUCIDE_ICONS,
-  Crown, Users, Copy, Check, ExternalLink, Loader2, AlertCircle
+  Crown, Users, Copy, Check, ExternalLink, Loader2, AlertCircle, Lock,
 } from 'lucide-angular';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, DriveApiError, DriveParseError } from '../../core/services/google-drive.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
+import { AuthService } from '../../core/services/auth.service';
 import { TranslatePipe } from '../../shared/pipes';
 import { ClearableInputDirective } from '../../shared/components';
 
-type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
+type SetupStep = 'role-select' | 'owner-paywall' | 'owner-setup' | 'owner-done' | 'partner-setup';
 
 @Component({
   selector: 'app-family-setup',
@@ -21,7 +25,7 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Crown, Users, Copy, Check, ExternalLink, Loader2, AlertCircle }),
+      useValue: new LucideIconProvider({ Crown, Users, Copy, Check, ExternalLink, Loader2, AlertCircle, Lock }),
     },
   ],
   template: `
@@ -54,6 +58,25 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
                 <p class="font-semibold text-base mb-1">{{ 'family.partner.title' | translate }}</p>
                 <p class="text-xs text-muted-foreground">{{ 'family.partner.description' | translate }}</p>
               </div>
+            </button>
+          </div>
+        }
+
+        <!-- Step: Owner — Pro paywall -->
+        @if (step() === 'owner-paywall') {
+          <div class="text-center">
+            <span class="grid h-14 w-14 place-items-center rounded-2xl gradient-primary text-primary-foreground shadow-glow mx-auto mb-6">
+              <lucide-icon name="lock" class="h-7 w-7" />
+            </span>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">{{ 'family.ownerPaywall.title' | translate }}</h1>
+            <p class="text-muted-foreground text-sm mb-8">{{ 'family.ownerPaywall.description' | translate }}</p>
+            <button type="button" (click)="onGoToPro()"
+              class="w-full gradient-primary text-primary-foreground shadow-glow rounded-2xl px-6 py-3 font-semibold mb-3">
+              {{ 'family.ownerPaywall.upgrade' | translate }}
+            </button>
+            <button type="button" (click)="step.set('role-select')"
+              class="w-full rounded-2xl border border-border px-6 py-3 text-sm text-muted-foreground hover:bg-accent transition-colors">
+              {{ 'family.ownerPaywall.back' | translate }}
             </button>
           </div>
         }
@@ -151,6 +174,8 @@ type SetupStep = 'role-select' | 'owner-setup' | 'owner-done' | 'partner-setup';
 export class FamilySetupComponent {
   private readonly backupModeService = inject(BackupModeService);
   private readonly googleDriveService = inject(GoogleDriveService);
+  private readonly subscriptionService = inject(SubscriptionService);
+  private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
 
   readonly step = signal<SetupStep>('role-select');
@@ -160,18 +185,13 @@ export class FamilySetupComponent {
   readonly copied = signal(false);
   partnerFileIdInput = '';
 
-  async onSelectOwner(): Promise<void> {
-    this.step.set('owner-setup');
-    this.errorMessage.set(null);
-    this.isLoading.set(true);
-    try {
-      await this.#createAndFinish();
-    } catch (err) {
-      this.errorMessage.set(this.#extractErrorMessage(err));
-      this.step.set('role-select');
-    } finally {
-      this.isLoading.set(false);
+  onSelectOwner(): void {
+    // Guard: owner must be Pro — free-tier users see the paywall step
+    if (!this.subscriptionService.isPro()) {
+      this.step.set('owner-paywall');
+      return;
     }
+    this.#startOwnerSetup();
   }
 
   onSelectPartner(): void {
@@ -179,9 +199,28 @@ export class FamilySetupComponent {
     this.errorMessage.set(null);
   }
 
+  async onGoToPro(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const url = await this.authService.createSubscriptionPageUrl();
+        await Browser.open({ url });
+      } catch (err) {
+        console.error('[FamilySetup] Could not open subscription page:', err);
+      }
+    } else {
+      await this.router.navigate(['/subscribe']);
+    }
+  }
+
   async onPartnerConnect(): Promise<void> {
     const sharedId = this.partnerFileIdInput.trim();
     if (!sharedId) return;
+
+    const currentUid = this.authService.firebaseUid();
+    if (!currentUid) {
+      this.errorMessage.set('Authentication error. Please sign out and sign in again.');
+      return;
+    }
 
     this.isLoading.set(true);
     this.errorMessage.set(null);
@@ -200,14 +239,34 @@ export class FamilySetupComponent {
       // Validate by reading the backup file
       const doc = await this.googleDriveService.readBackupFile(fileId);
 
-      if (familyFolderId && !doc.metadata.receiptFolderId) {
-        const receiptFolderId = await this.googleDriveService.findOrCreateReceiptsFolderInFamilyFolder(familyFolderId);
+      // ── Loophole 1 & 4: single-partner enforcement ──────────────────────────
+      // If another user's UID is already stamped, reject the connection.
+      // Allow if slot is empty (new connection) or matches current user (reconnect).
+      if (doc.metadata.partnerUid && doc.metadata.partnerUid !== currentUid) {
+        this.errorMessage.set('family.partner.slotTaken');
+        return;
+      }
+
+      // ── Build combined metadata update (receipt folder + partnerUid) ─────────
+      // Merge into a single write to avoid multiple round-trips.
+      const needsReceiptFolder = !!(familyFolderId && !doc.metadata.receiptFolderId);
+      const needsPartnerStamp = doc.metadata.partnerUid !== currentUid;
+
+      if (needsReceiptFolder || needsPartnerStamp) {
+        let updatedMetadata = { ...doc.metadata };
+
+        if (needsReceiptFolder) {
+          const receiptFolderId = await this.googleDriveService.findOrCreateReceiptsFolderInFamilyFolder(familyFolderId!);
+          updatedMetadata = { ...updatedMetadata, receiptFolderId };
+        }
+
+        if (needsPartnerStamp) {
+          updatedMetadata = { ...updatedMetadata, partnerUid: currentUid };
+        }
+
         await this.googleDriveService.writeBackupFile(fileId, {
           ...doc,
-          metadata: {
-            ...doc.metadata,
-            receiptFolderId,
-          },
+          metadata: updatedMetadata,
         });
       }
 
@@ -249,6 +308,22 @@ export class FamilySetupComponent {
     return this.googleDriveService.getDriveFolderUrl(id);
   }
 
+  #startOwnerSetup(): void {
+    this.step.set('owner-setup');
+    this.errorMessage.set(null);
+    this.isLoading.set(true);
+    void (async () => {
+      try {
+        await this.#createAndFinish();
+      } catch (err) {
+        this.errorMessage.set(this.#extractErrorMessage(err));
+        this.step.set('role-select');
+      } finally {
+        this.isLoading.set(false);
+      }
+    })();
+  }
+
   async #createAndFinish(): Promise<void> {
     // Create the new shared family folder in My Drive.
     // It contains spenza-backup.json and Receipts/, so the user shares one folder.
@@ -262,7 +337,6 @@ export class FamilySetupComponent {
       if (privateFileId) {
         const privateDoc = await this.googleDriveService.readBackupFile(privateFileId);
         if (privateDoc.expenses.length > 0 || privateDoc.limits.length > 0) {
-          // Write private data into the new shared file as the starting point
           await this.googleDriveService.writeBackupFile(newFileId, {
             ...privateDoc,
             version: '1.0',
@@ -285,23 +359,26 @@ export class FamilySetupComponent {
       }
     } catch (err) {
       // Non-critical — if migration fails, the shared file starts empty
-      // The user's private data is still safe in appDataFolder
-      console.warn('[FamilySetup] Could not copy private backup to shared file:', err);
+      if (isDevMode()) { console.warn('[FamilySetup] Could not copy private backup to shared file:', err); }
     }
 
+    // ── Stamp ownerUid + receiptFolderId in a single final write ─────────────
+    // ownerUid marks this as a legitimate Spenza family backup (Loophole 3 prevention).
+    // receiptFolderId ensures it is set even if migration above skipped the write.
     try {
+      const ownerUid = this.authService.firebaseUid();
       const familyDoc = await this.googleDriveService.readBackupFile(newFileId);
-      if (!familyDoc.metadata.receiptFolderId) {
-        await this.googleDriveService.writeBackupFile(newFileId, {
-          ...familyDoc,
-          metadata: {
-            ...familyDoc.metadata,
-            receiptFolderId: bundle.receiptFolderId,
-          },
-        });
-      }
+      await this.googleDriveService.writeBackupFile(newFileId, {
+        ...familyDoc,
+        metadata: {
+          ...familyDoc.metadata,
+          receiptFolderId: familyDoc.metadata.receiptFolderId ?? bundle.receiptFolderId,
+          ...(ownerUid ? { ownerUid } : {}),
+        },
+      });
     } catch (err) {
-      console.warn('[FamilySetup] Could not stamp receipt folder on family backup:', err);
+      // Non-critical — backup is still usable without these stamps
+      if (isDevMode()) { console.warn('[FamilySetup] Could not stamp ownerUid on family backup:', err); }
     }
 
     await this.backupModeService.setFamilyConfig(newFileId, bundle.familyFolderId, 'owner');

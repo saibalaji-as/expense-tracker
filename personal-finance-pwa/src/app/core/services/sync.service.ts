@@ -1,4 +1,4 @@
-import { Injectable, signal, Signal } from '@angular/core';
+import { Injectable, signal, Signal, isDevMode } from '@angular/core';
 import { openDB, IDBPDatabase } from 'idb';
 import { ExpenseEntry, OfflineQueueEntry } from '../models';
 import { GoogleSheetsService } from './google-sheets.service';
@@ -9,6 +9,14 @@ const STORE_NAME = 'offline-queue';
 const DB_VERSION = 1;
 const MAX_RETRY_COUNT = 5;
 
+/**
+ * LEGACY — Sheets/IndexedDB offline queue. NOT the primary persistence path.
+ * Google Drive JSON backup (ExpenseStore) is the authoritative source of truth.
+ * This service remains only for Google Sheets migration import compatibility.
+ * Do NOT wire new expense mutations through this service.
+ * Do NOT call flushQueue() from new code paths.
+ * See ai/PROJECT_CONTEXT.md — "Offline And Sync" section.
+ */
 @Injectable({ providedIn: 'root' })
 export class SyncService {
   // ─── Task 6.1: online signal ──────────────────────────────────────────────────
@@ -73,7 +81,14 @@ export class SyncService {
   // ─── Task 6.2: enqueue ────────────────────────────────────────────────────────
 
   async enqueue(entry: ExpenseEntry): Promise<void> {
-    console.log('[SyncService] Enqueuing entry:', entry.id);
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
+    if (isDevMode()) { console.log('[SyncService] Enqueuing entry:', entry.id); }
     const queueEntry: OfflineQueueEntry = {
       id: entry.id,
       operation: 'create',
@@ -88,13 +103,20 @@ export class SyncService {
     // Update the queueLength signal after the write
     const count = await db.count(STORE_NAME);
     this._queueLength.set(count);
-    console.log('[SyncService] Queue length:', count);
+    if (isDevMode()) { console.log('[SyncService] Queue length:', count); }
   }
 
   // ─── Enqueue Delete Operation ─────────────────────────────────────────────────
 
   async enqueueDelete(entryId: string): Promise<void> {
-    console.log('[SyncService] Enqueuing delete for entry:', entryId);
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
+    if (isDevMode()) { console.log('[SyncService] Enqueuing delete for entry:', entryId); }
     const queueEntry: OfflineQueueEntry = {
       id: crypto.randomUUID(), // Generate a unique ID for this queue entry
       operation: 'delete',
@@ -109,13 +131,20 @@ export class SyncService {
     // Update the queueLength signal after the write
     const count = await db.count(STORE_NAME);
     this._queueLength.set(count);
-    console.log('[SyncService] Queue length:', count);
+    if (isDevMode()) { console.log('[SyncService] Queue length:', count); }
   }
 
   // ─── Enqueue Update Operation ─────────────────────────────────────────────────
 
   async enqueueUpdate(entry: ExpenseEntry): Promise<void> {
-    console.log('[SyncService] Enqueuing update for entry:', entry.id);
+    const sheetId = await this.storageService.get('pf_sheet_id');
+    if (!sheetId) {
+      if (isDevMode()) {
+        console.warn('[SyncService] enqueue skipped — no Sheets ID configured. Use ExpenseStore for Drive-backed persistence.');
+      }
+      return;
+    }
+    if (isDevMode()) { console.log('[SyncService] Enqueuing update for entry:', entry.id); }
     const queueEntry: OfflineQueueEntry = {
       id: crypto.randomUUID(), // Generate a unique ID for this queue entry
       operation: 'update',
@@ -130,23 +159,25 @@ export class SyncService {
     // Update the queueLength signal after the write
     const count = await db.count(STORE_NAME);
     this._queueLength.set(count);
-    console.log('[SyncService] Queue length:', count);
+    if (isDevMode()) { console.log('[SyncService] Queue length:', count); }
   }
 
   // ─── Task 6.3: flushQueue ─────────────────────────────────────────────────────
 
   async flushQueue(): Promise<void> {
-    console.log('[SyncService] flushQueue called');
+    if (isDevMode()) { console.log('[SyncService] flushQueue called'); }
     const sheetId = await this.storageService.get('pf_sheet_id') ?? '';
     if (!sheetId) {
-      console.warn('[SyncService] No sheet ID configured, skipping flush');
-      return;   // no sheet configured yet
+      if (isDevMode()) {
+        console.warn('[SyncService] flushQueue skipped — no Sheets ID configured.');
+      }
+      return;
     }
 
     const db = await this.getDb();
     const entries: OfflineQueueEntry[] = await db.getAll(STORE_NAME);
 
-    console.log('[SyncService] Flushing', entries.length, 'entries');
+    if (isDevMode()) { console.log('[SyncService] Flushing', entries.length, 'entries'); }
     if (entries.length === 0) {
       return;
     }
@@ -163,22 +194,22 @@ export class SyncService {
           sheetId,
           createEntries.map((e) => e.entry!)
         );
-        console.log('[SyncService] Batch create successful for', createEntries.length, 'entries');
+        if (isDevMode()) { console.log('[SyncService] Batch create successful for', createEntries.length, 'entries'); }
       }
 
       // Process updates individually
       for (const updateEntry of updateEntries) {
         await this.sheetsService.updateExpense(sheetId, updateEntry.entry!);
-        console.log('[SyncService] Update successful for entry:', updateEntry.entry!.id);
+        if (isDevMode()) { console.log('[SyncService] Update successful for entry:', updateEntry.entry!.id); }
       }
 
       // Process deletes individually
       for (const deleteEntry of deleteEntries) {
         await this.sheetsService.deleteExpense(sheetId, deleteEntry.entryId!);
-        console.log('[SyncService] Delete successful for entry:', deleteEntry.entryId);
+        if (isDevMode()) { console.log('[SyncService] Delete successful for entry:', deleteEntry.entryId); }
       }
 
-      console.log('[SyncService] All operations successful, clearing queue');
+      if (isDevMode()) { console.log('[SyncService] All operations successful, clearing queue'); }
       // Success: delete all flushed entries from the store
       for (const queueEntry of entries) {
         await db.delete(STORE_NAME, queueEntry.id);
@@ -208,7 +239,7 @@ export class SyncService {
     // Update the queueLength signal after the operation
     const count = await db.count(STORE_NAME);
     this._queueLength.set(count);
-    console.log('[SyncService] Queue length after flush:', count);
+    if (isDevMode()) { console.log('[SyncService] Queue length after flush:', count); }
   }
 
   // ─── Task 6.4: clearQueue ─────────────────────────────────────────────────────

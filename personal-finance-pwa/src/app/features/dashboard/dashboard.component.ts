@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
 import { ChartData, ChartOptions } from 'chart.js/auto';
 import { ExpenseEntry } from '../../core/models/expense-entry.model';
 import { BudgetRuleSummary } from '../../core/models/budget-rule-summary.model';
@@ -21,6 +22,7 @@ import { I18nService } from '../../core/services/i18n.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { AiInsightPayload, AiInsightSection, AiInsightService } from '../../core/services/ai-insight.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
+import { AuthService } from '../../core/services/auth.service';
 import { ChartBaseComponent, SectionCardComponent } from '../../shared/components';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import { parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
@@ -544,6 +546,48 @@ interface ActivityItem {
       </a>
 
     </div>
+
+    <!-- Pro upgrade modal — shown when free user clicks Ask AI -->
+    @if (showProUpgradeModal()) {
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+        (click)="showProUpgradeModal.set(false)"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pro-upgrade-title"
+      >
+        <div
+          class="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-2xl"
+          (click)="$event.stopPropagation()"
+        >
+          <div class="mb-4 flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
+              <lucide-icon name="sparkles" class="h-5 w-5" />
+            </span>
+            <h2 id="pro-upgrade-title" class="text-base font-semibold">Gemini AI Insights — Pro</h2>
+          </div>
+          <p class="text-sm leading-relaxed text-muted-foreground">
+            Get weekly AI-powered spending analysis in Tamil, Hindi, or English. Upgrade to unlock.
+          </p>
+          <div class="mt-6 flex flex-col gap-2">
+            <button
+              type="button"
+              (click)="onUpgradeToPro()"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-2xl gradient-primary py-3 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:opacity-95"
+            >
+              Upgrade to Pro
+            </button>
+            <button
+              type="button"
+              (click)="showProUpgradeModal.set(false)"
+              class="inline-flex w-full items-center justify-center rounded-2xl border border-border py-3 text-sm font-semibold text-muted-foreground transition-all hover:text-foreground"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class DashboardComponent implements OnInit {
@@ -555,6 +599,7 @@ export class DashboardComponent implements OnInit {
   private readonly aiInsightService = inject(AiInsightService);
   private readonly router = inject(Router);
   readonly subscriptionService = inject(SubscriptionService);
+  private readonly authService = inject(AuthService);
   @ViewChild('geminiInsightsBlock') private geminiInsightsBlock?: ElementRef<HTMLElement>;
 
   // Chart data signals
@@ -580,6 +625,7 @@ export class DashboardComponent implements OnInit {
   readonly aiInsightStatusTitle = signal('');
   readonly aiInsightStatusDetail = signal('');
   readonly aiInsightNeedsKey = signal(false);
+  readonly showProUpgradeModal = signal(false);
   private aiInsightRequestId = 0;
   private aiInsightHydrateRequestId = 0;
   private displayedAiPayloadKey = '';
@@ -1201,7 +1247,7 @@ export class DashboardComponent implements OnInit {
   async onGenerateAiInsights(event?: Event): Promise<void> {
     this.releaseAiButton(event);
     if (!this.subscriptionService.isPro()) {
-      await this.router.navigate(['/subscribe']);
+      this.showProUpgradeModal.set(true);
       return;
     }
     const payload = this.aiInsightPayload();
@@ -1367,6 +1413,26 @@ export class DashboardComponent implements OnInit {
     });
     document.documentElement.scrollTop = top;
     document.body.scrollTop = top;
+  }
+
+  onUpgradeToPro(): void {
+    this.showProUpgradeModal.set(false);
+    if (Capacitor.isNativePlatform()) {
+      void this.#openNativeSubscribePage();
+    } else {
+      void this.router.navigate(['/subscribe']);
+    }
+  }
+
+  async #openNativeSubscribePage(): Promise<void> {
+    try {
+      const url = await this.authService.createSubscriptionPageUrl();
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url });
+    } catch {
+      // Fall back to the in-app subscribe route if handoff fails
+      void this.router.navigate(['/subscribe']);
+    }
   }
 
   releaseAiButton(event?: Event): void {

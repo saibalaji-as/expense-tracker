@@ -1,5 +1,208 @@
 # Task History
 
+## 2026-06-05 - Replace Native Browser alert/confirm With Design System UI
+
+### What was changed
+- `daily-expense.component.ts`: updated voice-unsupported warning to use `feedback.warning()` with i18n key `daily.voice.unsupportedBrowser`.
+- `daily-expense.component.ts` template: updated delete-expense modal title from interpolated `daily.deleteConfirm` to `daily.deleteConfirm.title`; added `daily.deleteConfirm.message` body paragraph.
+- `expense-limit.component.ts` template: updated custom-category delete modal title from `limits.custom.deleteConfirm` to `limits.deleteConfirm.title`; added `limits.deleteConfirm.message` body paragraph.
+- `settings.component.ts`: updated `onTestNotification()` feedback to use `i18n.t('settings.notifications.testSent')` instead of hardcoded English.
+- `en.json`, `ta.json`, `hi.json`: added `daily.voice.unsupportedBrowser`, `daily.deleteConfirm.title`, `daily.deleteConfirm.message`, `limits.deleteConfirm.title`, `limits.deleteConfirm.message`, `settings.notifications.testSent`.
+
+### Why
+- Native `alert()`/`confirm()` dialogs block the main thread, ignore app theming, and fail on some mobile WebView environments.
+- All user-facing confirmations and feedback must go through `ModalComponent` or `UserFeedbackService` to maintain design consistency and mobile reliability.
+- The core implementations (modal signals/methods) were already in place from prior sessions; this session completed the i18n key alignment and message body paragraphs the task specification required.
+
+### Verification
+- `npx vitest run daily-expense/daily-expense.component.spec.ts expense-limit/expense-limit.component.spec.ts settings/settings.component.spec.ts` — 91 tests passed.
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - SyncService Legacy Hardening
+
+### What was changed
+Made the legacy status of `SyncService` explicit and safe so that unexpected activation cannot silently write stale data to Google Sheets and new developers can clearly see this is not the primary persistence path.
+
+### Changes made
+- **`SyncService`** (`src/app/core/services/sync.service.ts`):
+  - File-level comment block was already present (added previously); verified it correctly directs readers to Drive/ExpenseStore.
+  - Added `pf_sheet_id` early-return guard to `enqueueDelete()` — if no Sheets ID is configured, logs a `console.warn` in dev mode and returns immediately.
+  - Added `pf_sheet_id` early-return guard to `enqueueUpdate()` — same pattern.
+  - Updated `flushQueue()` guard warning message to the canonical format `[SyncService] flushQueue skipped — no Sheets ID configured.` (was slightly different phrasing before).
+  - The guard in `enqueue()` (create path) was already correct and required no change.
+- **`ai/AI_RULES.md`**:
+  - Added three explicit rules under "Offline / Legacy Sheets Rules": do not delete `SyncService` or any of its methods; do not change existing callers; do not change the IndexedDB DB name or store name.
+
+### Key decisions
+- Existing `DailyExpenseComponent` callers that enqueue after Drive persistence are intentionally left in place — they are now no-ops when `pf_sheet_id` is absent, which is the normal production state.
+- No IndexedDB schema or DB name changes — preserving backward compatibility for any user who has items already in the queue.
+- Code is not deleted — retained for potential future Sheets migration tooling.
+
+### Files changed
+- `src/app/core/services/sync.service.ts`
+- `ai/AI_RULES.md`
+
+### Build
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - beforeunload Guard for Unsaved Daily Expense Drafts
+
+### What was changed
+Added a browser `beforeunload` guard to `DailyExpenseComponent` so users see the native "Leave site? Changes you made may not be saved" dialog when they have an unsaved draft or active receipt extraction and attempt to close/reload the tab.
+
+### Changes made
+- **`DailyExpenseComponent`** (`src/app/features/daily-expense/daily-expense.component.ts`):
+  - Added `HostListener` to the `@angular/core` import.
+  - Added `Capacitor` import from `@capacitor/core`.
+  - Added `onBeforeUnload(event: BeforeUnloadEvent)` method decorated with `@HostListener('window:beforeunload', ['$event'])`.
+  - Guard fires when: form is `touched` AND `amount > 0` (user has typed meaningful data), OR `receiptExtractionSession.extraction()` is non-null.
+  - Guard is a no-op on `Capacitor.isNativePlatform() === true` (native apps don't use browser unload events).
+
+### Key decisions
+- No changes to `DailyExpenseDraftService` — the draft persistence behavior is correct and this guard is purely a warning layer.
+- Used the existing `receiptExtractionSession` private field (already injected) rather than adding any new injection.
+- `event.returnValue = ''` required for Chrome compatibility in addition to `event.preventDefault()`.
+
+### Files changed
+- `src/app/features/daily-expense/daily-expense.component.ts`
+
+### Build
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - Dead-code Removal: detectProvider() and DATA_SAFETY.md Stripe/ipapi cleanup
+
+### What was changed
+Two isolated cleanup items in one commit.
+
+### Changes made
+- **`PaymentService`** (`src/app/core/services/payment.service.ts`): Removed `detectProvider()` public method, `#readCountryCache()` private helper, `spenza_payment_country` cache key constant, 7-day TTL constant, `StorageService` import, and `StorageService` inject. Only Razorpay-related methods (`openRazorpay`, `restoreSubscription`, `cancelSubscription`, `#verifyPayment`, `#razorpayKey`, `#loadRazorpayScript`) and `AuthService` remain.
+- **`docs/DATA_SAFETY.md`**: Payment Info section now references Razorpay only (removed "or Stripe (international)"); "Razorpay/Stripe are sub-processors" replaced with "Razorpay is a sub-processor under their own privacy policy"; country code detection bullet removed from Device Info; "No location" note simplified.
+
+### Key decisions
+- `StorageService` was injected only by the removed `#readCountryCache` helper, so the inject and import were safe to remove entirely.
+- The two CSS comment occurrences of "stripe" (a visual design term) in `daily-expense.component.ts` are not payment-provider references and were correctly left untouched.
+
+### Files changed
+- `src/app/core/services/payment.service.ts`
+- `docs/DATA_SAFETY.md`
+
+### Build
+- `grep -r "detectProvider\|ipapi\|stripe\|Stripe" src` — only two innocuous CSS design comments remain in `daily-expense.component.ts`; zero payment-provider references.
+- `npm run build -- --configuration production` — passed.
+
+## 2026-06-05 - Finances: Payment History UI Polish & Delete Confirmation Refactor
+
+### What was built
+Enhanced the `FinancesComponent` payment history section for each debt card.
+
+### Changes made
+- **Always-visible payment history section**: Removed the `@if (debtPaymentsForDebt.length > 0)` guard; section now always renders under each debt card, showing a "No payments recorded yet" empty state when empty.
+- **Comment display**: Added `paymentComment(payment: DebtPayment): string` helper that resolves the linked `ExpenseEntry` comment; each history row now shows the comment (when present) below the date/account line.
+- **Date formatting**: Payment date now uses `| dateFormat` pipe for consistent formatting.
+- **New signals**: Replaced `deleteDebtPaymentTarget` with `confirmingDeletePayment = signal<DebtPayment | null>(null)` and added `isDeletingPayment = signal(false)` for isolated delete-in-progress state.
+- **New methods**: Added `requestPaymentDelete`, `cancelPaymentDelete`, `confirmPaymentDelete`; removed `requestDebtPaymentDelete` and `confirmDebtPaymentDelete`.
+- **Delete confirmation modal**: Changed from default ModalComponent actions to `showActions=false` with custom buttons matching the subscription-cancel confirmation pattern. Uses `isDeletingPayment` for spinner state.
+- **i18n keys added** (en, ta, hi): `finances.payments.history`, `finances.payments.noHistory`, `finances.payments.deleteConfirmTitle`, `finances.payments.deleteConfirmMessage`, `finances.feedback.debtPaymentDeleteFailed`.
+- **i18n keys updated**: `finances.feedback.debtPaymentDeleted` updated to shorter "Payment deleted." copy in all three locales.
+
+### Key decisions
+- Kept `saving` signal for all non-payment-delete loading states; `isDeletingPayment` scopes only the payment delete flow.
+- `paymentComment` looks up the linked `ExpenseEntry` by `expenseId` at render time — no extra storage needed on the `DebtPayment` model.
+- Old `deleteDebtPaymentTarget` and `finances.debts.deletePaymentTitle/Description` i18n keys are kept in place (they were in the i18n files) to avoid breaking anything that might reference them, but the modal no longer uses them.
+
+### Files changed
+- `src/app/features/finances/finances.component.ts` — signals, methods, template updates
+- `src/assets/i18n/en.json`, `ta.json`, `hi.json` — new and updated i18n keys
+
+### Build
+- `npm run build` — passed
+
+## 2026-06-05 - Phase 5: Debt Payment Reversal — Store Hardening & Tests
+
+### What was built
+Completed Phase 5 of `ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`. The `deleteDebtPayment` and `updateDebtPayment` store methods were already present; this session closed the remaining gaps and added focused pure-logic tests.
+
+### Gaps closed
+- **`deleteDebtPayment` — missing ExpenseEntry validation**: Added explicit "throw if not found" for the linked `ExpenseEntry` before mutating state (step 2 of the spec). Previously `applyAccountDeltas` would catch a missing account, but a missing expense silently passed through.
+- **`updateDebtPayment` — missing actor fields on updated entry**: Added `updatedByEmail: actor.email, updatedByRole: actor.role` to the updated `ExpenseEntry` so family activity attribution is preserved on edits.
+
+### Key decisions
+- **Pure-logic test pattern**: Tests follow the existing spec pattern — standalone pure helper functions that mirror store logic, tested without Angular `TestBed`. This avoids complex mocking of `GoogleDriveService`, `AuthService`, etc. in a vitest/node environment.
+- **Status logic `nextRemainingBalance === 0 ? 'paid' : 'active'`**: Correct as-is. After reversing a payment, `nextRemainingBalance` is always > 0 (capped at `principalAmount`), so paid debts are automatically reopened to `active`.
+- **`deleteDebtPayment` still doesn't validate the linked account explicitly** — `applyAccountDeltas` already throws with a user-friendly message if the account is missing or archived, so a redundant upfront check would duplicate that error path.
+
+### Files changed
+- `src/app/core/services/expense-store.service.ts` — added ExpenseEntry not-found guard in `deleteDebtPayment`; added `updatedByEmail/Role` to `updatedEntry` in `updateDebtPayment`
+- `src/app/core/services/expense-store.service.spec.ts` — added 14 new tests across `deleteDebtPayment`, `updateDebtPayment`, and `deleteEntry` debt-payment rejection
+
+### Verification
+- `npx vitest run src/app/core/services/expense-store.service.spec.ts` — 32 tests passed (18 existing + 14 new)
+- `npm run build` — passed
+
+## 2026-06-04 - Subscription Cancellation Flow
+
+### What was built
+Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
+
+### Key decisions
+- **cancel_at_cycle_end: true** — user paid for the period; they keep Pro access until `expiresAt`. Immediate cut-off without refund is only for fraud. This matches Spotify/Netflix behaviour.
+- **Two-phase cancellation** — user action sets `cancelPending: true` in Firestore (tier stays `pro`); Razorpay fires `subscription.cancelled` webhook at period end which sets `tier: free` and clears `cancelPending: false`.
+- **cancelPending guard** — function returns 400 if already `cancelPending: true`; prevents double-calling Razorpay on retry/double-tap.
+- **UI: "Keep Pro" as primary button** — dark-pattern avoidance; destructive action should not be the visually dominant button.
+- **No navigate-away after cancel** — `onSnapshot` listener updates the signal within milliseconds of Firestore write; UI reacts automatically.
+- **Resubscription edge case** — if `cancelPending: true` and user subscribes the same plan again, `createRazorpaySubscription` clears the flag and proceeds (revenue recovery; user changed mind).
+- **ModalComponent with showActions=false** — `ModalComponent` uses translation keys for buttons with no label override; custom buttons placed in `ng-content` slot to get "Keep Pro" / "Cancel subscription" labels without touching the shared component.
+- **cancelPending: false in webhook** — clears the flag when `tier: free` is written so a future resubscription doesn't see stale `cancelPending: true` from the old sub.
+
+### Files changed
+- `functions/src/razorpay.ts` — new `cancelRazorpaySubscription` function; resubscription-after-cancel branch in `createRazorpaySubscription`
+- `functions/src/index.ts` — exported `cancelRazorpaySubscription`
+- `functions/src/razorpay-webhook.ts` — added `cancelPending: false` to cancel-event Firestore write
+- `src/app/core/services/subscription.service.ts` — `cancelPending` field in interface, `FREE_STATUS`, `startListening()`, `fetchOnce()`
+- `src/app/core/services/payment.service.ts` — `FN_CANCEL_SUBSCRIPTION` URL + `cancelSubscription()` method
+- `src/app/features/settings/settings.component.ts` — cancel UI, modal, signals, method, `PaymentService` inject, `XCircle` icon
+- `.github/workflows/deploy-firebase.yml` — `functions:cancelRazorpaySubscription` added to deploy command
+
+### Verification
+- `npm run build` in `personal-finance-pwa/functions` — passed
+- `npm run build -- --configuration production` in `personal-finance-pwa` — passed
+
+## 2026-06-03 - AuthService displayName Signal
+
+- User asked how to find the Firebase UID, why it is a long random string, and whether the email username could serve as an identifier.
+- Explained that Firebase UIDs are intentionally random 28-char strings: globally unique, unpredictable, and stable even when the user changes email/password. They are Firestore document keys and not meant to be human-readable.
+- Added `displayName` computed signal to `AuthService` (derives `saibalaji315` from `saibalaji315@gmail.com` via `userEmail().split('@')[0]`).
+- Added `computed` to the `@angular/core` import in `auth.service.ts`.
+- Decision: Firestore paths continue to use `firebaseUid` (periods in emails would require escaping; email can change). `displayName` is for UI display only.
+
+## 2026-06-02 - Bill Extraction Modern Drag-To-Crop UI
+
+- User reported the legacy 4-slider crop tool in the bill image editor was hard to use.
+- Replaced the range-slider crop controls with a fully interactive drag-to-crop overlay directly on the image.
+- Changed `daily-expense.component.ts`:
+  - Removed `receiptEditorClipPath()` and `updateReceiptEditorCrop()` methods and their range-slider template.
+  - Removed CSS `clip-path` from the preview `<img>`; image now renders unclipped.
+  - Added an `inline-block` wrapper (`#cropRef`) sized to the image, containing an absolute-positioned overlay.
+  - Overlay renders four dark mask quadrants outside the active crop box and a draggable crop box with rule-of-thirds grid lines.
+  - Crop box has 4 large corner handles (40×40 px touch targets) and 4 pill-shaped edge handles for resize; interior is draggable to move.
+  - Added private `cropDragState` field tracking pointer ID, start position, container rect, and initial crop percentages.
+  - Added `startCropDrag(type, event, container)` — stores drag context, attaches document-level `pointermove`/`pointerup`/`pointercancel` listeners.
+  - Added `onCropPointerMove(event)` — maps clientX/clientY to percentage deltas via stored `containerRect`; handles move, n/s/e/w/nw/ne/sw/se resize modes with minimum 8% crop size enforcement.
+  - Added `stopCropDrag(event)` — clears state and removes document-level listeners.
+  - Document-level listeners are also removed in `ngOnDestroy` for safety.
+  - Made `rotateReceiptEditor()` async: when a non-zero rotation is selected, `renderRotatedPreview()` draws the rotated image to a canvas blob, creates a new object URL, and updates `editor.url` so the crop overlay always aligns with the visually correct orientation.
+  - Added `renderRotatedPreview(file, rotation)` private method using `createImageBitmap` → `drawRotatedBitmap` → `canvasToJpegBlob` → `createObjectURL`; rotation 0° fast-paths to a direct `createObjectURL(file)`.
+  - Crop resets to full (0, 0, 100, 100) on rotate so the overlay starts fresh in the new orientation.
+  - Added `Image` lucide icon import for the Use Original button.
+  - Added hint text at the bottom of the editor: "Drag corners or edges to crop · Drag inside to move".
+- Changed `i18n.service.ts`:
+  - Removed `daily.receipt.editor.cropLeft/Top/Width/Height` keys.
+  - Added `daily.receipt.editor.cropHint`.
+- Decision: crop percentages are always in the visual (post-rotation) coordinate space; `getBoundingClientRect()` on the unrotated container gives correct viewport bounds at rotation 0°; `renderRotatedPreview` bakes rotation into the preview URL so no CSS transform is active on the image in the editor, eliminating coordinate ambiguity.
+- `createEditedReceiptImage()` is unchanged — it still applies rotation to the original file bitmap before cropping, consistent with the stored percentages.
+- Verification:
+  - `npx tsc --noEmit` passed (zero errors).
+
 ## 2026-05-31 - Native Widget Direct Credit Action
 - User requested a visible widget action for credited amounts and removal of the in-dialog Expense/Received choice.
 - Changed `ExpenseWidgetProvider` and both active widget layouts:
@@ -1823,3 +2026,123 @@
   - Ran `git diff --check`.
   - Ran `./node_modules/.bin/tsc --noEmit -p tsconfig.app.json`.
   - Ran `./node_modules/.bin/ngc -p tsconfig.app.json`.
+
+## 2026-06-02 - Firebase Hosting, Subscription Payments, And Drive Recovery Sync
+- Stable architecture synchronized from current code:
+  - Firebase Hosting is now the canonical PWA host at `https://spenza-finance.web.app`; the `main` branch workflow deploys `hosting:spenza-site`.
+  - Netlify remains in use for legacy AI and FCM serverless API endpoints only. It is no longer an app-page host.
+  - Added Firebase Functions for Razorpay subscription creation/verification/webhooks and Stripe Checkout/webhooks.
+  - Added Firebase-auth-backed `firebase_uid`, Firestore per-user subscription status, read-only client subscription rules, `/subscribe`, legal pages, Settings plan UI, Family-mode Pro gating, and Dashboard Gemini-insight Pro gating.
+  - Native Android subscription navigation uses `@capacitor/browser` and always opens `https://spenza-finance.web.app/#/subscribe`; `/subscribe` remains web-only inside the Capacitor router.
+- Drive recovery decisions:
+  - A Drive config bootstrap 403 is treated as an OAuth consent/scope problem, not as missing setup: clear the in-memory token and route to `/auth/callback`.
+  - If single-user Drive discovery cannot find a backup but the account-scoped local snapshot contains real data, restore the snapshot into the newly created Drive file before initializing empty state.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.
+  - Ran `./scripts/refresh-ai-context.sh`.
+
+## 2026-06-02 - Native Subscription Browser Handoff
+- Problem:
+  - Android opens the Firebase-hosted subscription page in a separate browser context, so the PWA could not see the Capacitor WebView's signed-in session and asked existing users to sign in again.
+- Implemented:
+  - Added Firebase Functions endpoints to create and redeem five-minute, one-time subscription handoff codes.
+  - Native Settings and Pro redirects request a handoff URL before opening `@capacitor/browser`.
+  - `/subscribe` silently redeems the code into Firebase Auth and removes it from browser history before checkout.
+  - Removed the Google-session route guard from `/subscribe`; the page must be reachable briefly before external-browser Firebase handoff redemption.
+  - Hardened Razorpay and Stripe calls to send Firebase ID tokens. Firebase Functions now verify the token and derive UID server-side instead of trusting a client-controlled UID.
+  - Updated the Firebase deployment workflow to build Functions and deploy Hosting plus the two handoff Functions together, without automatically revising payment/webhook Functions.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.
+
+## 2026-06-02 - Firebase Functions Node.js 22 Runtime
+- Firebase CLI reported that Node.js 20 is deprecated and scheduled for decommissioning.
+- Updated Firebase Functions runtime configuration and the Functions package engine to Node.js 22.
+
+## 2026-06-02 - GitHub Actions Node.js 24 Compatibility
+- GitHub Actions reported that JavaScript actions running on Node.js 20 will be forced to Node.js 24 starting 2026-06-16.
+- Updated deploy workflow actions to Node.js 24-compatible majors:
+  - `actions/checkout@v6`
+  - `actions/setup-node@v5`
+  - `google-github-actions/auth@v3`
+
+## 2026-06-02 - Native Subscription Handoff Retry Hardening
+- Problem:
+  - Opening Manage Subscription from Android could show an expired-link error, then Pay could fail because the external browser did not retain a Firebase-authenticated user.
+  - The backend deleted the handoff document during the first redemption request, so mobile-browser route re-entry or a client-side Firebase sign-in retry could not recover.
+- Implemented:
+  - The subscription page now removes the handoff query parameter from browser history before awaiting redemption.
+  - The backend keeps the original five-minute handoff validity and permits same-code redemption retries for 60 seconds after the first redemption.
+  - New handoff creation opportunistically deletes expired handoff documents in bounded batches.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `./gradlew :app:assembleDebug`.
+  - Ran `git diff --check`.
+
+## 2026-06-02 - Razorpay-Only Checkout
+- Problem:
+  - Web checkout selected Stripe for non-India IP addresses even though Stripe setup was incomplete and client price IDs were placeholders.
+- Implemented:
+  - Removed IP country detection and provider selection from `PaymentService`.
+  - `/subscribe` now always opens Razorpay checkout.
+  - Removed Stripe client redirect code, Firebase exports, backend source, npm dependency, and Stripe/country-detection legal copy.
+  - Added a durable rule to keep checkout Razorpay-only until another provider is fully implemented end to end.
+- Cloud cleanup:
+  - Deleted deployed Firebase Functions `createStripeSession` and `stripeWebhook` from `us-central1`.
+- Production release:
+  - Deployed Firebase Hosting plus `createSubscriptionHandoff` and `redeemSubscriptionHandoff`.
+- Verification:
+  - Ran `npm run build -- --configuration production`.
+  - Ran `npm run build` from `personal-finance-pwa/functions`.
+  - Ran `git diff --check`.
+  - Ran `./scripts/refresh-ai-context.sh`.
+  - Verified production Hosting returns `200`.
+  - Verified removed Stripe endpoints return `404`.
+  - Verified the production handoff endpoint still returns the expected `401` for an invalid probe code.
+
+## 2026-06-02 - Subscription Handoff Custom-Token IAM Fix
+- Problem:
+  - Android Manage Subscription still showed an expired-link message before Razorpay checkout.
+  - Production logs showed Firebase Admin custom-token creation failing with missing `iam.serviceAccounts.signBlob`.
+- Implemented:
+  - Granted `roles/iam.serviceAccountTokenCreator` to the Firebase Functions runtime service account on itself.
+  - Updated redemption to write `redeemedAt` only after custom-token creation succeeds so infrastructure failures do not consume the browser handoff.
+  - Redeployed `redeemSubscriptionHandoff`.
+- Verification:
+  - Ran the Firebase Functions TypeScript build.
+  - Ran `git diff --check`.
+  - Verified a temporary production handoff redeems successfully with HTTP `200`.
+  - Verified an immediate same-link retry also redeems successfully with HTTP `200`.
+  - Removed temporary production probe documents.
+
+## 2026-06-02 - Razorpay Production Contract Redeploy
+- Problem:
+  - After handoff authorization succeeded, Razorpay subscription creation returned `uid is required`.
+  - Production was still serving an older Node.js 20 Razorpay Function revision that expected a client-supplied UID.
+- Implemented:
+  - Redeployed `createRazorpaySubscription`, `verifyRazorpayPayment`, and `razorpayWebhook` from current Node.js 22 source.
+  - Production now derives the account UID from a verified Firebase bearer token.
+  - Updated the Firebase deploy workflow to ship Hosting, handoff Functions, and all Razorpay Functions together.
+  - Razorpay creation now returns an explicit `401 Authentication required` when the bearer identity is missing.
+- Verification:
+  - Confirmed all three Razorpay Functions now run Node.js 22 in production.
+  - Verified an unauthenticated create probe returns HTTP `401` with `Authentication required`, confirming the obsolete client-supplied `uid` contract is gone.
+
+## 2026-06-03 - Curated AI Memory And Graphify Refresh
+- Problem:
+  - Recent Firebase/Razorpay verification, deployment, and secret-hygiene changes were ahead of the curated memory.
+  - `CURRENT_STATE.md` also overstated some details, including the checkout workflow action version and Stripe provider-detection removal.
+- Updated memory:
+  - Aligned startup rules with selective memory loading: read `PROJECT_CONTEXT.md` and `AI_RULES.md` for substantial code changes, use `CURRENT_STATE.md` and `TASK_HISTORY.md` as targeted lookups.
+  - Documented that the Firebase deploy workflow ships Hosting, both subscription-handoff Functions, and all three Razorpay Functions together.
+  - Documented live Razorpay key injection and validation in the deploy workflow.
+  - Documented that active checkout is Razorpay-only while the unused `PaymentService.detectProvider()` helper still exists and must not be wired back into checkout.
+  - Documented that Razorpay verification resolves authoritative subscription plan/current-period data server-side before writing Firestore subscription status.
+  - Added durable secret-hygiene guidance for generated Firebase config and signing files: `google-services.json`, `GoogleService-Info.plist`, `sha-keys.md`, `*.keystore`, `*.jks`, and `*.p12`.
+- Verification:
+  - Compared memory against current Angular subscription code, Firebase Functions source, deploy workflow, and ignore files.

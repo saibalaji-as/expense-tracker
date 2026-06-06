@@ -1,7 +1,7 @@
 import { AfterViewInit, Directive, DoCheck, ElementRef, HostListener, inject } from '@angular/core';
 
 const CLEAR_ICON =
-  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2218%22 height=%2218%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2394a3b8%22 stroke-width=%222%22 stroke-linecap=%22round%22%3E%3Cpath d=%22M18 6 6 18M6 6l12 12%22/%3E%3C/svg%3E")';
+  'url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2214%22 height=%2214%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2394a3b8%22 stroke-width=%222.5%22 stroke-linecap=%22round%22%3E%3Cpath d=%22M18 6 6 18M6 6l12 12%22/%3E%3C/svg%3E")';
 
 @Directive({
   selector: 'input[appClearable]',
@@ -13,7 +13,7 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
 
   ngAfterViewInit(): void {
     if (!this.supportsClear) return;
-    this.element.style.paddingRight = `${this.clearIconRightOffset + 28}px`;
+    this.element.style.paddingRight = `${this.clearIconRightOffset + 20}px`;
     this.refreshIcon();
   }
 
@@ -31,15 +31,15 @@ export class ClearableInputDirective implements AfterViewInit, DoCheck {
     this.element.style.backgroundImage = hasValue ? CLEAR_ICON : '';
     this.element.style.backgroundPosition = `right ${this.clearIconRightOffset}px center`;
     this.element.style.backgroundRepeat = 'no-repeat';
-    this.element.style.backgroundSize = '1rem';
+    this.element.style.backgroundSize = '0.75rem';
     this.element.style.cursor = hasValue ? 'text' : '';
   }
 
   @HostListener('click', ['$event'])
   clearFromIcon(event: MouseEvent): void {
     if (!this.supportsClear) return;
-    const clearZoneStart = this.element.clientWidth - this.clearIconRightOffset - 26;
-    const clearZoneEnd = this.element.clientWidth - this.clearIconRightOffset + 8;
+    const clearZoneStart = this.element.clientWidth - this.clearIconRightOffset - 18;
+    const clearZoneEnd = this.element.clientWidth - this.clearIconRightOffset + 6;
     if (!this.element.value || event.offsetX < clearZoneStart || event.offsetX > clearZoneEnd) return;
     event.preventDefault();
     event.stopPropagation();

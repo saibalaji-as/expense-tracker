@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { LucideAngularModule, LucideIconProvider, LUCIDE_ICONS, User, Users, Lock } from 'lucide-angular';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
@@ -9,7 +9,7 @@ import { TranslatePipe } from '../../shared/pipes';
   selector: 'app-mode-selection',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule, RouterLink, TranslatePipe],
+  imports: [LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -30,11 +30,16 @@ import { TranslatePipe } from '../../shared/pipes';
           <button
             type="button"
             (click)="onSelectSingle()"
-            class="glass-card flex flex-col items-center gap-4 p-6 rounded-2xl text-left transition-all hover:border-primary hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            [disabled]="isLoading()"
+            class="glass-card flex flex-col items-center gap-4 p-6 rounded-2xl text-left transition-all hover:border-primary hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
             aria-label="Single User mode"
           >
             <span class="grid h-14 w-14 place-items-center rounded-2xl gradient-primary text-primary-foreground shadow-glow">
-              <lucide-icon name="user" class="h-7 w-7" />
+              @if (isLoading() && loadingMode() === 'single') {
+                <span class="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              } @else {
+                <lucide-icon name="user" class="h-7 w-7" />
+              }
             </span>
             <div class="text-center">
               <p class="font-semibold text-base mb-1">{{ 'mode.single.title' | translate }}</p>
@@ -46,7 +51,8 @@ import { TranslatePipe } from '../../shared/pipes';
           <button
             type="button"
             (click)="onSelectFamily()"
-            class="relative glass-card flex flex-col items-center gap-4 p-6 rounded-2xl text-left transition-all hover:border-primary hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            [disabled]="isLoading()"
+            class="relative glass-card flex flex-col items-center gap-4 p-6 rounded-2xl text-left transition-all hover:border-primary hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
             aria-label="Family / Shared mode"
           >
             @if (!subscriptionService.isPro()) {
@@ -55,7 +61,11 @@ import { TranslatePipe } from '../../shared/pipes';
               </span>
             }
             <span class="grid h-14 w-14 place-items-center rounded-2xl gradient-primary text-primary-foreground shadow-glow">
-              <lucide-icon name="users" class="h-7 w-7" />
+              @if (isLoading() && loadingMode() === 'family') {
+                <span class="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              } @else {
+                <lucide-icon name="users" class="h-7 w-7" />
+              }
             </span>
             <div class="text-center">
               <p class="font-semibold text-base mb-1">{{ 'mode.family.title' | translate }}</p>
@@ -72,25 +82,41 @@ export class ModeSelectionComponent implements OnInit {
   private readonly router = inject(Router);
   readonly subscriptionService = inject(SubscriptionService);
 
+  readonly isLoading = signal(false);
+  readonly loadingMode = signal<'single' | 'family' | null>(null);
+
   ngOnInit(): void {
-    // If mode is already set, skip this screen
     if (this.backupModeService.getMode() !== null) {
       void this.router.navigate(['/daily']);
     }
   }
 
   async onSelectSingle(): Promise<void> {
-    await this.backupModeService.setMode('single');
-    // Single mode uses drive.appdata — current token already has that scope,
-    // so we can go straight to the auth callback to bootstrap Drive.
-    await this.router.navigate(['/auth/callback']);
+    if (this.isLoading()) return;
+    this.isLoading.set(true);
+    this.loadingMode.set('single');
+    try {
+      await this.backupModeService.setMode('single');
+      await this.router.navigate(['/auth/callback']);
+    } finally {
+      this.isLoading.set(false);
+      this.loadingMode.set(null);
+    }
   }
 
   async onSelectFamily(): Promise<void> {
-    if (!this.subscriptionService.isPro()) {
-      await this.router.navigate(['/subscribe']);
-      return;
+    if (this.isLoading()) return;
+    this.isLoading.set(true);
+    this.loadingMode.set('family');
+    try {
+      if (!this.subscriptionService.isPro()) {
+        await this.router.navigate(['/subscribe']);
+        return;
+      }
+      await this.router.navigate(['/family-setup']);
+    } finally {
+      this.isLoading.set(false);
+      this.loadingMode.set(null);
     }
-    await this.router.navigate(['/family-setup']);
   }
 }

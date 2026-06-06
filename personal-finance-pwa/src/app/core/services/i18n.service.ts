@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, isDevMode } from '@angular/core';
 import { StorageService } from './storage.service';
 
 export type AppLanguage = 'en' | 'ta' | 'hi';
@@ -130,14 +130,16 @@ const FALLBACK_TRANSLATIONS: Record<string, string> = {
   'daily.receipt.editor.enhance': 'Enhance',
   'daily.receipt.editor.useOriginal': 'Use original',
   'daily.receipt.editor.useEdited': 'Use edited',
-  'daily.receipt.editor.cropLeft': 'Crop left',
-  'daily.receipt.editor.cropTop': 'Crop top',
-  'daily.receipt.editor.cropWidth': 'Crop width',
-  'daily.receipt.editor.cropHeight': 'Crop height',
+  'daily.receipt.editor.cropHint': 'Drag corners or edges to crop · Drag inside to move',
   'daily.receipt.split.logSplit': 'Log split bill',
   'daily.receipt.split.removeRow': 'Remove split row',
   'daily.receipt.split.totalMismatch': 'Split total must match bill total.',
   'daily.receipt.split.adjustmentComment': 'Tax / bill adjustment',
+  'family.ownerPaywall.title': 'Pro Required',
+  'family.ownerPaywall.description': 'Creating a family backup requires Spenza Pro. Upgrade to sync expenses with your partner.',
+  'family.ownerPaywall.upgrade': 'Upgrade to Pro',
+  'family.ownerPaywall.back': 'Go Back',
+  'family.partner.slotTaken': 'This family backup already has a partner connected. Only one partner per backup is supported.',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -199,7 +201,7 @@ export class I18nService {
       const loaded = await response.json() as Record<string, string>;
       this.translations.set({ ...FALLBACK_TRANSLATIONS, ...loaded });
     } catch (error) {
-      console.warn('[I18nService] Falling back to built-in English translations:', error);
+      if (isDevMode()) { console.warn('[I18nService] Falling back to built-in English translations:', error); }
       this.translations.set(FALLBACK_TRANSLATIONS);
     }
   }

@@ -177,7 +177,7 @@ export class AuthCallbackComponent {
 
       // Start Firestore subscription listener once Firebase UID is available
       const uid = this.authService.firebaseUid();
-      if (uid) this.subscriptionService.startListening(uid);
+      if (uid) this.subscriptionService.ensureStarted(uid);
 
       await this.backupModeService.loadFromDrive(true);
 
@@ -195,8 +195,10 @@ export class AuthCallbackComponent {
         return;
       }
 
-      // Mode is set — bootstrap Drive data and navigate to the app
-      await this.expenseStore.loadFromDrive();
+      // Navigate immediately so the user leaves the sign-in screen right away.
+      // Drive data loads in the background — the daily view shows cached/empty
+      // state briefly then populates, matching the cold-start behaviour.
+      void this.expenseStore.loadFromDrive();
       await this.router.navigate(['/daily']);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Sign-in failed. Please try again.';

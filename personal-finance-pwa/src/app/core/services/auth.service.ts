@@ -1,11 +1,10 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { SocialLogin } from '@capgo/capacitor-social-login';
 import { StorageService } from './storage.service';
 import { BackupMode } from './backup-mode.service';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, signInWithCredential, GoogleAuthProvider, signOut as firebaseSignOut } from 'firebase/auth';
 import { firebaseConfig } from '../config/firebase.config';
+import { environment } from '../../../environments/environment';
+import type { Auth } from 'firebase/auth';
 
 declare const google: any;
 
@@ -18,12 +17,14 @@ const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 // drive.file scope only allows access to files created by the app, not shared files
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
-// Always request all required scopes — drive.appdata for config file,
-// drive for family shared backup (includes shared file access), spreadsheets for Sheets import.
-const ALL_SCOPES = `${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
-const SCOPE_VERSION = '6'; // v6 = full drive scope instead of drive.file
+// Always request all required scopes — openid/email/profile for Firebase Auth identity
+// verification (userinfo endpoint), drive.appdata for config file, drive for family shared
+// backup (includes shared file access), spreadsheets for Sheets import.
+const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE} ${DRIVE_SCOPE}`;
+const SCOPE_VERSION = '7'; // v7 = added openid/email/profile for Firebase Auth userinfo
 const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
 const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
 
 export interface SignInResult {
   email: string | null;
@@ -58,11 +59,10 @@ export class AuthService {
   readonly isAuthenticated = signal<boolean>(false);
   readonly userEmail = signal<string | null>(null);
   readonly firebaseUid = signal<string | null>(null);
+  readonly displayName = computed(() => this.userEmail()?.split('@')[0] ?? null);
 
   #accessToken: string | null = null;
-  readonly #firebaseAuth = getAuth(
-    getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig)
-  );
+  #firebaseAuth: Auth | null = null;
 
   /**
    * Shared promise for an in-flight token request (web only).
@@ -89,13 +89,29 @@ export class AuthService {
 
     // Initialize the native Google Sign-In plugin once on startup.
     if (this.#isNative) {
-      this.#nativeInitPromise = SocialLogin.initialize({
-        google: {
-          // webClientId is required by the plugin on Android for token verification
-          webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
-        },
-      }).catch((err) => console.error('SocialLogin.initialize failed:', err));
+      this.#nativeInitPromise = (async () => {
+        const { SocialLogin } = await import('@capgo/capacitor-social-login');
+        await SocialLogin.initialize({
+          google: {
+            // webClientId is required by the plugin on Android for token verification
+            webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
+          },
+        });
+      })().catch((err) => console.error('SocialLogin.initialize failed:', err));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private lazy Firebase initializer
+  // ---------------------------------------------------------------------------
+
+  async #getFirebaseAuth(): Promise<Auth> {
+    if (this.#firebaseAuth) return this.#firebaseAuth;
+    const { getApps, initializeApp } = await import('firebase/app');
+    const { getAuth } = await import('firebase/auth');
+    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+    this.#firebaseAuth = getAuth(app);
+    return this.#firebaseAuth;
   }
 
   // ---------------------------------------------------------------------------
@@ -123,6 +139,21 @@ export class AuthService {
     if (email) this.userEmail.set(email);
     const uid = await this.storageService.get('firebase_uid');
     if (uid) this.firebaseUid.set(uid);
+
+    // Restore the native access token so ensureToken() doesn't re-trigger the
+    // full SocialLogin.login() flow on app resume (avoids the 20-second delay
+    // when opening the subscription page after a cold start).
+    if (this.#isNative) {
+      const storedToken = await this.storageService.get(NATIVE_ACCESS_TOKEN_KEY);
+      const expiresAtStr = await this.storageService.get(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
+      if (storedToken && expiresAtStr) {
+        const expiresAt = parseInt(expiresAtStr, 10);
+        // Keep a 5-minute buffer so we don't hand out a token that's about to expire.
+        if (Number.isFinite(expiresAt) && Date.now() < expiresAt - 5 * 60 * 1000) {
+          this.#accessToken = storedToken;
+        }
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -190,6 +221,12 @@ export class AuthService {
     return this.#isNative ? this.#nativeSignOut() : this.#webSignOut();
   }
 
+  /** Discards the in-memory access token so the next ensureToken() call fetches a fresh one. */
+  clearToken(): void {
+    this.#accessToken = null;
+    this.#tokenRequestPromise = null;
+  }
+
   getAccessToken(): string | null {
     return this.#accessToken;
   }
@@ -226,20 +263,122 @@ export class AuthService {
     return this.firebaseUid();
   }
 
+  /**
+   * Ensures Firebase Auth has a signed-in user without triggering any interactive UI.
+   * On cold starts (kill → relaunch) the Firebase Auth IndexedDB session may not be
+   * restored, leaving currentUser null. If we have a stored Google access token we
+   * can call signInWithCredential silently to re-establish the Firebase session.
+   */
+  async ensureFirebaseSignedInSilently(): Promise<void> {
+    const auth = await this.#getFirebaseAuth();
+    await auth.authStateReady();
+    if (!auth.currentUser && this.#accessToken) {
+      try {
+        const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+        const credential = GoogleAuthProvider.credential(null, this.#accessToken);
+        const userCred = await signInWithCredential(auth, credential);
+        this.firebaseUid.set(userCred.user.uid);
+        await this.storageService.set('firebase_uid', userCred.user.uid);
+      } catch (err) {
+        console.warn('[AuthService] Silent Firebase re-sign-in failed:', err);
+      }
+    }
+  }
+
+  async ensureFirebaseIdToken(): Promise<string> {
+    const auth = await this.#getFirebaseAuth();
+
+    // Wait for Firebase to restore its persisted auth state (IndexedDB) before
+    // checking currentUser. Without this, currentUser may be null immediately
+    // after a cold start even though the user was previously signed in, causing
+    // an unnecessary (and slow) re-authentication round-trip.
+    await auth.authStateReady();
+
+    if (!auth.currentUser && this.isAuthenticated()) {
+      const accessToken = await this.ensureToken();
+      await this.#signIntoFirebase(null, accessToken);
+    }
+
+    const user = auth.currentUser;
+    if (!user) {
+      throw new Error('Could not verify your subscription account. Open this page from the Spenza app and try again.');
+    }
+    return user.getIdToken();
+  }
+
+  async createSubscriptionPageUrl(): Promise<string> {
+    const idToken = await this.ensureFirebaseIdToken();
+    const response = await fetch(`${environment.firebaseFunctionsUrl}/createSubscriptionHandoff`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Subscription management is not deployed yet. Please try again after the app update finishes.');
+      }
+      throw new Error('Could not open subscription management. Please try again.');
+    }
+
+    const body = await response.json() as { code?: string };
+    if (!body.code) {
+      throw new Error('Subscription handoff did not return a code.');
+    }
+    return `${SUBSCRIBE_URL}?handoff=${encodeURIComponent(body.code)}`;
+  }
+
+  async redeemSubscriptionHandoff(code: string): Promise<void> {
+    const response = await fetch(`${environment.firebaseFunctionsUrl}/redeemSubscriptionHandoff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Subscription management is not deployed yet. Open it again after the app update finishes.');
+      }
+      throw new Error('This subscription link has expired. Open it again from the Spenza app.');
+    }
+
+    const body = await response.json() as { customToken?: string };
+    if (!body.customToken) {
+      throw new Error('Subscription handoff did not return a token.');
+    }
+
+    const { signInWithCustomToken } = await import('firebase/auth');
+    const auth = await this.#getFirebaseAuth();
+    const credential = await signInWithCustomToken(auth, body.customToken);
+    this.firebaseUid.set(credential.user.uid);
+    await this.storageService.set('firebase_uid', credential.user.uid);
+  }
+
   // ---------------------------------------------------------------------------
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
 
   async #nativeSignIn(): Promise<SignInResult> {
     await this.#nativeInitPromise;
+    const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE, DRIVE_SCOPE];
 
-    const result = await SocialLogin.login({
-      provider: 'google',
-      options: { scopes },
-    });
+    // First attempt may throw "No credentials found" on Android Credential Manager
+    // when there is no cached credential (e.g., cold first-time launch). A second
+    // call reliably surfaces the interactive account-picker, so retry once.
+    let result;
+    try {
+      result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+    } catch (err: any) {
+      const msg: string = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+      if (msg.includes('no credentials') || msg.includes('no account')) {
+        result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+      } else {
+        throw err;
+      }
+    }
 
     // result.result is GoogleLoginResponse (online mode)
     const googleResult = result.result;
@@ -276,10 +415,11 @@ export class AuthService {
   async #nativeSignOut(): Promise<void> {
     this.#clearAuthState();
     try {
+      const { SocialLogin } = await import('@capgo/capacitor-social-login');
       await SocialLogin.logout({ provider: 'google' });
     } catch (err) {
       // Non-critical — local state is already cleared
-      console.warn('Native sign-out error:', err);
+      if (isDevMode()) { console.warn('Native sign-out error:', err); }
     }
   }
 
@@ -354,7 +494,7 @@ export class AuthService {
           })
       )
       .catch((err) => {
-        console.warn('Google token revoke failed after local sign-out:', err);
+        if (isDevMode()) { console.warn('Google token revoke failed after local sign-out:', err); }
       });
   }
 
@@ -364,13 +504,15 @@ export class AuthService {
 
   async #signIntoFirebase(idToken: string | null, accessToken: string): Promise<void> {
     try {
+      const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+      const auth = await this.#getFirebaseAuth();
       const credential = GoogleAuthProvider.credential(idToken, accessToken);
-      const userCred = await signInWithCredential(this.#firebaseAuth, credential);
+      const userCred = await signInWithCredential(auth, credential);
       const uid = userCred.user.uid;
       this.firebaseUid.set(uid);
       await this.storageService.set('firebase_uid', uid);
     } catch (err) {
-      // Non-critical — Firebase Auth failure does not block Drive-based features
+      // Non-critical for Drive features, but subscription will fail without Firebase auth.
       console.warn('[AuthService] Firebase sign-in failed:', err);
     }
   }
@@ -386,7 +528,11 @@ export class AuthService {
     void this.storageService.remove('firebase_uid');
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
     void this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
-    void firebaseSignOut(this.#firebaseAuth).catch(() => {});
+    void (async () => {
+      const { signOut } = await import('firebase/auth');
+      const auth = await this.#getFirebaseAuth();
+      await signOut(auth);
+    })().catch(() => {});
   }
 
   #nativeTokenExpiresAt(accessToken: { expires?: string } | null): string {
