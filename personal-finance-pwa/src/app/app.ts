@@ -98,8 +98,11 @@ export class App implements OnInit, OnDestroy {
       this.subscriptionService.ensureStarted(restoredUid);
     }
 
-    // Start family sync listener if Firestore family ID is already cached
-    this.tryStartFamilySync();
+    // NOTE: family sync listener is NOT started here — it must start only after
+    // expenseStore.loadFromDrive() completes (lines below and in bootstrapDriveInBackground).
+    // Starting it early causes a race: the initial Firestore snapshot applies deltas to the
+    // store, then loadFromDrive() overwrites the store with the (empty) Drive file, and since
+    // all delta IDs are already in #processedIds they are never re-emitted.
 
     if (!this.authService.isAuthenticated()) {
       this.clearLoadingTimeout();
