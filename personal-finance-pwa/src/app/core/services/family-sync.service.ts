@@ -94,9 +94,11 @@ export class FamilySyncService {
     this.familyId.set(null);
     this.partnerEmail.set(null);
     this.syncStatus.set('idle');
+    this.#processedIds.clear();
   }
 
   async pushDelta(familyId: string, delta: Omit<FamilyActivityDelta, 'activityId'>): Promise<void> {
+    await this.#authService.ensureFirebaseSignedInSilently();
     const { collection, addDoc } = await import('firebase/firestore');
     const db = await this.#getDb();
     await addDoc(collection(db, 'families', familyId, 'activity'), delta);

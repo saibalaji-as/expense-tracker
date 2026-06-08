@@ -682,8 +682,15 @@ export const ExpenseStore = signalStore(
       }
 
       const mode = backupModeService.getMode();
-      if (mode === 'family') {
+      if (mode === 'family' && backupModeService.getSharedFileId()) {
+        // Drive-based family: snapshot must reference the same shared file.
         return snapshot.mode === 'family' && snapshot.fileId === backupModeService.getSharedFileId();
+      }
+      if (mode === 'family') {
+        // Firestore family: each member keeps their own personal Drive backup.
+        // Reject any snapshot that was written for a Drive-based family (has a sharedFileId),
+        // so a user migrating from Drive-family → Firestore-family doesn't restore stale shared data.
+        return snapshot.mode === 'single' || (snapshot.mode === 'family' && !snapshot.sharedFileId);
       }
 
       return mode === 'single' && snapshot.mode === 'single';
@@ -812,7 +819,8 @@ export const ExpenseStore = signalStore(
     };
 
     const activeDriveFileId = (): string | null => {
-      if (backupModeService.getMode() === 'family') {
+      // Drive-based family uses the shared file; Firestore family uses personal Drive file.
+      if (backupModeService.getMode() === 'family' && backupModeService.getSharedFileId()) {
         return backupModeService.getSharedFileId();
       }
 
@@ -1690,15 +1698,9 @@ export const ExpenseStore = signalStore(
             return;
           }
 
-          if (mode === 'family') {
-            // Family mode: read directly from the shared file ID — no find/create
-            const fileId = backupModeService.getSharedFileId();
-            if (!fileId) {
-              if (isDevMode()) { console.warn('[ExpenseStore] loadFromDrive — family mode but no sharedFileId, emitting FAMILY_SETUP_INCOMPLETE'); }
-              patchState(store, { syncStatus: 'error' });
-              driveError$.next({ status: 0, message: 'FAMILY_SETUP_INCOMPLETE', operation: 'loadFromDrive' } as DriveApiError);
-              return;
-            }
+          if (mode === 'family' && backupModeService.getSharedFileId()) {
+            // Drive-based family mode: read directly from the shared file ID — no find/create
+            const fileId = backupModeService.getSharedFileId()!;
             if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId); }
             const doc = await googleDriveService.readBackupFile(fileId);
             const modifiedTime = await readModifiedTimeSafely(fileId);
@@ -1720,8 +1722,9 @@ export const ExpenseStore = signalStore(
             }); }
             if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — done (family backup loaded)'); }
           } else {
-            // Single user mode (or null): existing find-or-create flow using appDataFolder
-            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — single mode, calling findBackupFile...'); }
+            // Single mode OR Firestore-based family (no sharedFileId): each user keeps their own
+            // personal Drive backup via appDataFolder. Firestore activity stream handles cross-device sync.
+            if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — single/firestore-family mode, calling findBackupFile...'); }
             let fileId = await googleDriveService.findBackupFile();
             if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — findBackupFile result:', fileId); }
 
@@ -1878,18 +1881,21 @@ export const ExpenseStore = signalStore(
           // Skip our own deltas — already applied locally.
           if (delta.authorUid === authService.firebaseUid()) continue;
 
+          if (!delta.expenseId?.trim()) continue;
+          if (delta.action !== 'create' && delta.action !== 'update' && delta.action !== 'delete') continue;
+
           if (delta.action === 'delete') {
             entries = entries.filter((e) => e.id !== delta.expenseId);
           } else if (delta.action === 'create') {
-            if (!entries.find((e) => e.id === delta.expenseId) && delta.payload) {
+            if (!delta.payload) continue;
+            if (!entries.find((e) => e.id === delta.expenseId)) {
               entries = [...entries, delta.payload as ExpenseEntry];
             }
           } else if (delta.action === 'update') {
-            if (delta.payload) {
-              entries = entries.map((e) =>
-                e.id === delta.expenseId ? (delta.payload as ExpenseEntry) : e
-              );
-            }
+            if (!delta.payload) continue;
+            entries = entries.map((e) =>
+              e.id === delta.expenseId ? (delta.payload as ExpenseEntry) : e
+            );
           }
         }
 

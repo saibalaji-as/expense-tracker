@@ -379,7 +379,11 @@ export class App implements OnInit, OnDestroy {
       const mode = this.backupModeService.getMode();
 
       if (driveErr.message === 'FAMILY_SETUP_INCOMPLETE') {
-        void this.router.navigate(['/family-setup']);
+        // Only Drive-based family (sharedFileId set, no Firestore ID) is incomplete here.
+        // Firestore-family members have no sharedFileId by design — don't redirect them.
+        if (this.backupModeService.getSharedFileId() && !this.backupModeService.getFamilyId()) {
+          void this.router.navigate(['/family-setup']);
+        }
         return;
       }
 

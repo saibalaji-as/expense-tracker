@@ -217,6 +217,7 @@ export class FamilySetupComponent {
   #pendingFamilyId: string | null = null;
 
   onSelectOwner(): void {
+    this.errorMessage.set(null);
     if (!this.subscriptionService.isPro()) {
       this.step.set('owner-paywall');
       return;

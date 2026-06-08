@@ -41,6 +41,7 @@ import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { FamilyDocument } from '../../core/models/family-sync.model';
 import { FamilyApiService } from '../../core/services/family-api.service';
+import { FamilySyncService } from '../../core/services/family-sync.service';
 import { firebaseConfig } from '../../core/config/firebase.config';
 import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
@@ -1309,6 +1310,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly dailyExpenseDraftService = inject(DailyExpenseDraftService);
   private readonly payService = inject(PaymentService);
   private readonly familyApiService = inject(FamilyApiService);
+  private readonly familySyncService = inject(FamilySyncService);
 
   readonly isNativePlatform = Capacitor.isNativePlatform();
   readonly isProduction = environment.production;
@@ -1652,6 +1654,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     if (this.isSigningOut()) return;
     this.isSigningOut.set(true);
     try {
+      this.familySyncService.stopListening();
       await Promise.allSettled([
         this.notificationService.disable(),
         this.localNotificationService.cancelDailyReminder(),
@@ -1676,6 +1679,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       const signInResult = await this.authService.signIn();
       if (signInResult.accountChanged) {
+        this.familySyncService.stopListening();
         this.expenseStore.clearLocalData();
         await Promise.all([
           this.expenseStore.clearLocalBackupCache(),
@@ -2575,6 +2579,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           console.warn('[Settings] dissolveFamily failed, proceeding with local cleanup:', err);
         }
       }
+      this.familySyncService.stopListening();
       await this.backupModeService.setFirestoreFamilyId(null);
     } finally {
       this.isLeavingFamily.set(false);
