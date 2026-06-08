@@ -1133,6 +1133,13 @@ export const ExpenseStore = signalStore(
         if (store.syncStatus() === 'error') {
           throw new Error('Restored data could not be saved to Google Drive.');
         }
+
+        // Push all restored expenses to Firestore so the family partner's device is updated.
+        for (const entry of doc.expenses) {
+          if (entry.source !== 'debt-payment' && !entry.debtId) {
+            pushFamilyDelta('create', entry);
+          }
+        }
       },
 
       /**
@@ -1888,6 +1895,16 @@ export const ExpenseStore = signalStore(
           }
           return false;
         }
+      },
+
+      pushAllEntriesToFamilySync(): number {
+        const entries = store.entries().filter(
+          (e) => e.source !== 'debt-payment' && !e.debtId
+        );
+        for (const entry of entries) {
+          pushFamilyDelta('create', entry);
+        }
+        return entries.length;
       },
     };
 
