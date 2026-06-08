@@ -33,8 +33,15 @@ export const setupGuard: CanActivateFn = async (_route, state) => {
     mode === 'single' ||
     (mode === 'family' && isFamilySetupComplete(backupModeService));
 
+  // Old Drive-based family users have sharedFileId but no firestoreFamilyId — they need
+  // to go through /family-setup to migrate to Firestore sync.
+  const needsFamilyMigration =
+    mode === 'family' &&
+    !!backupModeService.getSharedFileId() &&
+    !backupModeService.getFamilyId();
+
   if (localSetupComplete) {
-    if (url === '/mode-select' || url === '/family-setup') {
+    if (url === '/mode-select' || (url === '/family-setup' && !needsFamilyMigration)) {
       return router.createUrlTree([
         expenseStore.driveFileId() && expenseStore.monthlyIncome() <= 0 ? '/limits' : '/daily',
       ]);
