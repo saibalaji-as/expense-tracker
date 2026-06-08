@@ -150,7 +150,7 @@ export class AppShellComponent {
 
     return (
       mode === 'family' &&
-      !!this.backupModeService.getSharedFileId() &&
+      (!!this.backupModeService.getSharedFileId() || !!this.backupModeService.getFamilyId()) &&
       !!this.backupModeService.getOwnerRole()
     );
   }
