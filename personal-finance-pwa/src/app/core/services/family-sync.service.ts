@@ -80,6 +80,7 @@ export class FamilySyncService {
           });
         };
 
+        console.log('[FamilySyncService] Firestore listener attached for family:', familyId);
         attachListener();
       } catch (err) {
         console.warn('[FamilySyncService] startListening failed:', err);

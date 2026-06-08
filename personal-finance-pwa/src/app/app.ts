@@ -193,6 +193,7 @@ export class App implements OnInit, OnDestroy {
     console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
 
     this.loadingError.set(null);
+    this.tryStartFamilySync();
     this.startDrivePollLoop();
     await this.redirectAfterDataAvailable();
   }
@@ -286,10 +287,12 @@ export class App implements OnInit, OnDestroy {
 
   private tryStartFamilySync(): void {
     const familyId = this.backupModeService.getFamilyId();
-    const uid = this.authService.firebaseUid();
-    if (this.backupModeService.getMode() === 'family' && familyId && uid) {
-      this.familySyncService.startListening(familyId, uid);
-    }
+    if (this.backupModeService.getMode() !== 'family' || !familyId) return;
+    // Don't restart if already listening to this family and not in error state.
+    if (this.familySyncService.familyId() === familyId &&
+        this.familySyncService.syncStatus() !== 'error') return;
+    // startListening handles Firebase auth internally via ensureFirebaseSignedInSilently.
+    this.familySyncService.startListening(familyId, this.authService.firebaseUid() ?? '');
   }
 
   private startDrivePollLoop(): void {

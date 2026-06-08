@@ -801,13 +801,26 @@ export const ExpenseStore = signalStore(
     ): void => {
       if (backupModeService.getMode() !== 'family') return;
       const familyId = backupModeService.getFamilyId();
-      const currentUid = authService.firebaseUid();
       const currentRole = backupModeService.getOwnerRole();
-      if (!familyId || !currentUid || !currentRole) return;
-      const delta = buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole);
-      familySyncService.pushDelta(familyId, delta).catch((err) => {
-        console.warn('[ExpenseStore] Family delta push failed (non-blocking):', err);
-      });
+      if (!familyId || !currentRole) {
+        console.warn('[ExpenseStore] pushFamilyDelta skipped — familyId:', familyId, 'role:', currentRole);
+        return;
+      }
+      void (async () => {
+        try {
+          // Ensure Firebase is authenticated before reading the UID — it may be null on cold start.
+          await authService.ensureFirebaseSignedInSilently();
+          const currentUid = authService.firebaseUid();
+          if (!currentUid) {
+            console.warn('[ExpenseStore] pushFamilyDelta skipped — no Firebase UID after auth attempt');
+            return;
+          }
+          const delta = buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole);
+          await familySyncService.pushDelta(familyId, delta);
+        } catch (err) {
+          console.warn('[ExpenseStore] Family delta push failed (non-blocking):', err);
+        }
+      })();
     };
 
     const markLocalChangeAndPersist = async (): Promise<void> => {
