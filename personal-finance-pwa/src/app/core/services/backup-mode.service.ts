@@ -94,15 +94,21 @@ export class BackupModeService {
       }
 
       if (!isFirestoreFamily && config.familySyncMode !== 'firestore' && (config.mode === null || (config.mode === 'family' && !config.sharedFileId))) {
-        const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
-        if (recoveredFamily) {
-          console.info('[BackupModeService] Recovered family setup from existing Spenza Family folder.');
-          await this.setFamilyConfig(
-            recoveredFamily.backupFileId,
-            recoveredFamily.id,
-            recoveredFamily.ownedByMe ? 'owner' : 'partner'
-          );
-          return;
+        // Legacy Drive family folder recovery. Requires full drive scope which was removed in v8 —
+        // silently skip on 403 so it never blocks sign-in for v8+ users.
+        try {
+          const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
+          if (recoveredFamily) {
+            console.info('[BackupModeService] Recovered family setup from existing Spenza Family folder.');
+            await this.setFamilyConfig(
+              recoveredFamily.backupFileId,
+              recoveredFamily.id,
+              recoveredFamily.ownedByMe ? 'owner' : 'partner'
+            );
+            return;
+          }
+        } catch {
+          // Full drive scope unavailable (v8+) — skip legacy recovery silently.
         }
       }
 
