@@ -7,7 +7,7 @@ import { shouldRedirectToIncomeSetup } from './setup-income-gate';
 function isFamilySetupComplete(backupModeService: BackupModeService): boolean {
   return (
     backupModeService.getMode() === 'family' &&
-    !!backupModeService.getSharedFileId() &&
+    (!!backupModeService.getSharedFileId() || !!backupModeService.getFamilyId()) &&
     !!backupModeService.getOwnerRole()
   );
 }

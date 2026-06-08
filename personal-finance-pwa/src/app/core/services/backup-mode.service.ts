@@ -243,12 +243,16 @@ export class BackupModeService {
       this.storageService.set(CACHE_KEY_OWNER_ROLE, role),
     ]);
 
-    await this.#saveConfig({
-      mode: 'family',
-      sharedFileId: fileId,
-      familyFolderId: folderId,
-      ownerRole: role,
-    });
+    // Skip Drive save for Firestore-only family members (no Drive-based state to persist).
+    // Local storage above is the source of truth; Drive write would block unnecessarily.
+    if (fileId !== null || folderId !== null) {
+      await this.#saveConfig({
+        mode: 'family',
+        sharedFileId: fileId,
+        familyFolderId: folderId,
+        ownerRole: role,
+      });
+    }
     this.#lastDriveLoadAt = Date.now();
   }
 
