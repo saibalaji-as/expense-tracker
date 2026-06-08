@@ -682,7 +682,10 @@ export const ExpenseStore = signalStore(
       }
 
       const mode = backupModeService.getMode();
-      if (mode === 'family' && backupModeService.getSharedFileId()) {
+      // Drive-based family: sharedFileId is set AND no Firestore family ID.
+      // A stale sharedFileId left over from a previous Drive-based setup must NOT
+      // trigger this path when the user is now a Firestore family member.
+      if (mode === 'family' && backupModeService.getSharedFileId() && !backupModeService.getFamilyId()) {
         // Drive-based family: snapshot must reference the same shared file.
         return snapshot.mode === 'family' && snapshot.fileId === backupModeService.getSharedFileId();
       }
@@ -833,7 +836,10 @@ export const ExpenseStore = signalStore(
 
     const activeDriveFileId = (): string | null => {
       // Drive-based family uses the shared file; Firestore family uses personal Drive file.
-      if (backupModeService.getMode() === 'family' && backupModeService.getSharedFileId()) {
+      // A stale sharedFileId must not override a Firestore family member's personal file.
+      if (backupModeService.getMode() === 'family' &&
+          backupModeService.getSharedFileId() &&
+          !backupModeService.getFamilyId()) {
         return backupModeService.getSharedFileId();
       }
 
@@ -1711,8 +1717,10 @@ export const ExpenseStore = signalStore(
             return;
           }
 
-          if (mode === 'family' && backupModeService.getSharedFileId()) {
+          if (mode === 'family' && backupModeService.getSharedFileId() && !backupModeService.getFamilyId()) {
             // Drive-based family mode: read directly from the shared file ID — no find/create
+            // (Firestore family members always use their personal Drive file even if a stale
+            // sharedFileId exists in storage from a previous Drive-based family setup.)
             const fileId = backupModeService.getSharedFileId()!;
             if (isDevMode()) { console.log('[ExpenseStore] loadFromDrive — family mode, reading shared file:', fileId); }
             const doc = await googleDriveService.readBackupFile(fileId);
