@@ -85,12 +85,15 @@ export class BackupModeService {
     try {
       const { config } = await this.#readConfigWithRecovery();
 
-      // Firestore family members manage mode/ownerRole via localStorage (not Drive config).
-      // Drive config was never updated for them to avoid blocking the join flow.
-      // Skip Drive-based recovery and mode override so their family state is preserved on restart.
-      const isFirestoreFamily = !!this.firestoreFamilyId();
+      // Belt-and-suspenders: read from storage directly in case the signal hasn't been hydrated
+      // yet (e.g. loadFromDrive called before initialized resolves).
+      const storedFirestoreFamilyId = await this.storageService.get(CACHE_KEY_FIRESTORE_FAMILY_ID);
+      const isFirestoreFamily = !!this.firestoreFamilyId() || !!storedFirestoreFamilyId;
+      if (!this.firestoreFamilyId() && storedFirestoreFamilyId) {
+        this.firestoreFamilyId.set(storedFirestoreFamilyId);
+      }
 
-      if (!isFirestoreFamily && (config.mode === null || (config.mode === 'family' && !config.sharedFileId))) {
+      if (!isFirestoreFamily && config.familySyncMode !== 'firestore' && (config.mode === null || (config.mode === 'family' && !config.sharedFileId))) {
         const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
         if (recoveredFamily) {
           console.info('[BackupModeService] Recovered family setup from existing Spenza Family folder.');
@@ -259,14 +262,22 @@ export class BackupModeService {
       this.storageService.set(CACHE_KEY_OWNER_ROLE, role),
     ]);
 
-    // Skip Drive save for Firestore-only family members (no Drive-based state to persist).
-    // Local storage above is the source of truth; Drive write would block unnecessarily.
     if (fileId !== null || folderId !== null) {
       await this.#saveConfig({
         mode: 'family',
         sharedFileId: fileId,
         familyFolderId: folderId,
         ownerRole: role,
+      });
+    } else {
+      // Firestore-backed family: write a minimal Drive config so recovery logic can skip
+      // the Drive folder search on future cold starts without relying solely on localStorage.
+      await this.#saveConfig({
+        mode: 'family',
+        sharedFileId: null,
+        familyFolderId: null,
+        ownerRole: role,
+        familySyncMode: 'firestore',
       });
     }
     this.#lastDriveLoadAt = Date.now();

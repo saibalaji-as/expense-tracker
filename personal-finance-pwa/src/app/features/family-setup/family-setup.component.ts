@@ -290,11 +290,16 @@ export class FamilySetupComponent {
       }
       await this.router.navigate(['/daily']);
     } catch (err: unknown) {
-      const status = (err as FamilyApiError)?.status;
-      if (status === 404) {
-        this.errorMessage.set('family.invite.error.expired');
-      } else if (status === 409) {
-        this.errorMessage.set('family.invite.error.alreadyUsed');
+      if (err instanceof FamilyApiError) {
+        if (err.status === 404) {
+          this.errorMessage.set('family.invite.error.expired');
+        } else if (err.status === 409) {
+          // 409 now only occurs when a *different* user already redeemed this code.
+          // Same-user retries are handled server-side (idempotent — returns familyId).
+          this.errorMessage.set('family.invite.error.alreadyUsed');
+        } else {
+          this.errorMessage.set('family.invite.error.network');
+        }
       } else {
         this.errorMessage.set('family.invite.error.network');
       }

@@ -84,6 +84,7 @@ export interface SpenzaConfig {
   sharedFileId: string | null;
   familyFolderId?: string | null;
   ownerRole: 'owner' | 'partner' | null;
+  familySyncMode?: 'firestore' | 'drive';
   aiSettings?: {
     provider: 'default' | 'user-key' | 'disabled';
     geminiApiKey?: string | null;

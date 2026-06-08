@@ -181,7 +181,13 @@ export const redeemFamilyInvite = functions.onRequest(
         if (!inviteSnap.exists) throw new Error('Invite not found');
         const invite = inviteSnap.data()!;
 
-        if (invite['redeemedAt'] !== null) throw new Error('Invite already redeemed');
+        if (invite['redeemedAt'] !== null) {
+          // Idempotent: same partner retrying after a client crash — let them recover local state.
+          if (invite['redeemedByUid'] === partnerUid) {
+            return invite['familyId'] as string;
+          }
+          throw new Error('Invite already redeemed');
+        }
         if (new Date(invite['expiresAt'] as string).getTime() <= Date.now()) {
           throw new Error('Invite expired');
         }
