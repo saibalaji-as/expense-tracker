@@ -85,7 +85,12 @@ export class BackupModeService {
     try {
       const { config } = await this.#readConfigWithRecovery();
 
-      if (config.mode === null || (config.mode === 'family' && !config.sharedFileId)) {
+      // Firestore family members manage mode/ownerRole via localStorage (not Drive config).
+      // Drive config was never updated for them to avoid blocking the join flow.
+      // Skip Drive-based recovery and mode override so their family state is preserved on restart.
+      const isFirestoreFamily = !!this.firestoreFamilyId();
+
+      if (!isFirestoreFamily && (config.mode === null || (config.mode === 'family' && !config.sharedFileId))) {
         const recoveredFamily = await this.driveService.findExistingFamilyFolderBundle();
         if (recoveredFamily) {
           console.info('[BackupModeService] Recovered family setup from existing Spenza Family folder.');
@@ -104,12 +109,24 @@ export class BackupModeService {
       const familyFolderId = config.familyFolderId ?? null;
       const ownerRole = config.ownerRole;
 
-      if (mode === 'single' || mode === 'family') {
-        this.mode.set(mode);
-        await this.storageService.set(CACHE_KEY_MODE, mode);
-      } else {
-        this.mode.set(null);
-        await this.storageService.remove(CACHE_KEY_MODE);
+      // For Firestore family members, Drive config doesn't track family membership.
+      // Preserve locally cached mode/ownerRole so they aren't reset to 'single'/null.
+      if (!isFirestoreFamily) {
+        if (mode === 'single' || mode === 'family') {
+          this.mode.set(mode);
+          await this.storageService.set(CACHE_KEY_MODE, mode);
+        } else {
+          this.mode.set(null);
+          await this.storageService.remove(CACHE_KEY_MODE);
+        }
+
+        if (ownerRole === 'owner' || ownerRole === 'partner') {
+          this.ownerRole.set(ownerRole);
+          await this.storageService.set(CACHE_KEY_OWNER_ROLE, ownerRole);
+        } else {
+          this.ownerRole.set(null);
+          await this.storageService.remove(CACHE_KEY_OWNER_ROLE);
+        }
       }
 
       if (sharedFileId) {
@@ -126,14 +143,6 @@ export class BackupModeService {
       } else {
         this.familyFolderId.set(null);
         await this.storageService.remove(CACHE_KEY_FAMILY_FOLDER_ID);
-      }
-
-      if (ownerRole === 'owner' || ownerRole === 'partner') {
-        this.ownerRole.set(ownerRole);
-        await this.storageService.set(CACHE_KEY_OWNER_ROLE, ownerRole);
-      } else {
-        this.ownerRole.set(null);
-        await this.storageService.remove(CACHE_KEY_OWNER_ROLE);
       }
     } catch (err) {
       const status = (err as DriveApiError)?.status;

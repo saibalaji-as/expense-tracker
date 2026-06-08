@@ -1874,6 +1874,8 @@ export const ExpenseStore = signalStore(
     familySyncService.activity$.subscribe((deltas) => {
       if (!deltas.length) return;
 
+      let entriesChanged = false;
+
       patchState(store, (state) => {
         let entries = [...state.entries];
 
@@ -1885,26 +1887,33 @@ export const ExpenseStore = signalStore(
           if (delta.action !== 'create' && delta.action !== 'update' && delta.action !== 'delete') continue;
 
           if (delta.action === 'delete') {
+            const before = entries.length;
             entries = entries.filter((e) => e.id !== delta.expenseId);
+            if (entries.length !== before) entriesChanged = true;
           } else if (delta.action === 'create') {
             if (!delta.payload) continue;
             if (!entries.find((e) => e.id === delta.expenseId)) {
               entries = [...entries, delta.payload as ExpenseEntry];
+              entriesChanged = true;
             }
           } else if (delta.action === 'update') {
             if (!delta.payload) continue;
             entries = entries.map((e) =>
               e.id === delta.expenseId ? (delta.payload as ExpenseEntry) : e
             );
+            entriesChanged = true;
           }
         }
 
+        if (!entriesChanged) return state;
         entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
         return { entries };
       });
 
-      localRevision += 1;
-      void methods.persistToDrive();
+      if (entriesChanged) {
+        localRevision += 1;
+        void methods.persistToDrive();
+      }
     });
 
     return methods;
