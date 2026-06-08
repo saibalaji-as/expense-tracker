@@ -158,6 +158,45 @@ export const dissolveFamily = functions.onRequest(
   }
 );
 
+export const leaveFamily = functions.onRequest(
+  { cors: CORS_ORIGINS, invoker: 'public' },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const familyId = typeof req.body?.familyId === 'string' ? req.body.familyId.trim() : '';
+    if (!familyId) {
+      res.status(400).json({ error: 'familyId is required' });
+      return;
+    }
+
+    try {
+      const { uid: callerUid } = await requireFamilyAuth(req);
+
+      const familyRef = admin.firestore().collection('families').doc(familyId);
+      const familySnap = await familyRef.get();
+      if (!familySnap.exists) {
+        res.status(404).json({ error: 'Family not found' });
+        return;
+      }
+      const family = familySnap.data()!;
+
+      if (family['partnerUid'] !== callerUid) {
+        res.status(403).json({ error: 'Only the current partner can leave the family' });
+        return;
+      }
+
+      await familyRef.update({ partnerUid: null, partnerEmail: null, updatedAt: new Date().toISOString() });
+      res.json({ success: true });
+    } catch (err) {
+      console.warn('leaveFamily failed:', err);
+      res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+);
+
 export const redeemFamilyInvite = functions.onRequest(
   { cors: CORS_ORIGINS, invoker: 'public' },
   async (req, res) => {

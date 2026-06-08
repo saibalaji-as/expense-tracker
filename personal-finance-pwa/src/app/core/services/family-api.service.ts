@@ -67,6 +67,23 @@ export class FamilyApiService {
     return response.json() as Promise<{ success: boolean }>;
   }
 
+  async leaveFamily(familyId: string): Promise<{ success: boolean }> {
+    const idToken = await this.authService.getFirebaseIdToken();
+    const response = await fetch(`${this.functionsBase}/leaveFamily`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ familyId }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new FamilyApiError(response.status, `leaveFamily failed (${response.status}): ${text}`);
+    }
+    return response.json() as Promise<{ success: boolean }>;
+  }
+
   async redeemFamilyInvite(inviteCode: string): Promise<{ familyId: string }> {
     const idToken = await this.authService.getFirebaseIdToken();
     const response = await fetch(`${this.functionsBase}/redeemFamilyInvite`, {

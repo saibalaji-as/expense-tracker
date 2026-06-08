@@ -291,8 +291,9 @@ export class GoogleDriveService {
       rootBackupId,
       configId,
     ] = await Promise.all([
-      this.findSpenzaItemsInAppDataFolder(),
-      this.findSpenzaItemsInMyDrive(),
+      this.findSpenzaItemsInAppDataFolder().catch(() => [] as Array<{ id: string; name: string }>),
+      // Full drive scope removed in v8 — silently skip; legacy My Drive files can't be listed.
+      this.findSpenzaItemsInMyDrive().catch(() => [] as Array<{ id: string; name: string }>),
       this.findBackupFile().catch(() => null),
       this.findBackupFileInMyDrive().catch(() => null),
       this.findConfigFile().catch(() => null),
