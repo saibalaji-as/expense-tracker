@@ -2080,12 +2080,12 @@ export const ExpenseStore = signalStore(
             } else if (delta.action === 'create') {
               if (!delta.payload) continue;
               if (!entries.find((e) => e.id === entityId)) {
-                entries = [...entries, delta.payload as ExpenseEntry];
+                entries = [...entries, delta.payload as unknown as ExpenseEntry];
                 entriesChanged = true;
               }
             } else if (delta.action === 'update') {
               if (!delta.payload) continue;
-              entries = entries.map((e) => e.id === entityId ? (delta.payload as ExpenseEntry) : e);
+              entries = entries.map((e) => e.id === entityId ? (delta.payload as unknown as ExpenseEntry) : e);
               entriesChanged = true;
             }
           } else if (dataType === 'account') {
@@ -2096,7 +2096,7 @@ export const ExpenseStore = signalStore(
               accountAdjustments = accountAdjustments.filter((adj) => adj.accountId !== entityId);
               if (accounts.length !== before) { accountsChanged = true; adjustmentsChanged = true; }
             } else if (delta.payload) {
-              const incoming = delta.payload as AssetAccount;
+              const incoming = delta.payload as unknown as AssetAccount;
               const idx = accounts.findIndex((a) => a.id === entityId);
               if (idx >= 0) {
                 accounts = accounts.map((a) => a.id === entityId ? incoming : a);
@@ -2113,7 +2113,7 @@ export const ExpenseStore = signalStore(
               if (accountAdjustments.length !== before) adjustmentsChanged = true;
             } else if (delta.action === 'create' && delta.payload) {
               if (!accountAdjustments.find((adj) => adj.id === entityId)) {
-                accountAdjustments = [...accountAdjustments, delta.payload as AccountBalanceAdjustment];
+                accountAdjustments = [...accountAdjustments, delta.payload as unknown as AccountBalanceAdjustment];
                 adjustmentsChanged = true;
               }
             }
@@ -2124,7 +2124,7 @@ export const ExpenseStore = signalStore(
               debts = debts.filter((d) => d.id !== entityId);
               if (debts.length !== before) debtsChanged = true;
             } else if (delta.payload) {
-              const incoming = delta.payload as DebtAccount;
+              const incoming = delta.payload as unknown as DebtAccount;
               const idx = debts.findIndex((d) => d.id === entityId);
               if (idx >= 0) {
                 debts = debts.map((d) => d.id === entityId ? incoming : d);
@@ -2141,16 +2141,16 @@ export const ExpenseStore = signalStore(
               if (debtPayments.length !== before) paymentsChanged = true;
             } else if (delta.action === 'create' && delta.payload) {
               if (!debtPayments.find((p) => p.id === entityId)) {
-                debtPayments = [...debtPayments, delta.payload as DebtPayment];
+                debtPayments = [...debtPayments, delta.payload as unknown as DebtPayment];
                 paymentsChanged = true;
               }
             } else if (delta.action === 'update' && delta.payload) {
-              debtPayments = debtPayments.map((p) => p.id === entityId ? (delta.payload as DebtPayment) : p);
+              debtPayments = debtPayments.map((p) => p.id === entityId ? (delta.payload as unknown as DebtPayment) : p);
               paymentsChanged = true;
             }
           } else if (dataType === 'limits') {
             if (!delta.payload) continue;
-            const p = delta.payload as { limits?: ExpenseLimit[]; monthlyIncome?: number };
+            const p = delta.payload as unknown as { limits?: ExpenseLimit[]; monthlyIncome?: number };
             if (Array.isArray(p.limits)) { limits = p.limits; limitsChanged = true; }
             if (typeof p.monthlyIncome === 'number') { monthlyIncome = p.monthlyIncome; limitsChanged = true; }
           }
