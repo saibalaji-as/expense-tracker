@@ -25,10 +25,10 @@ export class FamilySyncService {
   #familyDocUnsubscribe: (() => void) | null = null;
   #processedIds = new Set<string>();
 
-  readonly #stateSubject = new Subject<{ doc: BackupDocument; revision: number }>();
+  readonly #stateSubject = new Subject<{ doc: BackupDocument; revision: number; deletedEntryIds: string[] }>();
   readonly #dissolvedSubject = new Subject<void>();
 
-  readonly state$: Observable<{ doc: BackupDocument; revision: number }> = this.#stateSubject.asObservable();
+  readonly state$: Observable<{ doc: BackupDocument; revision: number; deletedEntryIds: string[] }> = this.#stateSubject.asObservable();
   readonly dissolution$: Observable<void> = this.#dissolvedSubject.asObservable();
 
   async #getDb(): Promise<Firestore> {
@@ -71,17 +71,20 @@ export class FamilySyncService {
               lastWriter: FamilyStateWriter;
               updatedAt: string;
               revision: number;
+              deletedEntryIds?: string[];
             };
 
-            // First snapshot: always emit regardless of author (fixes initial state transfer for new partner).
-            // Subsequent snapshots: only emit if the remote writer is not the current user.
-            const isFirstSnapshot = this.#processedIds.size === 0;
             const snapshotId = `${snapshot.id}-r${data.revision ?? 0}`;
             if (this.#processedIds.has(snapshotId)) return;
             this.#processedIds.add(snapshotId);
 
-            if (!isFirstSnapshot && data.lastWriter?.uid === currentUid) return;
-            this.#stateSubject.next({ doc: data.doc, revision: data.revision ?? 0 });
+            // Never apply our own pushes back to ourselves.
+            if (data.lastWriter?.uid === currentUid) return;
+            this.#stateSubject.next({
+              doc: data.doc,
+              revision: data.revision ?? 0,
+              deletedEntryIds: data.deletedEntryIds ?? [],
+            });
           }, (err) => {
             console.warn('[FamilySyncService] Firestore state snapshot error:', err);
             this.syncStatus.set('error');
@@ -129,7 +132,8 @@ export class FamilySyncService {
   async pushState(
     familyId: string,
     docData: BackupDocument,
-    writer: FamilyStateWriter
+    writer: FamilyStateWriter,
+    deletedEntryIds: string[] = []
   ): Promise<void> {
     await this.#authService.ensureFirebaseSignedInSilently();
     const { doc, runTransaction } = await import('firebase/firestore');
@@ -145,6 +149,7 @@ export class FamilySyncService {
         lastWriter: writer,
         updatedAt: new Date().toISOString(),
         revision: currentRevision + 1,
+        deletedEntryIds,
       }));
       tx.set(stateRef, payload);
     });

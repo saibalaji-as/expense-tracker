@@ -261,6 +261,12 @@ export class App implements OnInit, OnDestroy {
       if (this.expenseStore.syncStatus() !== 'error') {
         this.startDrivePollLoop();
         await this.redirectAfterDataAvailable();
+        // Owner proactively pushes current state so the Firestore document always exists
+        // for any partner that joins or re-logs in before the owner makes a local change.
+        if (this.backupModeService.getMode() === 'family' &&
+            this.backupModeService.getOwnerRole() === 'owner') {
+          this.expenseStore.pushFamilyStateNow();
+        }
       }
     } catch (err) {
       console.warn('[App] Background Drive bootstrap failed:', err);

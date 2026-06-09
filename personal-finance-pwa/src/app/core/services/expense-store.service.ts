@@ -289,6 +289,9 @@ export const ExpenseStore = signalStore(
     let syncDriveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     let applyingRemote = false;
     let lastAppliedRemoteAt = '';
+    // Tracks entry IDs deleted in this session so tombstones propagate to the partner via Firestore.
+    // Cleared on app restart — harmless because Drive is updated after each deletion.
+    const localDeletedEntryIds = new Set<string>();
 
     const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
       currency === 'INR' || currency === 'USD' || currency === 'AED';
@@ -786,9 +789,10 @@ export const ExpenseStore = signalStore(
       if (!currentUid) return;
       const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
       const doc = buildBackupDocument();
+      const deletedIds = Array.from(localDeletedEntryIds);
       void (async () => {
         try {
-          await familySyncService.pushState(familyId, doc, writer);
+          await familySyncService.pushState(familyId, doc, writer, deletedIds);
         } catch (err) {
           console.error('[ExpenseStore] pushFamilyState failed:', err);
         }
@@ -1623,6 +1627,7 @@ export const ExpenseStore = signalStore(
         if (existingEntry?.source === 'debt-payment' || existingEntry?.debtId) {
           throw new Error('Debt payment entries must be managed from Finances.');
         }
+        localDeletedEntryIds.add(entryId);
         const updatedEntries = store.entries().filter((e) => e.id !== entryId);
         const updatedAccounts = applyAccountDeltas(
           store.accounts(),
@@ -1848,80 +1853,73 @@ export const ExpenseStore = signalStore(
         }
       },
 
+      pushFamilyStateNow(): void {
+        pushFamilyState();
+      },
+
     };
 
     // Merge incoming full-snapshot state from the partner into local state.
-    familySyncService.state$.subscribe(({ doc: remoteDoc }) => {
+    familySyncService.state$.subscribe(({ doc: remoteDoc, deletedEntryIds: remoteDeletedEntryIds }) => {
       applyingRemote = true;
       try {
         const remoteUpdatedAt = remoteDoc.lastUpdated ?? '';
 
-        // entries: remote is the authoritative base so deletions propagate.
-        // Local entries absent from remote are kept only if logged after the snapshot
-        // (concurrent addition not yet known to remote); older absent entries were deleted.
-        // For same-id conflicts the newer timestamp wins.
+        // entries: union merge so concurrent additions from both sides are preserved.
+        // Remote wins on timestamp tie or remote-is-newer for the same entry.
+        // Explicit tombstones (deletedEntryIds from remote + local session) handle deletions.
         const mergedEntriesById = new Map<string, ExpenseEntry>();
-        for (const remoteEntry of (remoteDoc.expenses ?? [])) {
-          mergedEntriesById.set(remoteEntry.id, remoteEntry);
-        }
         for (const localEntry of store.entries()) {
-          if (mergedEntriesById.has(localEntry.id)) {
-            const remoteEntry = mergedEntriesById.get(localEntry.id)!;
-            if ((localEntry.timestamp ?? '') > (remoteEntry.timestamp ?? '')) {
-              mergedEntriesById.set(localEntry.id, localEntry);
-            }
-          } else if ((localEntry.timestamp ?? '') > remoteUpdatedAt) {
-            mergedEntriesById.set(localEntry.id, localEntry);
+          mergedEntriesById.set(localEntry.id, localEntry);
+        }
+        for (const remoteEntry of (remoteDoc.expenses ?? [])) {
+          const local = mergedEntriesById.get(remoteEntry.id);
+          if (!local || (remoteEntry.timestamp ?? '') >= (local.timestamp ?? '')) {
+            mergedEntriesById.set(remoteEntry.id, remoteEntry);
           }
+        }
+        // Apply tombstones: remote deletions are accumulated into our own set so future pushes carry them.
+        for (const deletedId of remoteDeletedEntryIds) {
+          mergedEntriesById.delete(deletedId);
+          localDeletedEntryIds.add(deletedId);
+        }
+        for (const deletedId of localDeletedEntryIds) {
+          mergedEntriesById.delete(deletedId);
         }
         const mergedEntries = Array.from(mergedEntriesById.values())
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-        // accounts: same remote-as-base strategy so account deletions propagate.
-        const mergedAccountsById = new Map<string, AssetAccount>();
+        // accounts: union merge, remote wins on timestamp tie.
+        const mergedAccountsById = new Map(store.accounts().map(a => [a.id, a]));
         for (const remoteAccount of (remoteDoc.accounts ?? [])) {
-          mergedAccountsById.set(remoteAccount.id, remoteAccount);
-        }
-        for (const localAccount of store.accounts()) {
-          if (mergedAccountsById.has(localAccount.id)) {
-            const remoteAccount = mergedAccountsById.get(localAccount.id)!;
-            if ((localAccount.updatedAt ?? '') > (remoteAccount.updatedAt ?? '')) {
-              mergedAccountsById.set(localAccount.id, localAccount);
-            }
-          } else if ((localAccount.updatedAt ?? '') > remoteUpdatedAt) {
-            mergedAccountsById.set(localAccount.id, localAccount);
+          const local = mergedAccountsById.get(remoteAccount.id);
+          if (!local || (remoteAccount.updatedAt ?? '') >= (local.updatedAt ?? '')) {
+            mergedAccountsById.set(remoteAccount.id, remoteAccount);
           }
         }
 
-        // accountAdjustments: add-only (no updatedAt), keep all from both sides.
+        // accountAdjustments: add-only, keep all from both sides.
         const localAdjById = new Map(store.accountAdjustments().map(a => [a.id, a]));
         for (const remoteAdj of (remoteDoc.accountAdjustments ?? [])) {
           if (!localAdjById.has(remoteAdj.id)) localAdjById.set(remoteAdj.id, remoteAdj);
         }
 
-        // debts: same remote-as-base strategy so debt deletions propagate.
-        const mergedDebtsById = new Map<string, DebtAccount>();
+        // debts: union merge, remote wins on timestamp tie.
+        const mergedDebtsById = new Map(store.debts().map(d => [d.id, d]));
         for (const remoteDebt of (remoteDoc.debts ?? [])) {
-          mergedDebtsById.set(remoteDebt.id, remoteDebt);
-        }
-        for (const localDebt of store.debts()) {
-          if (mergedDebtsById.has(localDebt.id)) {
-            const remoteDebt = mergedDebtsById.get(localDebt.id)!;
-            if ((localDebt.updatedAt ?? '') > (remoteDebt.updatedAt ?? '')) {
-              mergedDebtsById.set(localDebt.id, localDebt);
-            }
-          } else if ((localDebt.updatedAt ?? '') > remoteUpdatedAt) {
-            mergedDebtsById.set(localDebt.id, localDebt);
+          const local = mergedDebtsById.get(remoteDebt.id);
+          if (!local || (remoteDebt.updatedAt ?? '') >= (local.updatedAt ?? '')) {
+            mergedDebtsById.set(remoteDebt.id, remoteDebt);
           }
         }
 
-        // debtPayments: add-only (createdAt only), keep all from both sides.
+        // debtPayments: add-only, keep all from both sides.
         const localPaymentsById = new Map(store.debtPayments().map(p => [p.id, p]));
         for (const remotePayment of (remoteDoc.debtPayments ?? [])) {
           if (!localPaymentsById.has(remotePayment.id)) localPaymentsById.set(remotePayment.id, remotePayment);
         }
 
-        // limits / income / currency: take remote when remoteDoc is newer than last applied remote
+        // limits / income / currency: take remote when remoteDoc is newer than last applied remote.
         let mergedLimits = store.limits();
         let mergedIncome = store.monthlyIncome();
         if (remoteUpdatedAt > lastAppliedRemoteAt || lastAppliedRemoteAt === '') {
