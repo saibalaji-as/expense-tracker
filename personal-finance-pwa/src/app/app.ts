@@ -372,6 +372,11 @@ export class App implements OnInit, OnDestroy {
     this.tryStartFamilySync();
   };
 
+  private readonly resumeHandler = () => {
+    void this.refreshBackupIfChanged();
+    this.tryStartFamilySync();
+  };
+
   /**
    * Maps Drive error types to user-friendly error messages
    * @param err - DriveApiError or DriveParseError from the Drive service
@@ -448,6 +453,9 @@ export class App implements OnInit, OnDestroy {
 
     document.addEventListener('visibilitychange', this.visibilityHandler);
     window.addEventListener('focus', this.focusHandler);
+    // Capacitor fires 'resume' on the document when the native app returns to foreground.
+    // This is more reliable than visibilitychange on Android/iOS after long background sessions.
+    document.addEventListener('resume', this.resumeHandler);
     this.routeScrollSubscription = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
       .subscribe(() => this.scrollToPageTop());
@@ -471,6 +479,7 @@ export class App implements OnInit, OnDestroy {
     this.routeScrollSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     window.removeEventListener('focus', this.focusHandler);
+    document.removeEventListener('resume', this.resumeHandler);
   }
 
   dismissMigrationBanner(): void {

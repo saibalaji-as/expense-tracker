@@ -118,10 +118,22 @@ export class BackupModeService {
       const familyFolderId = config.familyFolderId ?? null;
       const ownerRole = config.ownerRole;
 
-      // For Firestore family members, Drive config doesn't track family membership
-      // and may contain stale Drive-based family IDs from a previous setup.
-      // Preserve locally cached mode/ownerRole and force sharedFileId/familyFolderId to null.
+      // For Firestore family members, Drive config doesn't use sharedFileId/familyFolderId.
+      // Restore mode/ownerRole/firestoreFamilyId from Drive config (covers account-switch and
+      // storage-wipe scenarios where localStorage is empty but Drive config is authoritative).
       if (isFirestoreFamily) {
+        if (config.mode === 'single' || config.mode === 'family') {
+          this.mode.set(config.mode);
+          await this.storageService.set(CACHE_KEY_MODE, config.mode);
+        }
+        if (config.ownerRole === 'owner' || config.ownerRole === 'partner') {
+          this.ownerRole.set(config.ownerRole);
+          await this.storageService.set(CACHE_KEY_OWNER_ROLE, config.ownerRole);
+        }
+        if (!this.firestoreFamilyId() && config.firestoreFamilyId) {
+          this.firestoreFamilyId.set(config.firestoreFamilyId);
+          await this.storageService.set(CACHE_KEY_FIRESTORE_FAMILY_ID, config.firestoreFamilyId);
+        }
         this.sharedFileId.set(null);
         await this.storageService.remove(CACHE_KEY_SHARED_FILE_ID);
         this.familyFolderId.set(null);
@@ -276,14 +288,15 @@ export class BackupModeService {
         ownerRole: role,
       });
     } else {
-      // Firestore-backed family: write a minimal Drive config so recovery logic can skip
-      // the Drive folder search on future cold starts without relying solely on localStorage.
+      // Firestore-backed family: write Drive config with firestoreFamilyId so it can be
+      // recovered after an account switch or storage wipe without going through setup again.
       await this.#saveConfig({
         mode: 'family',
         sharedFileId: null,
         familyFolderId: null,
         ownerRole: role,
         familySyncMode: 'firestore',
+        firestoreFamilyId: this.firestoreFamilyId(),
       });
     }
     this.#lastDriveLoadAt = Date.now();
@@ -300,7 +313,7 @@ export class BackupModeService {
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
       this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
-    await this.#saveConfig({ sharedFileId: null, familyFolderId: null, ownerRole: null });
+    await this.#saveConfig({ sharedFileId: null, familyFolderId: null, ownerRole: null, firestoreFamilyId: null });
   }
 
   async clearAll(): Promise<void> {
@@ -316,7 +329,7 @@ export class BackupModeService {
       this.storageService.remove(CACHE_KEY_OWNER_ROLE),
       this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID),
     ]);
-    await this.#saveConfig({ mode: null, sharedFileId: null, familyFolderId: null, ownerRole: null });
+    await this.#saveConfig({ mode: null, sharedFileId: null, familyFolderId: null, ownerRole: null, firestoreFamilyId: null });
     this.#lastDriveLoadAt = 0;
   }
 
@@ -353,5 +366,6 @@ export class BackupModeService {
     } else {
       await this.storageService.remove(CACHE_KEY_FIRESTORE_FAMILY_ID);
     }
+    await this.#saveConfig({ firestoreFamilyId: id });
   }
 }
