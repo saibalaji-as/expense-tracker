@@ -38,9 +38,10 @@ service cloud.firestore {
 
     // ── Helper ──
     function isFamilyMember(familyId) {
-      let family = get(/databases/$(database)/documents/families/$(familyId)).data;
-      return family.ownerUid == request.auth.uid ||
-             family.partnerUid == request.auth.uid;
+      let familyDoc = get(/databases/$(database)/documents/families/$(familyId));
+      return familyDoc != null &&
+             (familyDoc.data.ownerUid == request.auth.uid ||
+              familyDoc.data.partnerUid == request.auth.uid);
     }
 
     // Deny everything else.

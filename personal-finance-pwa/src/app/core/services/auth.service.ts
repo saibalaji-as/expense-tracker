@@ -268,7 +268,16 @@ export class AuthService {
   async ensureFirebaseSignedInSilently(): Promise<void> {
     const auth = await this.#getFirebaseAuth();
     await auth.authStateReady();
-    if (!auth.currentUser && this.#accessToken) {
+    if (auth.currentUser) {
+      // Sync signal with the live Firebase session — diverges when IndexedDB restores a
+      // session whose UID differs from the cached localStorage value.
+      if (auth.currentUser.uid !== this.firebaseUid()) {
+        this.firebaseUid.set(auth.currentUser.uid);
+        await this.storageService.set('firebase_uid', auth.currentUser.uid);
+      }
+      return;
+    }
+    if (this.#accessToken) {
       try {
         const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
         const credential = GoogleAuthProvider.credential(null, this.#accessToken);
