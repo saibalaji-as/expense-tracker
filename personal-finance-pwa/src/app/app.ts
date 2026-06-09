@@ -258,16 +258,17 @@ export class App implements OnInit, OnDestroy {
       }
 
       await this.expenseStore.loadFromDrive();
-      // Family sync uses Firebase Auth, not OAuth — start it even when Drive
-      // fails so the Firestore listener runs on reload when the in-memory
-      // access token has been lost.
-      this.tryStartFamilySync();
       if (this.expenseStore.syncStatus() !== 'error') {
         this.startDrivePollLoop();
         await this.redirectAfterDataAvailable();
       }
     } catch (err) {
       console.warn('[App] Background Drive bootstrap failed:', err);
+    } finally {
+      // Family sync uses Firebase Auth, not the Google OAuth token — start it
+      // even when Drive fails so the Firestore listener runs on reload when the
+      // in-memory access token has been lost.
+      this.tryStartFamilySync();
     }
   }
 

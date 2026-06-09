@@ -1856,42 +1856,66 @@ export const ExpenseStore = signalStore(
       try {
         const remoteUpdatedAt = remoteDoc.lastUpdated ?? '';
 
-        // entries: union by id, remote wins if remote timestamp is newer
-        const localEntriesById = new Map(store.entries().map(e => [e.id, e]));
+        // entries: remote is the authoritative base so deletions propagate.
+        // Local entries absent from remote are kept only if logged after the snapshot
+        // (concurrent addition not yet known to remote); older absent entries were deleted.
+        // For same-id conflicts the newer timestamp wins.
+        const mergedEntriesById = new Map<string, ExpenseEntry>();
         for (const remoteEntry of (remoteDoc.expenses ?? [])) {
-          const local = localEntriesById.get(remoteEntry.id);
-          if (!local || (remoteEntry.timestamp ?? '') >= (local.timestamp ?? '')) {
-            localEntriesById.set(remoteEntry.id, remoteEntry);
+          mergedEntriesById.set(remoteEntry.id, remoteEntry);
+        }
+        for (const localEntry of store.entries()) {
+          if (mergedEntriesById.has(localEntry.id)) {
+            const remoteEntry = mergedEntriesById.get(localEntry.id)!;
+            if ((localEntry.timestamp ?? '') > (remoteEntry.timestamp ?? '')) {
+              mergedEntriesById.set(localEntry.id, localEntry);
+            }
+          } else if ((localEntry.timestamp ?? '') > remoteUpdatedAt) {
+            mergedEntriesById.set(localEntry.id, localEntry);
           }
         }
-        const mergedEntries = Array.from(localEntriesById.values())
+        const mergedEntries = Array.from(mergedEntriesById.values())
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-        // accounts: union by id, remote wins if remote updatedAt is newer
-        const localAccountsById = new Map(store.accounts().map(a => [a.id, a]));
+        // accounts: same remote-as-base strategy so account deletions propagate.
+        const mergedAccountsById = new Map<string, AssetAccount>();
         for (const remoteAccount of (remoteDoc.accounts ?? [])) {
-          const local = localAccountsById.get(remoteAccount.id);
-          if (!local || (remoteAccount.updatedAt ?? '') >= (local.updatedAt ?? '')) {
-            localAccountsById.set(remoteAccount.id, remoteAccount);
+          mergedAccountsById.set(remoteAccount.id, remoteAccount);
+        }
+        for (const localAccount of store.accounts()) {
+          if (mergedAccountsById.has(localAccount.id)) {
+            const remoteAccount = mergedAccountsById.get(localAccount.id)!;
+            if ((localAccount.updatedAt ?? '') > (remoteAccount.updatedAt ?? '')) {
+              mergedAccountsById.set(localAccount.id, localAccount);
+            }
+          } else if ((localAccount.updatedAt ?? '') > remoteUpdatedAt) {
+            mergedAccountsById.set(localAccount.id, localAccount);
           }
         }
 
-        // accountAdjustments: union by id (no updatedAt — never overwrite)
+        // accountAdjustments: add-only (no updatedAt), keep all from both sides.
         const localAdjById = new Map(store.accountAdjustments().map(a => [a.id, a]));
         for (const remoteAdj of (remoteDoc.accountAdjustments ?? [])) {
           if (!localAdjById.has(remoteAdj.id)) localAdjById.set(remoteAdj.id, remoteAdj);
         }
 
-        // debts: union by id, remote wins if remote updatedAt is newer
-        const localDebtsById = new Map(store.debts().map(d => [d.id, d]));
+        // debts: same remote-as-base strategy so debt deletions propagate.
+        const mergedDebtsById = new Map<string, DebtAccount>();
         for (const remoteDebt of (remoteDoc.debts ?? [])) {
-          const local = localDebtsById.get(remoteDebt.id);
-          if (!local || (remoteDebt.updatedAt ?? '') >= (local.updatedAt ?? '')) {
-            localDebtsById.set(remoteDebt.id, remoteDebt);
+          mergedDebtsById.set(remoteDebt.id, remoteDebt);
+        }
+        for (const localDebt of store.debts()) {
+          if (mergedDebtsById.has(localDebt.id)) {
+            const remoteDebt = mergedDebtsById.get(localDebt.id)!;
+            if ((localDebt.updatedAt ?? '') > (remoteDebt.updatedAt ?? '')) {
+              mergedDebtsById.set(localDebt.id, localDebt);
+            }
+          } else if ((localDebt.updatedAt ?? '') > remoteUpdatedAt) {
+            mergedDebtsById.set(localDebt.id, localDebt);
           }
         }
 
-        // debtPayments: union by id (createdAt only, never update)
+        // debtPayments: add-only (createdAt only), keep all from both sides.
         const localPaymentsById = new Map(store.debtPayments().map(p => [p.id, p]));
         for (const remotePayment of (remoteDoc.debtPayments ?? [])) {
           if (!localPaymentsById.has(remotePayment.id)) localPaymentsById.set(remotePayment.id, remotePayment);
@@ -1909,9 +1933,9 @@ export const ExpenseStore = signalStore(
 
         patchState(store, {
           entries: mergedEntries,
-          accounts: Array.from(localAccountsById.values()),
+          accounts: Array.from(mergedAccountsById.values()),
           accountAdjustments: Array.from(localAdjById.values()),
-          debts: Array.from(localDebtsById.values()),
+          debts: Array.from(mergedDebtsById.values()),
           debtPayments: Array.from(localPaymentsById.values()),
           limits: mergedLimits,
           monthlyIncome: mergedIncome,
