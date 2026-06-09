@@ -16,6 +16,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
+import { FamilySyncService } from '../../core/services/family-sync.service';
 import { TranslatePipe } from '../../shared/pipes';
 
 @Component({
@@ -137,6 +138,7 @@ export class AuthCallbackComponent {
   private readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
   private readonly subscriptionService = inject(SubscriptionService);
+  private readonly familySyncService = inject(FamilySyncService);
   private readonly router = inject(Router);
 
   readonly errorMessage = signal<string | null>(null);
@@ -189,17 +191,28 @@ export class AuthCallbackComponent {
         return;
       }
 
-      // Family mode with no file ID means setup is incomplete
-      if (mode === 'family' && !this.backupModeService.getSharedFileId()) {
+      // Family mode with no Drive file AND no Firestore family ID means setup is incomplete.
+      // Firestore-backed partners have no sharedFileId by design — don't send them to setup.
+      if (mode === 'family' && !this.backupModeService.getSharedFileId() && !this.backupModeService.getFamilyId()) {
         await this.router.navigate(['/family-setup']);
         return;
       }
 
       // Navigate immediately so the user leaves the sign-in screen right away.
-      // Drive data loads in the background — the daily view shows cached/empty
-      // state briefly then populates, matching the cold-start behaviour.
-      void this.expenseStore.loadFromDrive();
       await this.router.navigate(['/daily']);
+
+      // Load Drive data BEFORE starting the Firestore listener — the initial
+      // snapshot must fire into a store that already has driveFileId set so
+      // persistToDrive() isn't skipped and applyBackupDocument() can't later
+      // overwrite the entries the snapshot delivered. The callback path bypasses
+      // bootstrapData(), so we start the listener here after loadFromDrive resolves.
+      const familyId = this.backupModeService.getFamilyId();
+      void (async () => {
+        await this.expenseStore.loadFromDrive();
+        if (mode === 'family' && familyId && uid) {
+          this.familySyncService.startListening(familyId, uid);
+        }
+      })();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Sign-in failed. Please try again.';
       this.errorMessage.set(message);

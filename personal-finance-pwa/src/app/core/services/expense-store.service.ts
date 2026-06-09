@@ -1906,6 +1906,15 @@ export const ExpenseStore = signalStore(
         }
         return entries.length;
       },
+
+      pullFromFamilySync(): void {
+        const familyId = backupModeService.getFamilyId();
+        if (!familyId) return;
+        // Restart the listener — clears processedIds so the initial snapshot
+        // re-delivers all activity documents and applies them to the store.
+        familySyncService.stopListening();
+        familySyncService.startListening(familyId, authService.firebaseUid() ?? '');
+      },
     };
 
     // Subscribe to incoming partner deltas for the lifetime of the store.

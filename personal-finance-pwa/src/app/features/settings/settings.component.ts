@@ -546,7 +546,21 @@ interface BeforeInstallPromptEvent extends Event {
             </p>
           }
 
-          <div class="mt-3">
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              (click)="onPullFromOwner()"
+              [disabled]="isPullingFromOwner()"
+              class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              @if (isPullingFromOwner()) {
+                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              } @else {
+                <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
+              }
+              Pull from owner
+            </button>
+
             <button
               type="button"
               (click)="onLeaveFamily()"
@@ -1402,6 +1416,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isLeavingFamily = signal(false);
   readonly isLeaveFamilyModalOpen = signal(false);
   readonly isSyncingToPartner = signal(false);
+  readonly isPullingFromOwner = signal(false);
 
   // ─── Subscription cancellation ────────────────────────────────────────────────
   protected readonly cancelling = signal(false);
@@ -2594,6 +2609,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
       'Sync sent.',
       `${count} expense${count === 1 ? '' : 's'} pushed to partner. Changes will appear shortly.`
     );
+  }
+
+  onPullFromOwner(): void {
+    if (this.isPullingFromOwner()) return;
+    this.isPullingFromOwner.set(true);
+    this.expenseStore.pullFromFamilySync();
+    setTimeout(() => this.isPullingFromOwner.set(false), 3000);
+    this.feedback.success('Pulling from owner...', 'Expenses will appear in a few seconds.');
   }
 
   onLeaveFamily(): void {

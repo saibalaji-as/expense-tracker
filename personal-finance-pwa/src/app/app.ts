@@ -258,8 +258,11 @@ export class App implements OnInit, OnDestroy {
       }
 
       await this.expenseStore.loadFromDrive();
+      // Family sync uses Firebase Auth, not OAuth — start it even when Drive
+      // fails so the Firestore listener runs on reload when the in-memory
+      // access token has been lost.
+      this.tryStartFamilySync();
       if (this.expenseStore.syncStatus() !== 'error') {
-        this.tryStartFamilySync();
         this.startDrivePollLoop();
         await this.redirectAfterDataAvailable();
       }
