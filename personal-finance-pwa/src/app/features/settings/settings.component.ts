@@ -2243,14 +2243,23 @@ export class SettingsComponent implements OnInit, OnDestroy {
       ]);
 
       // Stop Firestore family sync listener before wiping state.
-      // If the user is a Firestore-backed partner, notify the server so the family doc
-      // is updated to remove their UID — best-effort, never blocks deletion.
+      // Notify the server to clean up the family document — best-effort, never blocks deletion.
       this.familySyncService.stopListening();
       const firestoreFamilyId = this.backupModeService.getFamilyId();
-      if (firestoreFamilyId && this.backupModeService.ownerRole() === 'partner') {
-        await this.familyApiService.leaveFamily(firestoreFamilyId).catch((err) => {
-          console.warn('[Settings] leaveFamily call failed during account deletion (non-blocking):', err);
-        });
+      const ownerRole = this.backupModeService.ownerRole();
+      if (firestoreFamilyId) {
+        if (ownerRole === 'partner') {
+          await this.familyApiService.leaveFamily(firestoreFamilyId).catch((err) => {
+            console.warn('[Settings] leaveFamily call failed during account deletion (non-blocking):', err);
+          });
+        } else if (ownerRole === 'owner') {
+          // Dissolve the family so the document is marked inactive. Without this,
+          // createFamily would return the stale active document on re-signup (same UID),
+          // leaving a ghost family with a stale partnerUid.
+          await this.familyApiService.dissolveFamily(firestoreFamilyId).catch((err) => {
+            console.warn('[Settings] dissolveFamily call failed during account deletion (non-blocking):', err);
+          });
+        }
       }
 
       const deletionResults = await this.googleDriveService.deleteSpenzaDriveData([
