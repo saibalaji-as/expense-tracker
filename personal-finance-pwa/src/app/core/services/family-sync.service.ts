@@ -139,12 +139,14 @@ export class FamilySyncService {
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(stateRef);
       const currentRevision: number = snap.exists() ? ((snap.data()['revision'] as number | undefined) ?? 0) : 0;
-      tx.set(stateRef, {
+      // JSON round-trip strips undefined values that Firestore rejects (optional array fields not yet populated).
+      const payload = JSON.parse(JSON.stringify({
         doc: docData,
         lastWriter: writer,
         updatedAt: new Date().toISOString(),
         revision: currentRevision + 1,
-      });
+      }));
+      tx.set(stateRef, payload);
     });
   }
 }
