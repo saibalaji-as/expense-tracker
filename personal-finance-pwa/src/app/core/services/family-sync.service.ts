@@ -85,6 +85,7 @@ export class FamilySyncService {
           }, (err) => {
             console.warn('[FamilySyncService] Firestore state snapshot error:', err);
             this.syncStatus.set('error');
+            if (err.code === 'permission-denied') return;
             if (!retried) {
               retried = true;
               setTimeout(() => {

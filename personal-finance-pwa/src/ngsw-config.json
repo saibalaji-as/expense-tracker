@@ -28,20 +28,5 @@
         ]
       }
     }
-  ],
-  "dataGroups": [
-    {
-      "name": "api-freshness",
-      "urls": [
-        "https://accounts.google.com/gsi/client",
-        "https://apis.google.com/js/api.js"
-      ],
-      "cacheConfig": {
-        "maxSize": 100,
-        "maxAge": "3d",
-        "timeout": "10s",
-        "strategy": "freshness"
-      }
-    }
   ]
 }
