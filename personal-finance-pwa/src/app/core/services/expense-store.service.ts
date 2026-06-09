@@ -3,7 +3,6 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
 import { budgetThresholdExceeded$ } from './budget-events';
-import { FamilyActivityDelta, FamilyDeltaType } from '../models/family-sync.model';
 import { FamilySyncService } from './family-sync.service';
 import {
   AccountBalanceAdjustment,
@@ -70,57 +69,6 @@ interface WidgetAdjustmentQueueItem extends WidgetExpenseQueueItemBase {
 type WidgetExpenseQueueItem = WidgetExpenseEntryQueueItem | WidgetAdjustmentQueueItem;
 
 type AccountBalanceDelta = Map<string, number>;
-
-// ─── Family Sync Delta Builder ────────────────────────────────────────────────
-
-function buildDelta(
-  action: 'create' | 'update' | 'delete',
-  entry: ExpenseEntry,
-  familyId: string,
-  authorUid: string,
-  authorEmail: string,
-  authorRole: 'owner' | 'partner'
-): Omit<FamilyActivityDelta, 'activityId'> {
-  const now = new Date().toISOString();
-  return {
-    familyId,
-    authorUid,
-    authorEmail,
-    authorRole,
-    action,
-    dataType: 'expense',
-    entityId: entry.id,
-    expenseId: entry.id,
-    payload: action === 'delete' ? null : { ...entry },
-    timestamp: now,
-    clientWrittenAt: now,
-  };
-}
-
-function buildEntityDelta(
-  dataType: FamilyDeltaType,
-  action: 'create' | 'update' | 'delete',
-  entityId: string,
-  payload: Record<string, unknown> | null,
-  familyId: string,
-  authorUid: string,
-  authorEmail: string,
-  authorRole: 'owner' | 'partner'
-): Omit<FamilyActivityDelta, 'activityId'> {
-  const now = new Date().toISOString();
-  return {
-    familyId,
-    authorUid,
-    authorEmail,
-    authorRole,
-    action,
-    dataType,
-    entityId,
-    payload,
-    timestamp: now,
-    clientWrittenAt: now,
-  };
-}
 
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
@@ -339,6 +287,8 @@ export const ExpenseStore = signalStore(
     let persistedRevision = 0;
     let persistQueue = Promise.resolve();
     let syncDriveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let applyingRemote = false;
+    let lastAppliedRemoteAt = '';
 
     const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
       currency === 'INR' || currency === 'USD' || currency === 'AED';
@@ -826,79 +776,29 @@ export const ExpenseStore = signalStore(
       return true;
     };
 
-    // Pending deltas accumulate synchronously within a single call stack tick,
-    // then flush together in one writeBatch via a microtask — one auth check,
-    // one Firestore round trip, no concurrent auth races between helpers.
-    let pendingDeltas: Array<{ familyId: string; delta: Omit<FamilyActivityDelta, 'activityId'> }> = [];
-    let deltaFlushScheduled = false;
-
-    const scheduleDeltaFlush = (): void => {
-      if (deltaFlushScheduled) return;
-      deltaFlushScheduled = true;
-      queueMicrotask(() => {
-        deltaFlushScheduled = false;
-        const toFlush = pendingDeltas;
-        pendingDeltas = [];
-        if (toFlush.length === 0) return;
-
-        // Group by familyId (always the same, but guard just in case).
-        const byFamily = new Map<string, Omit<FamilyActivityDelta, 'activityId'>[]>();
-        for (const { familyId, delta } of toFlush) {
-          const arr = byFamily.get(familyId) ?? [];
-          arr.push(delta);
-          byFamily.set(familyId, arr);
-        }
-        for (const [familyId, deltas] of byFamily) {
-          void (async () => {
-            try {
-              await familySyncService.pushDeltas(familyId, deltas);
-            } catch (err) {
-              console.error('[ExpenseStore] Family delta batch push failed:', err);
-            }
-          })();
-        }
-      });
-    };
-
-    const pushFamilyDelta = (
-      action: 'create' | 'update' | 'delete',
-      entry: ExpenseEntry
-    ): void => {
+    const pushFamilyState = (): void => {
+      if (applyingRemote) return;
       if (backupModeService.getMode() !== 'family') return;
       const familyId = backupModeService.getFamilyId();
       const currentRole = backupModeService.getOwnerRole();
       if (!familyId || !currentRole) return;
       const currentUid = authService.firebaseUid();
       if (!currentUid) return;
-      pendingDeltas.push({
-        familyId,
-        delta: buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole),
-      });
-      scheduleDeltaFlush();
-    };
-
-    const pushEntityDelta = (
-      dataType: FamilyDeltaType,
-      action: 'create' | 'update' | 'delete',
-      entityId: string,
-      payload: Record<string, unknown> | null
-    ): void => {
-      if (backupModeService.getMode() !== 'family') return;
-      const familyId = backupModeService.getFamilyId();
-      const currentRole = backupModeService.getOwnerRole();
-      if (!familyId || !currentRole) return;
-      const currentUid = authService.firebaseUid();
-      if (!currentUid) return;
-      pendingDeltas.push({
-        familyId,
-        delta: buildEntityDelta(dataType, action, entityId, payload, familyId, currentUid, authService.userEmail() ?? '', currentRole),
-      });
-      scheduleDeltaFlush();
+      const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
+      const doc = buildBackupDocument();
+      void (async () => {
+        try {
+          await familySyncService.pushState(familyId, doc, writer);
+        } catch (err) {
+          console.error('[ExpenseStore] pushFamilyState failed:', err);
+        }
+      })();
     };
 
     const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
       await methods.persistToDrive();
+      pushFamilyState();
       if (store.syncStatus() === 'error') {
         throw new Error('Your changes could not be saved to Google Drive. Check your connection and Drive access, then try again.');
       }
@@ -959,13 +859,6 @@ export const ExpenseStore = signalStore(
         }
         
         await markLocalChangeAndPersist();
-        if (entry.source !== 'debt-payment' && !entry.debtId) {
-          pushFamilyDelta('create', entry);
-          if (entry.accountId) {
-            const updatedAcc = store.accounts().find(a => a.id === entry.accountId);
-            if (updatedAcc) pushEntityDelta('account', 'update', updatedAcc.id, { ...updatedAcc });
-          }
-        }
       },
 
       async addEntries(entries: ExpenseEntry[]): Promise<void> {
@@ -998,15 +891,6 @@ export const ExpenseStore = signalStore(
         }
 
         await markLocalChangeAndPersist();
-        const affectedAccountIds = new Set<string>();
-        for (const entry of entries) {
-          pushFamilyDelta('create', entry);
-          if (entry.accountId) affectedAccountIds.add(entry.accountId);
-        }
-        for (const accId of affectedAccountIds) {
-          const updatedAcc = store.accounts().find(a => a.id === accId);
-          if (updatedAcc) pushEntityDelta('account', 'update', updatedAcc.id, { ...updatedAcc });
-        }
       },
 
       // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
@@ -1213,13 +1097,6 @@ export const ExpenseStore = signalStore(
         if (store.syncStatus() === 'error') {
           throw new Error('Restored data could not be saved to Google Drive.');
         }
-
-        // Push all restored expenses to Firestore so the family partner's device is updated.
-        for (const entry of doc.expenses) {
-          if (entry.source !== 'debt-payment' && !entry.debtId) {
-            pushFamilyDelta('create', entry);
-          }
-        }
       },
 
       /**
@@ -1229,7 +1106,6 @@ export const ExpenseStore = signalStore(
       async setLimitsAndIncome(limits: ExpenseLimit[], monthlyIncome: number): Promise<void> {
         patchState(store, { limits, monthlyIncome });
         await markLocalChangeAndPersist();
-        pushEntityDelta('limits', 'update', 'global', { limits, monthlyIncome });
       },
 
       async addAccount(input: CreateAssetAccountInput): Promise<void> {
@@ -1265,7 +1141,6 @@ export const ExpenseStore = signalStore(
         );
         patchState(store, { accounts: [account, ...accounts] });
         await markLocalChangeAndPersist();
-        pushEntityDelta('account', 'create', account.id, { ...account });
       },
 
       async updateAccount(accountId: string, input: UpdateAssetAccountInput): Promise<void> {
@@ -1300,8 +1175,6 @@ export const ExpenseStore = signalStore(
 
         patchState(store, { accounts });
         await markLocalChangeAndPersist();
-        const updatedAccount = store.accounts().find(a => a.id === accountId);
-        if (updatedAccount) pushEntityDelta('account', 'update', accountId, { ...updatedAccount });
       },
 
       async setDefaultAccount(accountId: string): Promise<void> {
@@ -1320,11 +1193,6 @@ export const ExpenseStore = signalStore(
           })),
         });
         await markLocalChangeAndPersist();
-        for (const account of store.accounts()) {
-          if (account.id === accountId || account.id === prevDefaultId) {
-            pushEntityDelta('account', 'update', account.id, { ...account });
-          }
-        }
       },
 
       async adjustAccountBalance(input: AdjustAccountBalanceInput): Promise<void> {
@@ -1372,9 +1240,6 @@ export const ExpenseStore = signalStore(
           accountAdjustments: [adjustment, ...store.accountAdjustments()],
         });
         await markLocalChangeAndPersist();
-        pushEntityDelta('accountAdjustment', 'create', adjustment.id, { ...adjustment });
-        const updatedAccount = store.accounts().find(a => a.id === input.accountId);
-        if (updatedAccount) pushEntityDelta('account', 'update', updatedAccount.id, { ...updatedAccount });
       },
 
       async deleteAccount(accountId: string): Promise<void> {
@@ -1396,7 +1261,6 @@ export const ExpenseStore = signalStore(
           accountAdjustments: store.accountAdjustments().filter((adjustment) => adjustment.accountId !== accountId),
         });
         await markLocalChangeAndPersist();
-        pushEntityDelta('account', 'delete', accountId, null);
       },
 
       async addDebt(input: CreateDebtAccountInput): Promise<void> {
@@ -1456,7 +1320,6 @@ export const ExpenseStore = signalStore(
 
         patchState(store, { debts: [debt, ...store.debts()] });
         await markLocalChangeAndPersist();
-        pushEntityDelta('debt', 'create', debt.id, { ...debt });
       },
 
       async updateDebt(debtId: string, input: UpdateDebtAccountInput): Promise<void> {
@@ -1526,8 +1389,6 @@ export const ExpenseStore = signalStore(
           ),
         });
         await markLocalChangeAndPersist();
-        const updatedDebt = store.debts().find(d => d.id === debtId);
-        if (updatedDebt) pushEntityDelta('debt', 'update', debtId, { ...updatedDebt });
       },
 
       async deleteDebt(debtId: string): Promise<void> {
@@ -1546,7 +1407,6 @@ export const ExpenseStore = signalStore(
           debts: store.debts().filter((debt) => debt.id !== debtId),
         });
         await markLocalChangeAndPersist();
-        pushEntityDelta('debt', 'delete', debtId, null);
       },
 
       async recordDebtPayment(input: RecordDebtPaymentInput): Promise<void> {
@@ -1625,12 +1485,6 @@ export const ExpenseStore = signalStore(
           debtPayments: [payment, ...store.debtPayments()],
         });
         await markLocalChangeAndPersist();
-        pushFamilyDelta('create', entry);
-        pushEntityDelta('debtPayment', 'create', payment.id, { ...payment });
-        const updatedDebtAfterPayment = store.debts().find(d => d.id === debt.id);
-        if (updatedDebtAfterPayment) pushEntityDelta('debt', 'update', updatedDebtAfterPayment.id, { ...updatedDebtAfterPayment });
-        const updatedAccountAfterPayment = store.accounts().find(a => a.id === input.accountId);
-        if (updatedAccountAfterPayment) pushEntityDelta('account', 'update', updatedAccountAfterPayment.id, { ...updatedAccountAfterPayment });
       },
 
       async updateDebtPayment(paymentId: string, input: UpdateDebtPaymentInput): Promise<void> {
@@ -1715,16 +1569,6 @@ export const ExpenseStore = signalStore(
           ),
         });
         await markLocalChangeAndPersist();
-        pushFamilyDelta('update', updatedEntry);
-        const updatedPaymentRecord = store.debtPayments().find(p => p.id === paymentId);
-        if (updatedPaymentRecord) pushEntityDelta('debtPayment', 'update', paymentId, { ...updatedPaymentRecord });
-        const updatedDebtAfterUpdate = store.debts().find(d => d.id === payment.debtId);
-        if (updatedDebtAfterUpdate) pushEntityDelta('debt', 'update', updatedDebtAfterUpdate.id, { ...updatedDebtAfterUpdate });
-        const affectedAccountIds = new Set([payment.accountId, input.accountId].filter(Boolean));
-        for (const accId of affectedAccountIds) {
-          const updatedAcc = store.accounts().find(a => a.id === accId);
-          if (updatedAcc) pushEntityDelta('account', 'update', updatedAcc.id, { ...updatedAcc });
-        }
       },
 
       async deleteDebtPayment(paymentId: string): Promise<void> {
@@ -1767,12 +1611,6 @@ export const ExpenseStore = signalStore(
           debtPayments: store.debtPayments().filter((candidate) => candidate.id !== payment.id),
         });
         await markLocalChangeAndPersist();
-        pushFamilyDelta('delete', existingEntry);
-        pushEntityDelta('debtPayment', 'delete', payment.id, null);
-        const updatedDebtAfterDelete = store.debts().find(d => d.id === debt.id);
-        if (updatedDebtAfterDelete) pushEntityDelta('debt', 'update', updatedDebtAfterDelete.id, { ...updatedDebtAfterDelete });
-        const updatedAccountAfterDelete = store.accounts().find(a => a.id === payment.accountId);
-        if (updatedAccountAfterDelete) pushEntityDelta('account', 'update', updatedAccountAfterDelete.id, { ...updatedAccountAfterDelete });
       },
 
       // ─── Task 6.7: deleteEntry ────────────────────────────────────────────
@@ -1792,13 +1630,6 @@ export const ExpenseStore = signalStore(
         );
         patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
         await markLocalChangeAndPersist();
-        if (existingEntry) {
-          pushFamilyDelta('delete', existingEntry);
-          if (existingEntry.accountId) {
-            const updatedAcc = store.accounts().find(a => a.id === existingEntry.accountId);
-            if (updatedAcc) pushEntityDelta('account', 'update', updatedAcc.id, { ...updatedAcc });
-          }
-        }
       },
 
       // ─── Task 6.7: updateEntry ────────────────────────────────────────────
@@ -1823,12 +1654,6 @@ export const ExpenseStore = signalStore(
         );
         patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
         await markLocalChangeAndPersist();
-        pushFamilyDelta('update', updatedEntry);
-        const affectedIds = new Set([existingEntry.accountId, updatedEntry.accountId].filter(Boolean) as string[]);
-        for (const accId of affectedIds) {
-          const updatedAcc = store.accounts().find(a => a.id === accId);
-          if (updatedAcc) pushEntityDelta('account', 'update', updatedAcc.id, { ...updatedAcc });
-        }
       },
 
       // ─── Task 6.2: loadFromDrive ──────────────────────────────────────────
@@ -2023,177 +1848,93 @@ export const ExpenseStore = signalStore(
         }
       },
 
-      pushAllEntriesToFamilySync(): number {
-        // Push all expenses (including debt-payment entries)
-        const entries = store.entries();
-        for (const entry of entries) {
-          pushFamilyDelta('create', entry);
-        }
-        // Push all accounts and their balance adjustments
-        for (const account of store.accounts()) {
-          pushEntityDelta('account', 'create', account.id, { ...account });
-        }
-        for (const adjustment of store.accountAdjustments()) {
-          pushEntityDelta('accountAdjustment', 'create', adjustment.id, { ...adjustment });
-        }
-        // Push all debts and their payments
-        for (const debt of store.debts()) {
-          pushEntityDelta('debt', 'create', debt.id, { ...debt });
-        }
-        for (const payment of store.debtPayments()) {
-          pushEntityDelta('debtPayment', 'create', payment.id, { ...payment });
-        }
-        // Push spending limits and monthly income
-        pushEntityDelta('limits', 'update', 'global', {
-          limits: store.limits(),
-          monthlyIncome: store.monthlyIncome(),
-        });
-        return entries.length;
-      },
-
-      pullFromFamilySync(): void {
-        const familyId = backupModeService.getFamilyId();
-        if (!familyId) return;
-        // Restart the listener — clears processedIds so the initial snapshot
-        // re-delivers all activity documents and applies them to the store.
-        familySyncService.stopListening();
-        familySyncService.startListening(familyId, authService.firebaseUid() ?? '');
-      },
     };
 
-    // Subscribe to incoming partner deltas for the lifetime of the store.
-    familySyncService.activity$.subscribe((deltas) => {
-      if (!deltas.length) return;
+    // Merge incoming full-snapshot state from the partner into local state.
+    familySyncService.state$.subscribe(({ doc: remoteDoc }) => {
+      applyingRemote = true;
+      try {
+        const remoteUpdatedAt = remoteDoc.lastUpdated ?? '';
 
-      let anyChanged = false;
+        // entries: union by id, remote wins if remote timestamp is newer
+        const localEntriesById = new Map(store.entries().map(e => [e.id, e]));
+        for (const remoteEntry of (remoteDoc.expenses ?? [])) {
+          const local = localEntriesById.get(remoteEntry.id);
+          if (!local || (remoteEntry.timestamp ?? '') >= (local.timestamp ?? '')) {
+            localEntriesById.set(remoteEntry.id, remoteEntry);
+          }
+        }
+        const mergedEntries = Array.from(localEntriesById.values())
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-      patchState(store, (state) => {
-        let entries = [...state.entries];
-        let accounts = [...state.accounts];
-        let accountAdjustments = [...state.accountAdjustments];
-        let debts = [...state.debts];
-        let debtPayments = [...state.debtPayments];
-        let limits = state.limits;
-        let monthlyIncome = state.monthlyIncome;
-
-        let entriesChanged = false;
-        let accountsChanged = false;
-        let adjustmentsChanged = false;
-        let debtsChanged = false;
-        let paymentsChanged = false;
-        let limitsChanged = false;
-
-        for (const delta of deltas) {
-          // Skip our own deltas — already applied locally.
-          if (delta.authorUid === authService.firebaseUid()) continue;
-          if (delta.action !== 'create' && delta.action !== 'update' && delta.action !== 'delete') continue;
-
-          const dataType = delta.dataType ?? 'expense';
-          const entityId = delta.entityId ?? delta.expenseId ?? '';
-
-          if (dataType === 'expense') {
-            if (!entityId.trim()) continue;
-            if (delta.action === 'delete') {
-              const before = entries.length;
-              entries = entries.filter((e) => e.id !== entityId);
-              if (entries.length !== before) entriesChanged = true;
-            } else if (delta.action === 'create') {
-              if (!delta.payload) continue;
-              if (!entries.find((e) => e.id === entityId)) {
-                entries = [...entries, delta.payload as unknown as ExpenseEntry];
-                entriesChanged = true;
-              }
-            } else if (delta.action === 'update') {
-              if (!delta.payload) continue;
-              entries = entries.map((e) => e.id === entityId ? (delta.payload as unknown as ExpenseEntry) : e);
-              entriesChanged = true;
-            }
-          } else if (dataType === 'account') {
-            if (!entityId) continue;
-            if (delta.action === 'delete') {
-              const before = accounts.length;
-              accounts = accounts.filter((a) => a.id !== entityId);
-              accountAdjustments = accountAdjustments.filter((adj) => adj.accountId !== entityId);
-              if (accounts.length !== before) { accountsChanged = true; adjustmentsChanged = true; }
-            } else if (delta.payload) {
-              const incoming = delta.payload as unknown as AssetAccount;
-              const idx = accounts.findIndex((a) => a.id === entityId);
-              if (idx >= 0) {
-                accounts = accounts.map((a) => a.id === entityId ? incoming : a);
-              } else {
-                accounts = [...accounts, incoming];
-              }
-              accountsChanged = true;
-            }
-          } else if (dataType === 'accountAdjustment') {
-            if (!entityId) continue;
-            if (delta.action === 'delete') {
-              const before = accountAdjustments.length;
-              accountAdjustments = accountAdjustments.filter((adj) => adj.id !== entityId);
-              if (accountAdjustments.length !== before) adjustmentsChanged = true;
-            } else if (delta.action === 'create' && delta.payload) {
-              if (!accountAdjustments.find((adj) => adj.id === entityId)) {
-                accountAdjustments = [...accountAdjustments, delta.payload as unknown as AccountBalanceAdjustment];
-                adjustmentsChanged = true;
-              }
-            }
-          } else if (dataType === 'debt') {
-            if (!entityId) continue;
-            if (delta.action === 'delete') {
-              const before = debts.length;
-              debts = debts.filter((d) => d.id !== entityId);
-              if (debts.length !== before) debtsChanged = true;
-            } else if (delta.payload) {
-              const incoming = delta.payload as unknown as DebtAccount;
-              const idx = debts.findIndex((d) => d.id === entityId);
-              if (idx >= 0) {
-                debts = debts.map((d) => d.id === entityId ? incoming : d);
-              } else {
-                debts = [...debts, incoming];
-              }
-              debtsChanged = true;
-            }
-          } else if (dataType === 'debtPayment') {
-            if (!entityId) continue;
-            if (delta.action === 'delete') {
-              const before = debtPayments.length;
-              debtPayments = debtPayments.filter((p) => p.id !== entityId);
-              if (debtPayments.length !== before) paymentsChanged = true;
-            } else if (delta.action === 'create' && delta.payload) {
-              if (!debtPayments.find((p) => p.id === entityId)) {
-                debtPayments = [...debtPayments, delta.payload as unknown as DebtPayment];
-                paymentsChanged = true;
-              }
-            } else if (delta.action === 'update' && delta.payload) {
-              debtPayments = debtPayments.map((p) => p.id === entityId ? (delta.payload as unknown as DebtPayment) : p);
-              paymentsChanged = true;
-            }
-          } else if (dataType === 'limits') {
-            if (!delta.payload) continue;
-            const p = delta.payload as unknown as { limits?: ExpenseLimit[]; monthlyIncome?: number };
-            if (Array.isArray(p.limits)) { limits = p.limits; limitsChanged = true; }
-            if (typeof p.monthlyIncome === 'number') { monthlyIncome = p.monthlyIncome; limitsChanged = true; }
+        // accounts: union by id, remote wins if remote updatedAt is newer
+        const localAccountsById = new Map(store.accounts().map(a => [a.id, a]));
+        for (const remoteAccount of (remoteDoc.accounts ?? [])) {
+          const local = localAccountsById.get(remoteAccount.id);
+          if (!local || (remoteAccount.updatedAt ?? '') >= (local.updatedAt ?? '')) {
+            localAccountsById.set(remoteAccount.id, remoteAccount);
           }
         }
 
-        anyChanged = entriesChanged || accountsChanged || adjustmentsChanged || debtsChanged || paymentsChanged || limitsChanged;
-        if (!anyChanged) return state;
+        // accountAdjustments: union by id (no updatedAt — never overwrite)
+        const localAdjById = new Map(store.accountAdjustments().map(a => [a.id, a]));
+        for (const remoteAdj of (remoteDoc.accountAdjustments ?? [])) {
+          if (!localAdjById.has(remoteAdj.id)) localAdjById.set(remoteAdj.id, remoteAdj);
+        }
 
-        if (entriesChanged) entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        // debts: union by id, remote wins if remote updatedAt is newer
+        const localDebtsById = new Map(store.debts().map(d => [d.id, d]));
+        for (const remoteDebt of (remoteDoc.debts ?? [])) {
+          const local = localDebtsById.get(remoteDebt.id);
+          if (!local || (remoteDebt.updatedAt ?? '') >= (local.updatedAt ?? '')) {
+            localDebtsById.set(remoteDebt.id, remoteDebt);
+          }
+        }
 
-        return { entries, accounts, accountAdjustments, debts, debtPayments, limits, monthlyIncome };
-      });
+        // debtPayments: union by id (createdAt only, never update)
+        const localPaymentsById = new Map(store.debtPayments().map(p => [p.id, p]));
+        for (const remotePayment of (remoteDoc.debtPayments ?? [])) {
+          if (!localPaymentsById.has(remotePayment.id)) localPaymentsById.set(remotePayment.id, remotePayment);
+        }
 
-      if (anyChanged) {
+        // limits / income / currency: take remote when remoteDoc is newer than last applied remote
+        let mergedLimits = store.limits();
+        let mergedIncome = store.monthlyIncome();
+        if (remoteUpdatedAt > lastAppliedRemoteAt || lastAppliedRemoteAt === '') {
+          if ((remoteDoc.limits?.length ?? 0) > 0) mergedLimits = remoteDoc.limits;
+          mergedIncome = remoteDoc.metadata.monthlyIncome;
+          setCurrencyFromBackup(remoteDoc.metadata.currency);
+          lastAppliedRemoteAt = remoteUpdatedAt;
+        }
+
+        patchState(store, {
+          entries: mergedEntries,
+          accounts: Array.from(localAccountsById.values()),
+          accountAdjustments: Array.from(localAdjById.values()),
+          debts: Array.from(localDebtsById.values()),
+          debtPayments: Array.from(localPaymentsById.values()),
+          limits: mergedLimits,
+          monthlyIncome: mergedIncome,
+        });
+
         localRevision += 1;
-        // Debounce the Drive write so a burst of incoming partner deltas
-        // doesn't block the user's next save behind a large background write.
         if (syncDriveDebounceTimer !== null) clearTimeout(syncDriveDebounceTimer);
         syncDriveDebounceTimer = setTimeout(() => {
           syncDriveDebounceTimer = null;
           void methods.persistToDrive();
         }, 2000);
+      } finally {
+        applyingRemote = false;
       }
+    });
+
+    // When the family is dissolved externally, clean up local state.
+    familySyncService.dissolution$.subscribe(() => {
+      familySyncService.stopListening();
+      void (async () => {
+        await backupModeService.clearFamilyState();
+        await backupModeService.setMode('single');
+      })();
     });
 
     return methods;

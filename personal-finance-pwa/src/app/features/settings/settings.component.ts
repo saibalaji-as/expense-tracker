@@ -518,16 +518,6 @@ interface BeforeInstallPromptEvent extends Event {
 
             <button
               type="button"
-              (click)="onSyncToPartner()"
-              [disabled]="isSyncingToPartner()"
-              class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
-              Sync to partner
-            </button>
-
-            <button
-              type="button"
               (click)="onLeaveFamily()"
               class="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/10"
             >
@@ -547,20 +537,6 @@ interface BeforeInstallPromptEvent extends Event {
           }
 
           <div class="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              (click)="onPullFromOwner()"
-              [disabled]="isPullingFromOwner()"
-              class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              @if (isPullingFromOwner()) {
-                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-              } @else {
-                <lucide-icon [img]="refreshCwIcon" class="h-4 w-4" />
-              }
-              Pull from owner
-            </button>
-
             <button
               type="button"
               (click)="onLeaveFamily()"
@@ -1415,14 +1391,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly inviteCodeExpiry = signal<string | null>(null);
   readonly isLeavingFamily = signal(false);
   readonly isLeaveFamilyModalOpen = signal(false);
-  readonly isSyncingToPartner = signal(false);
-  readonly isPullingFromOwner = signal(false);
 
   // ─── Subscription cancellation ────────────────────────────────────────────────
   protected readonly cancelling = signal(false);
   protected readonly showCancelConfirm = signal(false);
 
   private deleteAccountTimer: ReturnType<typeof setInterval> | null = null;
+  private dissolutionSub: { unsubscribe(): void } | null = null;
 
   private readonly beforeInstallHandler = (event: Event) => {
     event.preventDefault();
@@ -1451,6 +1426,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     if (this.backupModeService.mode() === 'family' && this.backupModeService.firestoreFamilyId()) {
       void this.loadFamilyDoc();
     }
+
+    // When the family is dissolved externally (owner dissolves while partner is viewing Settings),
+    // clean up and navigate to /daily.
+    this.dissolutionSub = this.familySyncService.dissolution$.subscribe(() => {
+      void this.router.navigate(['/daily']);
+    });
   }
 
   async onThemeChange(theme: 'light' | 'dark' | 'system'): Promise<void> {
@@ -1632,6 +1613,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     window.removeEventListener('beforeinstallprompt', this.beforeInstallHandler);
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     this.stopDeleteAccountCountdown();
+    this.dissolutionSub?.unsubscribe();
   }
 
   // ─── Subscription upgrade (Android Reader App exemption) ─────────────────────
@@ -2609,25 +2591,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  onSyncToPartner(): void {
-    if (this.isSyncingToPartner()) return;
-    this.isSyncingToPartner.set(true);
-    const count = this.expenseStore.pushAllEntriesToFamilySync();
-    this.isSyncingToPartner.set(false);
-    this.feedback.success(
-      'Sync sent.',
-      `${count} expense${count === 1 ? '' : 's'} pushed to partner. Changes will appear shortly.`
-    );
-  }
-
-  onPullFromOwner(): void {
-    if (this.isPullingFromOwner()) return;
-    this.isPullingFromOwner.set(true);
-    this.expenseStore.pullFromFamilySync();
-    setTimeout(() => this.isPullingFromOwner.set(false), 3000);
-    this.feedback.success('Pulling from owner...', 'Expenses will appear in a few seconds.');
-  }
-
   onLeaveFamily(): void {
     this.isLeaveFamilyModalOpen.set(true);
   }
@@ -2637,20 +2600,30 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.isLeavingFamily.set(true);
     try {
       const familyId = this.backupModeService.firestoreFamilyId();
-      if (this.backupModeService.ownerRole() === 'owner' && familyId) {
-        try {
-          await this.familyApiService.dissolveFamily(familyId);
-        } catch (err) {
-          console.warn('[Settings] dissolveFamily failed, proceeding with local cleanup:', err);
+      const role = this.backupModeService.ownerRole();
+      if (familyId) {
+        if (role === 'owner') {
+          try {
+            await this.familyApiService.dissolveFamily(familyId);
+          } catch (err) {
+            console.warn('[Settings] dissolveFamily failed, proceeding with local cleanup:', err);
+          }
+        } else {
+          try {
+            await this.familyApiService.leaveFamily(familyId);
+          } catch (err) {
+            console.warn('[Settings] leaveFamily failed, proceeding with local cleanup:', err);
+          }
         }
       }
       this.familySyncService.stopListening();
-      await this.backupModeService.setFirestoreFamilyId(null);
+      await this.backupModeService.clearFamilyState();
+      await this.backupModeService.setMode('single');
     } finally {
       this.isLeavingFamily.set(false);
     }
     this.isLeaveFamilyModalOpen.set(false);
-    void this.#executeModeSwitch();
+    await this.router.navigate(['/daily']);
   }
 
   // ─── Dev-only debug helpers ───────────────────────────────────────────────────

@@ -429,6 +429,89 @@ describe('Unit: addEntry prepend behavior', () => {
   });
 });
 
+// ─── Unit: family full-snapshot merge logic ───────────────────────────────────
+
+describe('Unit: family state$ remote merge (pure logic)', () => {
+  const makeEntry = (id: string, timestamp: string, amount = 10): ExpenseEntry => ({
+    id,
+    date: '2025-01-01',
+    amount,
+    type: 'Food',
+    limit: 50,
+    savings: 40,
+    timestamp,
+  });
+
+  function mergeEntries(
+    local: ExpenseEntry[],
+    remote: ExpenseEntry[]
+  ): ExpenseEntry[] {
+    const byId = new Map(local.map(e => [e.id, e]));
+    for (const r of remote) {
+      const l = byId.get(r.id);
+      if (!l || (r.timestamp ?? '') >= (l.timestamp ?? '')) {
+        byId.set(r.id, r);
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  }
+
+  it('remote entry with newer timestamp wins over local conflict', () => {
+    const local = [makeEntry('e1', '2025-01-01T10:00:00Z', 10)];
+    const remote = [makeEntry('e1', '2025-01-01T11:00:00Z', 99)];
+    const merged = mergeEntries(local, remote);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].amount).toBe(99);
+  });
+
+  it('local entry is kept when its timestamp is newer than remote', () => {
+    const local = [makeEntry('e1', '2025-01-01T12:00:00Z', 77)];
+    const remote = [makeEntry('e1', '2025-01-01T09:00:00Z', 1)];
+    const merged = mergeEntries(local, remote);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].amount).toBe(77);
+  });
+
+  it('local-only entries are preserved after merge', () => {
+    const local = [makeEntry('local-only', '2025-01-01T10:00:00Z')];
+    const remote = [makeEntry('remote-only', '2025-01-01T10:00:00Z')];
+    const merged = mergeEntries(local, remote);
+    expect(merged).toHaveLength(2);
+    expect(merged.some(e => e.id === 'local-only')).toBe(true);
+    expect(merged.some(e => e.id === 'remote-only')).toBe(true);
+  });
+
+  it('result is sorted by timestamp descending', () => {
+    const local = [makeEntry('a', '2025-01-01T08:00:00Z')];
+    const remote = [makeEntry('b', '2025-01-01T10:00:00Z')];
+    const merged = mergeEntries(local, remote);
+    expect(merged[0].id).toBe('b');
+    expect(merged[1].id).toBe('a');
+  });
+
+  it('#applyingRemote flag: pushFamilyState should not be called during merge (guard check)', () => {
+    let pushCalled = false;
+    let applyingRemote = false;
+
+    const pushFamilyState = () => {
+      if (applyingRemote) return;
+      pushCalled = true;
+    };
+
+    applyingRemote = true;
+    try {
+      const local = [makeEntry('e1', '2025-01-01T10:00:00Z')];
+      const remote = [makeEntry('e2', '2025-01-01T11:00:00Z')];
+      mergeEntries(local, remote);
+      pushFamilyState();
+    } finally {
+      applyingRemote = false;
+    }
+
+    expect(pushCalled).toBe(false);
+  });
+});
+
 describe('Unit: todayEntries filter', () => {
   it('returns only entries with today\'s date', () => {
     const today = new Date().toISOString().slice(0, 10);

@@ -88,7 +88,7 @@ export class BackupModeService {
       // Belt-and-suspenders: read from storage directly in case the signal hasn't been hydrated
       // yet (e.g. loadFromDrive called before initialized resolves).
       const storedFirestoreFamilyId = await this.storageService.get(CACHE_KEY_FIRESTORE_FAMILY_ID);
-      const isFirestoreFamily = !!this.firestoreFamilyId() || !!storedFirestoreFamilyId;
+      const isFirestoreFamily = !!this.firestoreFamilyId() || !!storedFirestoreFamilyId || config.familySyncMode === 'firestore';
       if (!this.firestoreFamilyId() && storedFirestoreFamilyId) {
         this.firestoreFamilyId.set(storedFirestoreFamilyId);
       }

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.redeemFamilyInvite = exports.dissolveFamily = exports.createFamilyInvite = exports.createFamily = void 0;
+exports.redeemFamilyInvite = exports.leaveFamily = exports.dissolveFamily = exports.createFamilyInvite = exports.createFamily = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v2/https"));
 const CORS_ORIGINS = [
@@ -169,6 +169,37 @@ exports.dissolveFamily = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'pub
         res.status(401).json({ error: 'Unauthorized' });
     }
 });
+exports.leaveFamily = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'public' }, async (req, res) => {
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const familyId = typeof req.body?.familyId === 'string' ? req.body.familyId.trim() : '';
+    if (!familyId) {
+        res.status(400).json({ error: 'familyId is required' });
+        return;
+    }
+    try {
+        const { uid: callerUid } = await requireFamilyAuth(req);
+        const familyRef = admin.firestore().collection('families').doc(familyId);
+        const familySnap = await familyRef.get();
+        if (!familySnap.exists) {
+            res.status(404).json({ error: 'Family not found' });
+            return;
+        }
+        const family = familySnap.data();
+        if (family['partnerUid'] !== callerUid) {
+            res.status(403).json({ error: 'Only the current partner can leave the family' });
+            return;
+        }
+        await familyRef.update({ partnerUid: null, partnerEmail: null, updatedAt: new Date().toISOString() });
+        res.json({ success: true });
+    }
+    catch (err) {
+        console.warn('leaveFamily failed:', err);
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+});
 exports.redeemFamilyInvite = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'public' }, async (req, res) => {
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method not allowed' });
@@ -187,8 +218,13 @@ exports.redeemFamilyInvite = functions.onRequest({ cors: CORS_ORIGINS, invoker: 
             if (!inviteSnap.exists)
                 throw new Error('Invite not found');
             const invite = inviteSnap.data();
-            if (invite['redeemedAt'] !== null)
+            if (invite['redeemedAt'] !== null) {
+                // Idempotent: same partner retrying after a client crash — let them recover local state.
+                if (invite['redeemedByUid'] === partnerUid) {
+                    return invite['familyId'];
+                }
                 throw new Error('Invite already redeemed');
+            }
             if (new Date(invite['expiresAt']).getTime() <= Date.now()) {
                 throw new Error('Invite expired');
             }
