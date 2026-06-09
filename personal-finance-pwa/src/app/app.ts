@@ -294,9 +294,22 @@ export class App implements OnInit, OnDestroy {
   private tryStartFamilySync(): void {
     const familyId = this.backupModeService.getFamilyId();
     if (this.backupModeService.getMode() !== 'family' || !familyId) return;
-    // Don't restart if already listening to this family and not in error state.
-    if (this.familySyncService.familyId() === familyId &&
-        this.familySyncService.syncStatus() !== 'error') return;
+
+    const status = this.familySyncService.syncStatus();
+    const listeningToSameFamily = this.familySyncService.familyId() === familyId;
+
+    if (listeningToSameFamily && status !== 'error') {
+      // Detect stale WebSocket: if supposedly connected but no event in 2+ minutes, force restart.
+      const lastSync = this.familySyncService.lastSyncAt();
+      if (status === 'connected' && lastSync) {
+        const staleSince = Date.now() - new Date(lastSync).getTime();
+        if (staleSince < 2 * 60 * 1000) return; // still fresh — do nothing
+      } else if (status !== 'connected') {
+        return; // 'idle' with correct family — nothing to fix
+      }
+      // Connected but stale (> 2 min with no event) — fall through to restart.
+    }
+
     // startListening handles Firebase auth internally via ensureFirebaseSignedInSilently.
     this.familySyncService.startListening(familyId, this.authService.firebaseUid() ?? '');
   }
@@ -343,11 +356,13 @@ export class App implements OnInit, OnDestroy {
   private readonly visibilityHandler = () => {
     if (document.visibilityState === 'visible') {
       void this.refreshBackupIfChanged();
+      this.tryStartFamilySync();
     }
   };
 
   private readonly focusHandler = () => {
     void this.refreshBackupIfChanged();
+    this.tryStartFamilySync();
   };
 
   /**

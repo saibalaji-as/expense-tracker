@@ -338,6 +338,7 @@ export const ExpenseStore = signalStore(
     let localRevision = 0;
     let persistedRevision = 0;
     let persistQueue = Promise.resolve();
+    let syncDriveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
       currency === 'INR' || currency === 'USD' || currency === 'AED';
@@ -825,6 +826,40 @@ export const ExpenseStore = signalStore(
       return true;
     };
 
+    // Pending deltas accumulate synchronously within a single call stack tick,
+    // then flush together in one writeBatch via a microtask — one auth check,
+    // one Firestore round trip, no concurrent auth races between helpers.
+    let pendingDeltas: Array<{ familyId: string; delta: Omit<FamilyActivityDelta, 'activityId'> }> = [];
+    let deltaFlushScheduled = false;
+
+    const scheduleDeltaFlush = (): void => {
+      if (deltaFlushScheduled) return;
+      deltaFlushScheduled = true;
+      queueMicrotask(() => {
+        deltaFlushScheduled = false;
+        const toFlush = pendingDeltas;
+        pendingDeltas = [];
+        if (toFlush.length === 0) return;
+
+        // Group by familyId (always the same, but guard just in case).
+        const byFamily = new Map<string, Omit<FamilyActivityDelta, 'activityId'>[]>();
+        for (const { familyId, delta } of toFlush) {
+          const arr = byFamily.get(familyId) ?? [];
+          arr.push(delta);
+          byFamily.set(familyId, arr);
+        }
+        for (const [familyId, deltas] of byFamily) {
+          void (async () => {
+            try {
+              await familySyncService.pushDeltas(familyId, deltas);
+            } catch (err) {
+              console.error('[ExpenseStore] Family delta batch push failed:', err);
+            }
+          })();
+        }
+      });
+    };
+
     const pushFamilyDelta = (
       action: 'create' | 'update' | 'delete',
       entry: ExpenseEntry
@@ -832,25 +867,14 @@ export const ExpenseStore = signalStore(
       if (backupModeService.getMode() !== 'family') return;
       const familyId = backupModeService.getFamilyId();
       const currentRole = backupModeService.getOwnerRole();
-      if (!familyId || !currentRole) {
-        console.warn('[ExpenseStore] pushFamilyDelta skipped — familyId:', familyId, 'role:', currentRole);
-        return;
-      }
-      void (async () => {
-        try {
-          // Ensure Firebase is authenticated before reading the UID — it may be null on cold start.
-          await authService.ensureFirebaseSignedInSilently();
-          const currentUid = authService.firebaseUid();
-          if (!currentUid) {
-            console.warn('[ExpenseStore] pushFamilyDelta skipped — no Firebase UID after auth attempt');
-            return;
-          }
-          const delta = buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole);
-          await familySyncService.pushDelta(familyId, delta);
-        } catch (err) {
-          console.warn('[ExpenseStore] Family delta push failed (non-blocking):', err);
-        }
-      })();
+      if (!familyId || !currentRole) return;
+      const currentUid = authService.firebaseUid();
+      if (!currentUid) return;
+      pendingDeltas.push({
+        familyId,
+        delta: buildDelta(action, entry, familyId, currentUid, authService.userEmail() ?? '', currentRole),
+      });
+      scheduleDeltaFlush();
     };
 
     const pushEntityDelta = (
@@ -863,17 +887,13 @@ export const ExpenseStore = signalStore(
       const familyId = backupModeService.getFamilyId();
       const currentRole = backupModeService.getOwnerRole();
       if (!familyId || !currentRole) return;
-      void (async () => {
-        try {
-          await authService.ensureFirebaseSignedInSilently();
-          const currentUid = authService.firebaseUid();
-          if (!currentUid) return;
-          const delta = buildEntityDelta(dataType, action, entityId, payload, familyId, currentUid, authService.userEmail() ?? '', currentRole);
-          await familySyncService.pushDelta(familyId, delta);
-        } catch (err) {
-          console.warn('[ExpenseStore] Entity delta push failed (non-blocking):', err);
-        }
-      })();
+      const currentUid = authService.firebaseUid();
+      if (!currentUid) return;
+      pendingDeltas.push({
+        familyId,
+        delta: buildEntityDelta(dataType, action, entityId, payload, familyId, currentUid, authService.userEmail() ?? '', currentRole),
+      });
+      scheduleDeltaFlush();
     };
 
     const markLocalChangeAndPersist = async (): Promise<void> => {
@@ -2166,7 +2186,13 @@ export const ExpenseStore = signalStore(
 
       if (anyChanged) {
         localRevision += 1;
-        void methods.persistToDrive();
+        // Debounce the Drive write so a burst of incoming partner deltas
+        // doesn't block the user's next save behind a large background write.
+        if (syncDriveDebounceTimer !== null) clearTimeout(syncDriveDebounceTimer);
+        syncDriveDebounceTimer = setTimeout(() => {
+          syncDriveDebounceTimer = null;
+          void methods.persistToDrive();
+        }, 2000);
       }
     });
 

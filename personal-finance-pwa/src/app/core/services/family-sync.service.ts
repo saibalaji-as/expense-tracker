@@ -104,4 +104,21 @@ export class FamilySyncService {
     const db = await this.#getDb();
     await addDoc(collection(db, 'families', familyId, 'activity'), delta);
   }
+
+  /**
+   * Writes multiple deltas atomically using a Firestore WriteBatch.
+   * Preferred over multiple pushDelta calls — one auth check, one round trip.
+   */
+  async pushDeltas(familyId: string, deltas: Omit<FamilyActivityDelta, 'activityId'>[]): Promise<void> {
+    if (deltas.length === 0) return;
+    await this.#authService.ensureFirebaseSignedInSilently();
+    const { collection, writeBatch, doc } = await import('firebase/firestore');
+    const db = await this.#getDb();
+    const activityRef = collection(db, 'families', familyId, 'activity');
+    const batch = writeBatch(db);
+    for (const delta of deltas) {
+      batch.set(doc(activityRef), delta);
+    }
+    await batch.commit();
+  }
 }
