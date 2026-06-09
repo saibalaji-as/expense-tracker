@@ -14,42 +14,39 @@ export interface FamilyDocument {
 }
 
 /**
+ * Which entity type a family activity delta refers to.
+ * Absent in old delta documents — treat absent as 'expense'.
+ */
+export type FamilyDeltaType =
+  | 'expense'
+  | 'account'
+  | 'accountAdjustment'
+  | 'debt'
+  | 'debtPayment'
+  | 'limits';
+
+/**
  * Firestore: families/{familyId}/activity/{activityId}
- * Written by client (owner or partner) via Firebase Function.
- * Each document is one expense delta — create, update, or delete.
+ * Written by the client (owner or partner).
+ * Each document is one entity delta — create, update, or delete.
+ *
+ * dataType discriminates which entity this delta affects.
+ * entityId is the primary key of the affected entity (for 'limits' use 'global').
+ * expenseId is kept for backward compat with old expense-only deltas.
  */
 export interface FamilyActivityDelta {
-  activityId: string;         // same as document ID
+  activityId: string;           // same as document ID
   familyId: string;
-  authorUid: string;          // Firebase UID of who made the change
+  authorUid: string;            // Firebase UID of who made the change
   authorEmail: string;
   authorRole: 'owner' | 'partner';
   action: 'create' | 'update' | 'delete';
-  expenseId: string;          // the ExpenseEntry.id this delta refers to
-  payload: ExpenseDeltaPayload | null; // null for delete
-  timestamp: string;          // ISO timestamp — used for ordering
-  clientWrittenAt: string;    // when the client sent this (for conflict detection)
-}
-
-/**
- * The expense data carried in a delta.
- * Matches the shape of ExpenseEntry exactly.
- */
-export interface ExpenseDeltaPayload {
-  id: string;
-  date: string;
-  amount: number;
-  type: string;
-  limit: number;
-  savings: number;
-  timestamp: string;
-  comment?: string;
-  accountId?: string;
-  source?: string;
-  createdByEmail?: string;
-  createdByRole?: string;
-  updatedByEmail?: string;
-  updatedByRole?: string;
+  dataType?: FamilyDeltaType;   // absent in old docs → treat as 'expense'
+  entityId?: string;            // primary key of the affected entity
+  expenseId?: string;           // backward compat — equals entityId for expense deltas
+  payload: Record<string, unknown> | null; // null for delete
+  timestamp: string;            // ISO timestamp — used for ordering
+  clientWrittenAt: string;      // when the client sent this (for conflict detection)
 }
 
 /**
