@@ -1,5 +1,35 @@
 # Task History
 
+## 2026-06-10 - Netlify → Firebase Migration + Hosted AI Tier (C1 Fix)
+
+### What was changed
+- **`netlify.toml`**: Removed `functions = "netlify/functions"` and `send-reminders` schedule block. Netlify is now hosting-only. `personal-finance-pwa/netlify/` folder is dead code (cannot delete via agent — must be deleted manually).
+- **`functions/src/ai-insights.ts`**: Added `callGroq()`. Removed mandatory `X-Gemini-Api-Key` guard. When no user key in header, uses `GROQ_API_KEY` env var (Llama 3.3 70B). Added `GROQ_API_URL` / `GROQ_MODEL` constants. Response now includes `provider: 'groq' | 'gemini'`.
+- **`functions/src/ai-voice.ts`**: Same Groq pattern. `callGroq()` added. No key header → uses `GROQ_API_KEY`. Returns `provider: 'groq' | 'gemini'`.
+- **`functions/src/ai-receipt.ts`**: User key takes priority; server-side `GEMINI_API_KEY` env var used when no user key (multimodal still requires Gemini).
+- **`src/app/core/services/ai-settings.service.ts`**: Added `'hosted'` to `AiProviderMode`. Default changed `'disabled'` → `'hosted'`. `normalize()` maps all unknown/legacy to `'hosted'`. `isHosted()` method added.
+- **`src/app/core/services/ai-insight.service.ts`**: `maxTotalCallsPerDay` 2→5, `maxCallsPerLocalePerDay` 1→2. Hosted mode skips key check and `X-Gemini-Api-Key` header. Accepts `'groq'` as valid provider in response. Added `'groq'` to `AiInsightProvider` type.
+- **`src/app/core/services/ai-receipt-extraction.service.ts`**: Hosted mode sends no key header. `provider` type widened to `'gemini' | 'hosted'`. Error messages de-Gemini-ified.
+- **`src/app/core/services/ai-voice-expense.service.ts`**: Same hosted mode handling. `provider` type widened to `'gemini' | 'groq'`. Error messages de-Gemini-ified.
+
+### Why these decisions were made
+- Groq chosen over Gemini free tier for hosted text tasks: Groq's free tier does not train on API data (critical for a personal finance app), offers 14,400 req/day for Llama 3.1 8B, and is OpenAI-API-compatible making integration trivial. Gemini free tier uses data for training which is unacceptable for financial data without explicit user disclosure.
+- Receipt extraction stays on Gemini because Groq free tier does not support multimodal (vision) inference. `GEMINI_API_KEY` covers this. Cost is negligible (~₹0.003/call).
+- `'hosted'` as default means AI is on for 100% of users on first open — no settings change required. Users who want to supply their own key still can (`'user-key'`). Users who want to opt out can (`'disabled'`).
+- Netlify functions are not deleted from disk (agent cannot delete host files) but are fully unreferenced by app code and `netlify.toml`.
+
+### Required Firebase secrets to deploy
+```bash
+firebase functions:secrets:set GROQ_API_KEY   # Groq console → API Keys
+firebase functions:secrets:set GEMINI_API_KEY # aistudio.google.com → API Keys
+firebase deploy --only functions
+```
+
+### Build verification
+- `npx tsc --noEmit` in `personal-finance-pwa/` — zero errors.
+- `npm run build` in `functions/` — zero errors.
+- VM-side `npm run build --configuration production` fails due to esbuild platform mismatch (node_modules installed on macOS, VM runs Linux ARM64). This is a known VM limitation, not a code error. Build passes on the host machine.
+
 ## 2026-06-06 - Migration Path for Shared-Drive Family Users + Cleanup (Prompt 7 of Family Sync Migration)
 
 ### What was changed

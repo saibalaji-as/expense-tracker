@@ -73,15 +73,16 @@ const RECEIPT_SCHEMA = {
   required: ['amount', 'amountConfidence', 'amountCandidates', 'lineItems', 'date', 'type', 'comment', 'confidence', 'readable'],
 };
 
-export const extractReceipt = onRequest({ cors: true }, async (req, res) => {
+export const extractReceipt = onRequest({ cors: true, secrets: ['GROQ_API_KEY', 'GEMINI_API_KEY'] }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;
   }
 
-  const apiKey = (req.headers['x-gemini-api-key'] as string | undefined)?.trim();
+  // User key takes priority; fall back to server-hosted Gemini key (GEMINI_API_KEY env var)
+  const apiKey = ((req.headers['x-gemini-api-key'] as string | undefined)?.trim() || process.env.GEMINI_API_KEY?.trim()) || null;
   if (!apiKey) {
-    res.status(400).json({ error: 'User Gemini API key is required' });
+    res.status(503).json({ error: 'AI receipt extraction unavailable: no Gemini API key configured.' });
     return;
   }
 

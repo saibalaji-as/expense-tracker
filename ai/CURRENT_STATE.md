@@ -11,13 +11,13 @@
 - The setup script installs Graphify when needed, configures Codex and VS Code Copilot Chat, builds the local graph, and installs a machine-local Git `post-merge` hook for automatic refresh after future `git pull` merges.
 
 ## Last Memory Refresh
-- Date: 2026-06-06.
+- Date: 2026-06-10.
 - Scope analyzed:
   - Existing `ai/` memory files.
   - Angular app source under `personal-finance-pwa/src/app`.
-  - Netlify functions under `personal-finance-pwa/netlify/functions`.
   - Firebase functions under `personal-finance-pwa/functions`.
-  - Build/config files: `package.json`, `angular.json`, `netlify.toml`, `firebase.json`, `.firebaserc`, `capacitor.config.ts`, `tsconfig.json`, `vitest.config.ts`, `tailwind.config.js`, `ngsw-config.json`, environments.
+  - Build/config files and environments.
+  - Note: Netlify functions folder still exists on disk but is fully deprecated — can be deleted.
 
 ## Active Project Shape
 - App is a Drive-backed Angular 21 PWA/Capacitor app named Spenza.
@@ -25,10 +25,20 @@
   - Single mode: private `appDataFolder/spenza-backup.json`.
   - Family mode: each user keeps their own `appDataFolder/spenza-backup.json`; real-time expense deltas sync via Firestore `families/{id}/activity`. Shared Drive folder approach is fully deprecated.
 - Google Sheets is migration/legacy only.
-- AI features are opt-in with user-supplied Gemini key; deterministic local fallbacks are required.
+- All serverless functions are now on Firebase Functions. Netlify functions are dead code.
+- AI features now use hosted Groq by default (no user key required). User-supplied Gemini key is a legacy/power-user option. Deterministic local fallbacks are still required.
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Netlify → Firebase migration + hosted AI tier (2026-06-10):
+  - All Netlify functions fully deprecated. Firebase Functions (`functions/src/`) is the sole serverless backend.
+  - `netlify.toml` functions config removed. `personal-finance-pwa/netlify/` folder is dead code pending manual deletion.
+  - `ai-insights.ts` + `ai-voice.ts`: no longer require user Gemini key. When no `X-Gemini-Api-Key` header, server uses `GROQ_API_KEY` env (Llama 3.3 70B). Returns `provider: 'groq'` or `'gemini'`.
+  - `ai-receipt.ts`: uses user key when present; falls back to server-side `GEMINI_API_KEY` env (multimodal still requires Gemini).
+  - `AiSettingsService`: added `'hosted'` provider mode. Default changed from `'disabled'` to `'hosted'`. `isHosted()` helper added. `normalize()` maps all unknown/legacy values to `'hosted'`.
+  - `AiInsightService`: `maxTotalCallsPerDay` raised 2→5, per-locale 1→2. Hosted mode skips key check and header. Accepts `'groq'` as valid AI provider in response.
+  - `AiReceiptExtractionService` + `AiVoiceExpenseService`: hosted mode sends no key header; server uses its own key.
+  - Required Firebase secrets: `GROQ_API_KEY` (Groq console), `GEMINI_API_KEY` (Google AI Studio).
 - Migration path for shared-Drive family users + cleanup (2026-06-06, Prompt 7):
   - `app.ts`: `needsFamilyMigration` and `migrationBannerDismissed` signals added. `checkLegacyFamilyMode()` called after `loadFromDrive()` in both `bootstrapData` and `bootstrapDriveInBackground` — sets `needsFamilyMigration` when mode is 'family', sharedFileId or familyFolderId is present, and no firestoreFamilyId.
   - `app.ts` + `tryLoadCachedStartupData`: fixed to treat Firestore-backed family users (firestoreFamilyId set, null sharedFileId) as setup-complete so they can use the cached path.

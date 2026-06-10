@@ -36,8 +36,9 @@
   - Theme: `ThemeService`.
   - AI settings: `AiSettingsService`.
   - Local OCR: `ReceiptExtractionService`.
-  - Gemini receipt flow: `AiReceiptExtractionService`.
-  - Gemini weekly insights: `AiInsightService`.
+  - AI receipt flow: `AiReceiptExtractionService`.
+  - AI weekly insights: `AiInsightService`.
+  - AI voice parsing: `AiVoiceExpenseService`.
   - Notifications: `NotificationService`, `LocalNotificationService`, `FcmService`.
 - Do not bypass `ExpenseStore` for active expense/limit/monthly-income mutations.
 - Do not write directly to Drive backup JSON from components if a store method already exists.
@@ -178,14 +179,16 @@
 - If backup metadata contains a supported currency, `ExpenseStore` may update `CurrencyService` during load/restore.
 
 ## AI / Gemini Rules
-- AI features must remain optional and private.
-- Never require a Gemini key for core app use.
-- `AiSettingsService` currently normalizes to `user-key` or `disabled`; do not rely on a functional `default` provider without implementing it.
-- Call Gemini only through Netlify functions, not directly from Angular UI code.
-- Include `X-Gemini-Api-Key` only when user-key mode is active.
+- AI features must remain optional and private. Never require any AI key for core app use.
+- Default AI provider is `'hosted'` — all users get AI without supplying a key.
+- `AiSettingsService.normalize()` maps unknown/legacy values to `'hosted'`. Only explicit `'user-key'` or `'disabled'` values are preserved.
+- Call AI only through Firebase Functions, never directly from Angular UI code.
+- For hosted mode (`isHosted() === true`): do NOT include `X-Gemini-Api-Key` header in requests. Firebase Functions use the server-side `GROQ_API_KEY` (text) or `GEMINI_API_KEY` (receipts).
+- For user-key mode: include `X-Gemini-Api-Key` header with the user's key; Firebase Functions use it directly.
+- Do not route AI calls through Netlify. All AI endpoints are on Firebase Functions.
 - Preserve deterministic local fallbacks for insights and receipt extraction.
 - Preserve AI usage/cache limits unless intentionally changed:
-  - Weekly insights max 1 fresh Gemini call per locale per day and max 2 fresh weekly-insight calls total per day across locales.
+  - Weekly insights max 2 fresh calls per locale per day and max 5 fresh weekly-insight calls total per day across locales.
   - Count weekly Gemini attempts before the network call so failed/malformed/rate-limited responses cannot be retried repeatedly and drain credits.
   - Weekly Gemini insight cache should be reused whenever the exact normalized insight input is unchanged, even across Dashboard route re-entry.
   - 7d stale cache fallback.

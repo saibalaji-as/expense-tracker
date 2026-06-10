@@ -620,7 +620,7 @@ export class DashboardComponent implements OnInit {
   readonly hasSixMonthData = signal(false);
   readonly hasBudgetRuleData = signal(false);
   readonly geminiInsightSections = signal<AiInsightSection[] | null>(null);
-  readonly aiInsightProvider = signal<'local' | 'gemini'>('local');
+  readonly aiInsightProvider = signal<'local' | 'gemini' | 'groq'>('local');
   readonly aiInsightLoading = signal(false);
   readonly aiInsightStatusTitle = signal('');
   readonly aiInsightStatusDetail = signal('');

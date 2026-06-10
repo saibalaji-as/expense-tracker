@@ -4,7 +4,7 @@ import { AiSettingsService } from './ai-settings.service';
 import { ReceiptExtractionResult } from './receipt-extraction.service';
 
 interface AiReceiptExtractionResponse {
-  provider: 'gemini';
+  provider: 'gemini' | 'hosted';
   extraction: ReceiptExtractionResult;
 }
 
@@ -44,24 +44,26 @@ export class AiReceiptExtractionService {
       return { extraction: null, fallbackReason: 'AI is off in Settings.', usedGemini: false };
     }
 
-    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    if (!userGeminiKey) {
+    // Hosted mode uses server-side Gemini key; user-key mode requires a key from the user.
+    const isHosted = this.aiSettingsService.isHosted();
+    const userGeminiKey = isHosted ? null : await this.aiSettingsService.getActiveGeminiKey();
+    if (!isHosted && !userGeminiKey) {
       return { extraction: null, fallbackReason: 'No Gemini API key is active.', usedGemini: false };
     }
 
     const maxInlineSize = 5 * 1024 * 1024;
     if (file.size > maxInlineSize) {
       console.info('[AiReceiptExtractionService] Receipt too large for AI extraction; using local OCR.');
-      return { extraction: null, fallbackReason: 'Bill file is too large for Gemini inline extraction.', usedGemini: false };
+      return { extraction: null, fallbackReason: 'Bill file is too large for AI inline extraction.', usedGemini: false };
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+
       const response = await fetch(`${this.functionsBaseUrl()}/extractReceipt`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Gemini-Api-Key': userGeminiKey,
-        },
+        headers,
         body: JSON.stringify({
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
@@ -77,11 +79,11 @@ export class AiReceiptExtractionService {
       }
 
       const result = await response.json() as AiReceiptExtractionResponse;
-      if (result.provider === 'gemini' && result.extraction?.readable) {
+      if (result.extraction?.readable) {
         return { extraction: result.extraction, fallbackReason: null, usedGemini: true };
       }
 
-      return { extraction: null, fallbackReason: 'Gemini could not read this bill clearly.', usedGemini: false };
+      return { extraction: null, fallbackReason: 'AI could not read this bill clearly.', usedGemini: false };
     } catch (error) {
       console.info('[AiReceiptExtractionService] Falling back to local receipt OCR:', error);
       return { extraction: null, fallbackReason: 'Could not reach Gemini extraction service.', usedGemini: false };

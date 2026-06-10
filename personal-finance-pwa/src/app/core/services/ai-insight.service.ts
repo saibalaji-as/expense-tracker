@@ -5,7 +5,7 @@ import { StorageService } from './storage.service';
 
 export type InsightTone = 'good' | 'warn' | 'info';
 export type InsightIcon = 'check-circle-2' | 'alert-triangle' | 'lightbulb' | 'clock-3' | 'sparkles';
-export type AiInsightProvider = 'gemini' | 'local';
+export type AiInsightProvider = 'gemini' | 'groq' | 'local';
 
 export interface AiInsightSection {
   label: string;
@@ -156,8 +156,8 @@ export class AiInsightService {
   private readonly aiSettingsService = inject(AiSettingsService);
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v2';
-  private readonly maxCallsPerLocalePerDay = 1;
-  private readonly maxTotalCallsPerDay = 2;
+  private readonly maxCallsPerLocalePerDay = 2;
+  private readonly maxTotalCallsPerDay = 5;
   private readonly maxCacheEntries = 12;
   private readonly staleCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -167,13 +167,11 @@ export class AiInsightService {
 
   async getReusableCachedWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
     await this.aiSettingsService.load();
-    if (this.aiSettingsService.isDisabled()) {
-      return null;
-    }
-
-    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    if (!userGeminiKey) {
-      return null;
+    if (this.aiSettingsService.isDisabled()) return null;
+    // Hosted mode: always has AI. User-key mode: requires a key.
+    if (!this.aiSettingsService.isHosted()) {
+      const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
+      if (!userGeminiKey) return null;
     }
 
     const cacheEntries = await this.getCacheEntries();
@@ -183,9 +181,8 @@ export class AiInsightService {
 
   async getAvailability(): Promise<AiInsightAvailability> {
     await this.aiSettingsService.load();
-    if (this.aiSettingsService.isDisabled()) {
-      return 'missing-key';
-    }
+    if (this.aiSettingsService.isDisabled()) return 'missing-key';
+    if (this.aiSettingsService.isHosted()) return 'ready';
 
     const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
     return userGeminiKey ? 'ready' : 'missing-key';
@@ -200,14 +197,11 @@ export class AiInsightService {
 
   async generateWeeklyInsightsWithSource(payload: AiInsightPayload): Promise<AiInsightResponse> {
     await this.aiSettingsService.load();
-    if (this.aiSettingsService.isDisabled()) {
-      return { result: null, source: 'none' };
-    }
+    if (this.aiSettingsService.isDisabled()) return { result: null, source: 'none' };
 
-    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    if (!userGeminiKey) {
-      return { result: null, source: 'none' };
-    }
+    const isHosted = this.aiSettingsService.isHosted();
+    const userGeminiKey = isHosted ? null : await this.aiSettingsService.getActiveGeminiKey();
+    if (!isHosted && !userGeminiKey) return { result: null, source: 'none' };
 
     const cacheEntries = await this.getCacheEntries();
     const signature = this.signatureFor(payload);
@@ -233,12 +227,12 @@ export class AiInsightService {
       const nextLocaleCallCount = (usage.localeCallCount ?? usage.callCount) + 1;
       await this.setUsage(todayKey, signature.locale, nextLocaleCallCount);
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+
       const response = await fetch(`${this.functionsBaseUrl()}/generateInsights`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Gemini-Api-Key': userGeminiKey,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -256,7 +250,7 @@ export class AiInsightService {
       }
 
       const result = await response.json() as AiInsightResult;
-      if (result.provider !== 'gemini' || !Array.isArray(result.sections) || result.sections.length === 0) {
+      if (!(['gemini', 'groq'] as AiInsightProvider[]).includes(result.provider) || !Array.isArray(result.sections) || result.sections.length === 0) {
         return fallbackCache
           ? { result: fallbackCache.result, source: 'cache' }
           : { result: null, source: 'none' };

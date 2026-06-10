@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseVoiceExpense = void 0;
 const https_1 = require("firebase-functions/v2/https");
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
 const GEMINI_API_VERSION = 'v1beta';
 const MAX_TRANSCRIPT_LENGTH = 1000;
@@ -19,14 +21,15 @@ const VOICE_EXPENSE_SCHEMA = {
     },
     required: ['rawText', 'amount', 'date', 'type', 'comment', 'confidence', 'readable'],
 };
-exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true }, async (req, res) => {
+exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ_API_KEY', 'GEMINI_API_KEY'] }, async (req, res) => {
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method Not Allowed' });
         return;
     }
-    const apiKey = req.headers['x-gemini-api-key']?.trim();
-    if (!apiKey) {
-        res.status(400).json({ error: 'User Gemini API key is required' });
+    const userApiKey = req.headers['x-gemini-api-key']?.trim() || null;
+    const hostedGroqKey = process.env.GROQ_API_KEY?.trim() || null;
+    if (!userApiKey && !hostedGroqKey) {
+        res.status(503).json({ error: 'AI voice parsing unavailable: no API key configured on server.' });
         return;
     }
     try {
@@ -41,7 +44,9 @@ exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true }, async (req, r
             return;
         }
         const categories = normalizeCategories(payload.categories);
-        const generated = await callGeminiWithFallbacks(apiKey, modelCandidates(process.env.GEMINI_MODEL), { ...payload, transcript }, categories);
+        const generated = userApiKey
+            ? await callGeminiWithFallbacks(userApiKey, modelCandidates(process.env.GEMINI_MODEL), { ...payload, transcript }, categories)
+            : await callGroq(hostedGroqKey, { ...payload, transcript }, categories);
         if (!generated.ok) {
             res.status(generated.statusCode).json({
                 error: generated.clientMessage,
@@ -53,7 +58,7 @@ exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true }, async (req, r
             return;
         }
         res.json({
-            provider: 'gemini',
+            provider: generated.provider,
             model: generated.model,
             expense: normalizeExpense(generated.expense, categories, transcript),
         });
@@ -66,6 +71,46 @@ exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true }, async (req, r
         });
     }
 });
+async function callGroq(apiKey, payload, categories) {
+    const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: GROQ_MODEL,
+            messages: [{ role: 'user', content: buildPrompt(payload, categories) }],
+            temperature: 0.1,
+            max_tokens: 1000,
+            response_format: { type: 'json_object' },
+        }),
+    });
+    if (!response.ok) {
+        const raw = await response.text();
+        let message = raw.slice(0, 300) || response.statusText;
+        try {
+            message = JSON.parse(raw).error?.message ?? message;
+        }
+        catch { /* ignore */ }
+        console.error('[parseVoiceExpense] Groq request failed', response.status, message);
+        return {
+            ok: false,
+            statusCode: response.status === 429 ? 429 : 502,
+            clientMessage: response.status === 429 ? 'Rate limit reached' : 'AI voice parsing temporarily unavailable',
+            detail: message,
+            model: GROQ_MODEL,
+            upstreamStatus: response.status,
+        };
+    }
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content ?? '';
+    const expense = parseExpense(text);
+    if (expense)
+        return { ok: true, provider: 'groq', model: GROQ_MODEL, expense };
+    console.warn('[parseVoiceExpense] Groq returned unparsable expense, preview:', text.slice(0, 300));
+    return { ok: false, statusCode: 502, clientMessage: 'AI voice parsing temporarily unavailable', detail: 'Groq returned malformed JSON.', model: GROQ_MODEL };
+}
 async function callGeminiWithFallbacks(apiKey, models, payload, categories) {
     let lastFailure = null;
     let lastMalformed = null;
@@ -89,7 +134,7 @@ async function callGeminiWithFallbacks(apiKey, models, payload, categories) {
             const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('\n') ?? '';
             const expense = parseExpense(text);
             if (expense)
-                return { ok: true, model, expense };
+                return { ok: true, provider: 'gemini', model, expense };
             lastMalformed = { model, finishReason: candidate?.finishReason, preview: stripJsonFence(text).slice(0, 300) };
             console.warn('[parseVoiceExpense] Gemini returned unparsable expense', lastMalformed);
             continue;

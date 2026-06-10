@@ -11,7 +11,7 @@ export interface AiVoiceExpensePayload {
 }
 
 export interface AiVoiceExpenseResult {
-  provider: 'gemini';
+  provider: 'gemini' | 'groq';
   model?: string;
   expense: {
     rawText: string;
@@ -42,8 +42,9 @@ export class AiVoiceExpenseService {
       return { expense: null, fallbackReason: 'AI is off in Settings.', usedGemini: false };
     }
 
-    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    if (!userGeminiKey) {
+    const isHosted = this.aiSettingsService.isHosted();
+    const userGeminiKey = isHosted ? null : await this.aiSettingsService.getActiveGeminiKey();
+    if (!isHosted && !userGeminiKey) {
       return { expense: null, fallbackReason: 'No Gemini API key is active.', usedGemini: false };
     }
 
@@ -53,30 +54,30 @@ export class AiVoiceExpenseService {
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+
       const response = await fetch(`${this.functionsBaseUrl()}/parseVoiceExpense`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Gemini-Api-Key': userGeminiKey,
-        },
+        headers,
         body: JSON.stringify({ ...context, transcript }),
       });
 
       if (!response.ok) {
         const detail = await response.text();
         console.info('[AiVoiceExpenseService] AI voice parsing unavailable:', response.status, detail);
-        return { expense: null, fallbackReason: `Gemini voice parsing failed with HTTP ${response.status}.`, usedGemini: false };
+        return { expense: null, fallbackReason: `AI voice parsing failed with HTTP ${response.status}.`, usedGemini: false };
       }
 
       const result = await response.json() as AiVoiceExpenseResult;
-      if (result.provider === 'gemini' && result.expense?.readable) {
+      if (result.expense?.readable) {
         return { expense: result.expense, fallbackReason: null, usedGemini: true };
       }
 
-      return { expense: null, fallbackReason: 'Gemini could not find expense details in the voice note.', usedGemini: false };
+      return { expense: null, fallbackReason: 'AI could not find expense details in the voice note.', usedGemini: false };
     } catch (error) {
-      console.info('[AiVoiceExpenseService] Could not reach Gemini voice parsing service:', error);
-      return { expense: null, fallbackReason: 'Could not reach Gemini voice parsing service.', usedGemini: false };
+      console.info('[AiVoiceExpenseService] Could not reach AI voice parsing service:', error);
+      return { expense: null, fallbackReason: 'Could not reach AI voice parsing service.', usedGemini: false };
     }
   }
 

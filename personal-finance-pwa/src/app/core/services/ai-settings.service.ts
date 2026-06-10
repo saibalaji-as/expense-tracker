@@ -3,7 +3,10 @@ import { AuthService } from './auth.service';
 import { DriveApiError, GoogleDriveService, SpenzaConfig } from './google-drive.service';
 import { StorageService } from './storage.service';
 
-export type AiProviderMode = 'default' | 'user-key' | 'disabled';
+// 'hosted'   → Spenza-managed AI (Groq for insights/voice, Gemini for receipts). Default for all users.
+// 'user-key' → User supplies their own Gemini API key (power users / legacy).
+// 'disabled' → User has explicitly turned AI off in Settings.
+export type AiProviderMode = 'default' | 'user-key' | 'hosted' | 'disabled';
 
 export interface AiSettings {
   provider: AiProviderMode;
@@ -11,7 +14,7 @@ export interface AiSettings {
 }
 
 const DEFAULT_AI_SETTINGS: AiSettings = {
-  provider: 'disabled',
+  provider: 'hosted',
   geminiApiKey: null,
 };
 
@@ -116,6 +119,10 @@ export class AiSettingsService {
     return this.settings().provider === 'disabled';
   }
 
+  isHosted(): boolean {
+    return this.settings().provider === 'hosted';
+  }
+
   maskedKey(): string {
     const key = this.settings().geminiApiKey;
     if (!key) return '';
@@ -207,7 +214,10 @@ export class AiSettingsService {
   }
 
   private normalize(settings: Partial<AiSettings>): AiSettings {
-    const provider: AiProviderMode = settings.provider === 'user-key' ? 'user-key' : 'disabled';
+    const provider: AiProviderMode =
+      settings.provider === 'user-key' ? 'user-key' :
+      settings.provider === 'disabled' ? 'disabled' :
+      'hosted'; // 'hosted' | 'default' | unknown → hosted
     const geminiApiKey = typeof settings.geminiApiKey === 'string'
       ? settings.geminiApiKey.trim()
       : null;

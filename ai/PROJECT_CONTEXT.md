@@ -50,11 +50,9 @@
   - Runtime: Node.js 22.
   - Subscription endpoints cover Razorpay creation, verification, and webhooks.
 - Netlify build:
-  - Retained for legacy serverless endpoints such as AI helpers and FCM reminder registration/sending.
-  - Base: `personal-finance-pwa`.
-  - Command: `npm ci && npm run build`.
-  - Publish: `dist/personal-finance-pwa/browser`.
-  - Functions: `personal-finance-pwa/netlify/functions`.
+  - Retained for PWA hosting only (no functions). All serverless endpoints have been migrated to Firebase Functions.
+  - `personal-finance-pwa/netlify/` folder is dead code — pending deletion.
+  - Base: `personal-finance-pwa`. Command: `npm ci && npm run build`. Publish: `dist/personal-finance-pwa/browser`.
 - Angular production build:
   - Output hashing enabled.
   - Service worker enabled through `ngsw-config.json`.
@@ -66,8 +64,8 @@
   - `appName`: `Spenza`.
   - `webDir`: `dist/personal-finance-pwa/browser`.
   - Native function base URL comes from `environment.netlifyFunctionsUrl`.
-- Netlify scheduled function:
-  - `send-reminders` runs every minute.
+- Firebase `send-reminders` scheduled function:
+  - Runs every minute via Firebase scheduler.
   - For users with daily reminder preferences synced to FCM, push reminders fire at the selected local hour/minute.
   - Older push-only registrations without daily reminder preferences keep the legacy hourly slots: local 08:00-22:00 exactly at minute `00`.
 
@@ -75,11 +73,11 @@
 - Web OAuth client ID is currently injected in `src/index.html` through `window.__GOOGLE_CLIENT_ID__`.
 - Native Google sign-in initializes the plugin with the Web OAuth client ID from `AuthService`. Google Cloud must also contain an Android OAuth client for package `com.spenza.app` whose SHA-1 matches the exact APK signer.
 - Firebase web config and VAPID key are in `src/app/core/config/firebase.config.ts`.
-- Netlify required environment variables:
-  - `FIREBASE_PROJECT_ID`
-  - `FIREBASE_CLIENT_EMAIL`
-  - `FIREBASE_PRIVATE_KEY`
-  - Optional `GEMINI_MODEL` for Netlify Gemini function model override.
+- Netlify environment variables: no longer required (functions removed).
+- Firebase Functions required secrets (set via `firebase functions:secrets:set`):
+  - `GROQ_API_KEY` — Groq API key for hosted AI text tasks (insights, voice). Free tier.
+  - `GEMINI_API_KEY` — Google Gemini key for hosted receipt extraction (multimodal).
+  - Optional `GEMINI_MODEL` env var for Gemini model override on user-key path.
 - Firebase Functions subscription environment variables:
   - `RAZORPAY_KEY_ID`
   - `RAZORPAY_KEY_SECRET`
@@ -519,30 +517,35 @@
 
 ## AI And Receipt Extraction
 - AI settings:
-  - `AiSettingsService` supports `provider: 'user-key' | 'disabled'`.
-  - `default` type exists but normalization currently only preserves `user-key`; everything else becomes `disabled`.
-  - Gemini API key is stored locally in Capacitor Preferences and optionally synced inside Drive config `aiSettings`.
+  - `AiSettingsService` supports `provider: 'hosted' | 'user-key' | 'disabled'`.
+  - Default provider is `'hosted'` — all users get AI out of the box, no key required.
+  - `normalize()` maps unknown/legacy values to `'hosted'`. Only explicit `'user-key'` or `'disabled'` are preserved.
+  - `isHosted()` returns true when provider is `'hosted'`.
+  - `isDisabled()` returns true only when provider is explicitly `'disabled'`.
+  - User-supplied Gemini API key is stored locally in Capacitor Preferences and optionally synced inside Drive config `aiSettings`. Only relevant in `'user-key'` mode.
   - Changing AI settings clears insight cache and usage counters.
+- Hosted AI tier (all users, no key needed):
+  - Text tasks (insights, voice): Firebase Function uses server-side `GROQ_API_KEY` env var (Llama 3.3 70B via Groq).
+  - Receipt extraction: Firebase Function uses server-side `GEMINI_API_KEY` env var (multimodal requires Gemini).
+  - User-key mode overrides hosted: when `X-Gemini-Api-Key` header is present, Firebase Functions use user's Gemini key instead.
 - Weekly insights:
   - `DashboardComponent` always has deterministic local insight sections.
-  - `AiInsightService` calls `/.netlify/functions/generate-insights` only when user-key mode is active.
-  - Max AI calls per day: 2.
+  - `AiInsightService` calls `${firebaseFunctionsUrl}/generateInsights`. No key header in hosted mode.
+  - Max AI calls per day (total): 5. Per locale: 2.
   - Cache TTL: 12 hours.
   - Stale cache TTL: 7 days.
   - Meaningful-change gates avoid repeated calls.
-  - Netlify function tries model candidates:
+  - Firebase function model candidates (user-key Gemini path):
     - env `GEMINI_MODEL` first if set.
-    - `gemini-2.5-flash-lite`
-    - `gemini-2.0-flash-lite`
-    - `gemini-2.5-flash`
-    - `gemini-2.0-flash`
+    - `gemini-2.5-flash-lite`, `gemini-2.0-flash-lite`, `gemini-2.5-flash`, `gemini-2.0-flash`
+  - Hosted path uses Groq `llama-3.3-70b-versatile`; response includes `provider: 'groq'`.
 - Receipt extraction:
-  - `AiReceiptExtractionService` first tries Gemini when enabled and file <= 5MB.
+  - `AiReceiptExtractionService` first tries AI (hosted or user-key) when not disabled and file <= 5MB.
   - Falls back to `ReceiptExtractionService` local OCR/PDF extraction.
   - `ReceiptExtractionSessionService` owns the active selected receipt, extraction status/result/error/source, and cancellation token.
-  - Receipt extraction session state is root-scoped so Gemini/OCR work survives Daily route/component teardown.
+  - Receipt extraction session state is root-scoped so AI/OCR work survives Daily route/component teardown.
   - `DailyExpenseComponent` attaches to the root receipt session and auto-applies completed extraction results when the Daily page is active again.
-  - Netlify `extract-receipt` rejects base64 payloads over 7,000,000 chars.
+  - Firebase `extractReceipt` rejects base64 payloads over 7,000,000 chars.
   - Local OCR scans up to 3 PDF pages and stores image-converted PDFs only when <= 4 pages.
   - OCR uses amount scoring, multilingual category keywords, line item extraction, date parsing, and merchant/comment fallback.
   - Drive receipt uploads are compressed after extraction, at save time:

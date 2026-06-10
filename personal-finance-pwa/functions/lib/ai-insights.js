@@ -2,6 +2,19 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateInsights = void 0;
 const https_1 = require("firebase-functions/v2/https");
+// ---------------------------------------------------------------------------
+// Provider config
+// ---------------------------------------------------------------------------
+// Hosted AI (no user key required):
+//   - Text insights/voice → Groq (free tier, privacy-safe, no data training)
+//     Set GROQ_API_KEY in Firebase Functions env: firebase functions:secrets:set GROQ_API_KEY
+//   - Receipt extraction → hosted Gemini (multimodal required)
+//     Set GEMINI_API_KEY in Firebase Functions env: firebase functions:secrets:set GEMINI_API_KEY
+//
+// User-key mode (legacy/power users): still supported via X-Gemini-Api-Key header.
+// ---------------------------------------------------------------------------
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SECTION_LABELS = new Set(['Anomaly', 'Behavior hack', 'What if', 'Seasonal timing', 'Intent check']);
 const TONES = new Set(['good', 'warn', 'info']);
 const ICONS = new Set(['check-circle-2', 'alert-triangle', 'lightbulb', 'clock-3', 'sparkles']);
@@ -29,21 +42,25 @@ const INSIGHT_RESPONSE_SCHEMA = {
     },
     required: ['sections'],
 };
-exports.generateInsights = (0, https_1.onRequest)({ cors: true }, async (req, res) => {
+exports.generateInsights = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ_API_KEY', 'GEMINI_API_KEY'] }, async (req, res) => {
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method Not Allowed' });
         return;
     }
     const userApiKey = req.headers['x-gemini-api-key']?.trim() || null;
-    if (!userApiKey) {
-        res.status(400).json({ error: 'User Gemini API key is required' });
+    const hostedGroqKey = process.env.GROQ_API_KEY?.trim() || null;
+    // Require either a user-supplied Gemini key or a hosted Groq key
+    if (!userApiKey && !hostedGroqKey) {
+        res.status(503).json({ error: 'AI insights unavailable: no API key configured on server.' });
         return;
     }
     try {
         const payload = req.body;
-        const models = modelCandidates(process.env.GEMINI_MODEL);
         const prompt = buildPrompt(payload);
-        const generated = await callGeminiWithFallbacks(userApiKey, models, prompt);
+        // User key → Gemini (full model cascade); hosted → Groq
+        const generated = userApiKey
+            ? await callGeminiWithFallbacks(userApiKey, modelCandidates(process.env.GEMINI_MODEL), prompt)
+            : await callGroq(hostedGroqKey, prompt);
         if (!generated.ok) {
             if (generated.statusCode === 200) {
                 res.json({ provider: 'local', sections: [], fallback: true, reason: generated.detail });
@@ -60,7 +77,7 @@ exports.generateInsights = (0, https_1.onRequest)({ cors: true }, async (req, re
             });
             return;
         }
-        res.json({ provider: 'gemini', model: generated.model, sections: generated.sections });
+        res.json({ provider: generated.provider, model: generated.model, sections: generated.sections });
     }
     catch (error) {
         console.error('[generateInsights] Error', error instanceof Error ? error.message : error);
@@ -102,6 +119,46 @@ function localeFromPayload(payload) {
     }
     return 'en-IN';
 }
+async function callGroq(apiKey, prompt) {
+    const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: GROQ_MODEL,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.35,
+            max_tokens: 1400,
+            response_format: { type: 'json_object' },
+        }),
+    });
+    if (!response.ok) {
+        const raw = await response.text();
+        let message = raw.slice(0, 300) || response.statusText;
+        try {
+            message = JSON.parse(raw).error?.message ?? message;
+        }
+        catch { /* ignore */ }
+        console.error('[generateInsights] Groq request failed', response.status, message);
+        return {
+            ok: false,
+            statusCode: response.status === 429 ? 429 : 502,
+            clientMessage: response.status === 429 ? 'Rate limit reached' : 'AI insights service temporarily unavailable',
+            detail: message,
+            model: GROQ_MODEL,
+            upstreamStatus: response.status,
+        };
+    }
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content ?? '';
+    const sections = parseGeminiSections(text); // parser is format-agnostic
+    if (sections)
+        return { ok: true, provider: 'groq', model: GROQ_MODEL, sections };
+    console.warn('[generateInsights] Groq returned unparsable sections, preview:', text.slice(0, 300));
+    return { ok: false, statusCode: 200, clientMessage: 'AI insights fell back to local summaries', detail: 'Groq returned malformed JSON.', model: GROQ_MODEL };
+}
 async function callGeminiWithFallbacks(apiKey, models, prompt) {
     let lastFailure = null;
     let lastMalformed = null;
@@ -125,7 +182,7 @@ async function callGeminiWithFallbacks(apiKey, models, prompt) {
             const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('\n') ?? '';
             const sections = parseGeminiSections(text);
             if (sections)
-                return { ok: true, model, sections };
+                return { ok: true, provider: 'gemini', model, sections };
             lastMalformed = { model, finishReason: candidate?.finishReason, preview: stripJsonFence(text).slice(0, 300) };
             console.warn('[generateInsights] Gemini returned unparsable sections', lastMalformed);
             continue;
