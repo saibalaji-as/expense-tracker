@@ -7,6 +7,5 @@ export * from './expense-entry.model';
 export * from './expense-limit.model';
 export * from './local-notification.model';
 export * from './notification-preferences.model';
-export * from './offline-queue-entry.model';
 export * from './sheets-api-error.model';
 export * from './family-sync.model';

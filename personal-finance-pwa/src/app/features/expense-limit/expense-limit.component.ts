@@ -25,8 +25,6 @@ import {
   getCategoryDef,
   getCategoryIdByName,
 } from '../../core/models/category-definitions';
-import { METADATA_MONTHLY_INCOME } from '../../core/models/app-metadata.model';
-import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { StorageService } from '../../core/services/storage.service';
 import { I18nService } from '../../core/services/i18n.service';
@@ -385,7 +383,6 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
 })
 export class ExpenseLimitComponent implements OnInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
-  private readonly sheetsService = inject(GoogleSheetsService);
   readonly expenseStore = inject(ExpenseStore);
   private readonly storageService = inject(StorageService);
   private readonly i18n = inject(I18nService);

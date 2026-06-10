@@ -16,13 +16,11 @@ import {
   DEBT_PAYMENT_EXPENSE_TYPE,
   ExpenseEntry,
   ExpenseLimit,
-  METADATA_MONTHLY_INCOME,
   RecordDebtPaymentInput,
   UpdateAssetAccountInput,
   UpdateDebtAccountInput,
   UpdateDebtPaymentInput,
 } from '../models';
-import { GoogleSheetsService } from './google-sheets.service';
 import { StorageService } from './storage.service';
 import { BackupDocument, DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
 import { BackupMode, BackupModeService } from './backup-mode.service';
@@ -275,7 +273,6 @@ export const ExpenseStore = signalStore(
 
   // ─── Task 5.4 – 5.7 / 6.2 / 6.5 / 6.7: Methods ──────────────────────────
   withMethods((store,
-    sheetsService = inject(GoogleSheetsService),
     storageService = inject(StorageService),
     googleDriveService = inject(GoogleDriveService),
     backupModeService = inject(BackupModeService),
@@ -896,90 +893,6 @@ export const ExpenseStore = signalStore(
         }
 
         await markLocalChangeAndPersist();
-      },
-
-      // ─── Task 5.5: loadMonth ──────────────────────────────────────────────
-      /**
-       * Fetches expenses for the given month from Google Sheets, merges them
-       * into the local entries (deduplicating by id), and optionally updates selectedMonth.
-       */
-      async loadMonth(month: string, updateSelectedMonth: boolean = true): Promise<void> {
-        if (isDevMode()) { console.log('[ExpenseStore] loadMonth called for:', month, '| updateSelectedMonth:', updateSelectedMonth); }
-        const sheetId = await storageService.get('pf_sheet_id') ?? '';
-        if (!sheetId) {
-          if (isDevMode()) { console.warn('[ExpenseStore] loadMonth - no sheet ID configured'); }
-          return;   // no sheet configured yet
-        }
-
-        // Only update selectedMonth if explicitly requested (not for background trend loading)
-        if (updateSelectedMonth) {
-          patchState(store, { syncStatus: 'syncing', selectedMonth: month });
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - selectedMonth updated to:', month); }
-        } else {
-          patchState(store, { syncStatus: 'syncing' });
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - loading data without updating selectedMonth'); }
-        }
-        if (isDevMode()) { console.log('[ExpenseStore] loadMonth - current entries count:', store.entries().length); }
-
-        try {
-          const fetched = await sheetsService.readExpenses(sheetId, month);
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - fetched', fetched.length, 'entries'); }
-
-          // Merge: build a map of existing entries by id, then overlay fetched ones
-          const existingById = new Map<string, ExpenseEntry>(
-            store.entries().map((e) => [e.id, e])
-          );
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - existing entries in map:', existingById.size); }
-
-          for (const entry of fetched) {
-            existingById.set(entry.id, entry);
-          }
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - after merge, map size:', existingById.size); }
-
-          const mergedEntries = Array.from(existingById.values());
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - merged total:', mergedEntries.length, 'entries'); }
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - entries for month', month, ':',
-            mergedEntries.filter(e => e.date.startsWith(month)).length); }
-
-          patchState(store, {
-            entries: mergedEntries,
-            syncStatus: 'idle',
-          });
-
-          if (isDevMode()) { console.log('[ExpenseStore] loadMonth - state updated, entries count:', store.entries().length); }
-        } catch (err) {
-          console.error('[ExpenseStore] loadMonth - error:', err);
-          patchState(store, { syncStatus: 'error' });
-        }
-      },
-
-      // ─── Task 5.6: loadLimits ─────────────────────────────────────────────
-      /**
-       * Fetches expense limits and metadata (monthly income) from Google Sheets
-       * and updates the store state.
-       */
-      async loadLimits(): Promise<void> {
-        if (isDevMode()) { console.log('[ExpenseStore] loadLimits called'); }
-        const sheetId = await storageService.get('pf_sheet_id') ?? '';
-        if (!sheetId) {
-          if (isDevMode()) { console.warn('[ExpenseStore] loadLimits - no sheet ID configured'); }
-          return;   // no sheet configured yet
-        }
-        if (isDevMode()) { console.log('[ExpenseStore] loadLimits - fetching from sheet:', sheetId); }
-        try {
-          const [limits, metadata] = await Promise.all([
-            sheetsService.readLimits(sheetId),
-            sheetsService.readMetadata(sheetId),
-          ]);
-
-          const monthlyIncome = parseFloat(metadata[METADATA_MONTHLY_INCOME] ?? '0') || 0;
-          if (isDevMode()) { console.log('[ExpenseStore] loadLimits - fetched limits:', limits.length, '| income:', monthlyIncome); }
-
-          patchState(store, { limits, monthlyIncome });
-        } catch (err) {
-          console.error('[ExpenseStore] loadLimits - error:', err);
-          // Error is already emitted on GoogleSheetsService.apiError$
-        }
       },
 
       // ─── Task 5.7: clearLocalData ─────────────────────────────────────────

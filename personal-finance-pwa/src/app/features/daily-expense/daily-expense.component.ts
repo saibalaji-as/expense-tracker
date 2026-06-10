@@ -2863,14 +2863,6 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       'Expense saved.',
       `${this.getCatName(entry.type)} for ${this.currencyService.format(entry.amount, this.i18n.locale())} was saved to your Drive backup.`
     );
-    this.syncService.enqueue(entry);
-
-    if (this.syncService.isOnline()) {
-      this.syncService.flushQueue().catch(err => {
-        console.error('[DailyExpense] Failed to sync expense:', err);
-      });
-    }
-
     if (!this.syncService.isOnline()) {
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {
@@ -2945,16 +2937,6 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       'Split bill saved.',
       `${entries.length} expense entries were saved to your Drive backup.`
     );
-    for (const entry of entries) {
-      void this.syncService.enqueue(entry);
-    }
-
-    if (this.syncService.isOnline()) {
-      this.syncService.flushQueue().catch(err => {
-        console.error('[DailyExpense] Failed to sync split expense:', err);
-      });
-    }
-
     this.clearDraftAndReset({
       expenseType: '',
       amount: null,
@@ -3001,13 +2983,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       'Expense updated.',
       `${this.getCatName(updatedEntry.type)} was saved to your Drive backup.`
     );
-    this.syncService.enqueueUpdate(updatedEntry);
-
-    if (this.syncService.isOnline()) {
-      this.syncService.flushQueue().catch(err => {
-        console.error('[DailyExpense] Failed to sync update:', err);
-      });
-    } else {
+    if (!this.syncService.isOnline()) {
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {
         clearTimeout(this.offlineToastTimer);
@@ -3319,13 +3295,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.syncService.enqueueDelete(entry.id);
-
-    if (this.syncService.isOnline()) {
-      this.syncService.flushQueue().catch(err => {
-        console.error('[DailyExpense] Failed to sync delete:', err);
-      });
-    } else {
+    if (!this.syncService.isOnline()) {
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {
         clearTimeout(this.offlineToastTimer);

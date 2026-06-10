@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, isDevMode, signal } from '@angular/core';
 import { firebaseConfig } from '../config/firebase.config';
 import { AuthService } from './auth.service';
 import { StorageService } from './storage.service';
@@ -65,7 +65,7 @@ export class SubscriptionService {
 
   /** Call once after Firebase UID is known. Starts a real-time listener on the subscription doc. */
   async startListening(uid: string): Promise<void> {
-    console.log('[Sub] listening on uid:', uid);
+    if (isDevMode()) { console.log('[Sub] listening on uid:', uid); }
     this.#unsubscribe?.();
     this.#listeningUid = uid;
     this.loaded.set(false);

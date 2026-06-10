@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, isDevMode, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
@@ -67,7 +67,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   retryLoading(): void {
-    console.log('[App] User initiated retry');
+    if (isDevMode()) { console.log('[App] User initiated retry'); }
     this.loadingError.set(null);
     this.isLoading.set(true);
     this.startLoadingTimeout(); // Restart timeout timer
@@ -90,7 +90,7 @@ export class App implements OnInit, OnDestroy {
       this.backupModeService.initialized,
     ]);
 
-    console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated());
+    if (isDevMode()) { console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated()); }
 
     // Ensure subscription listener is running before any route guard fires
     const restoredUid = this.authService.firebaseUid();
@@ -186,14 +186,14 @@ export class App implements OnInit, OnDestroy {
       }
     }
 
-    console.log('[App] Starting Drive bootstrap...');
+    if (isDevMode()) { console.log('[App] Starting Drive bootstrap...'); }
     await this.withBootstrapRetries(async () => {
       await this.expenseStore.loadFromDrive();
       if (this.expenseStore.syncStatus() === 'error') {
         throw new Error('Drive bootstrap failed.');
       }
     }, 'backup data');
-    console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId());
+    if (isDevMode()) { console.log('[App] Drive bootstrap complete. driveFileId:', this.expenseStore.driveFileId()); }
 
     this.loadingError.set(null);
     this.tryStartFamilySync();
