@@ -14,6 +14,8 @@
   "settings.ai.description": "வாராந்திர நுண்ணறிவுகள் மற்றும் எதிர்கால பில் எடுப்புக்கு உங்கள் சொந்த Gemini API key-யை பயன்படுத்துங்கள்.",
   "settings.ai.default.title": "Spenza இயல்புநிலை",
   "settings.ai.default.description": "கோட்டா கிடைக்கும் போது ஆப் fallback key-யை பயன்படுத்தும்.",
+  "settings.ai.hosted.title": "Hosted",
+  "settings.ai.hosted.description": "Spenza இன் இலவச AI. key தேவையில்லை.",
   "settings.ai.userKey.title": "என் key பயன்படுத்து",
   "settings.ai.userKey.description": "உங்கள் Gemini free tier மற்றும் quota-வை பயன்படுத்துங்கள்.",
   "settings.ai.disabled.title": "ஆஃப்",

@@ -14,6 +14,8 @@
   "settings.ai.description": "स्मार्ट साप्ताहिक इनसाइट्स और भविष्य के बिल एक्सट्रैक्शन के लिए अपनी Gemini API key उपयोग करें.",
   "settings.ai.default.title": "Spenza डिफॉल्ट",
   "settings.ai.default.description": "कोटा उपलब्ध होने पर ऐप fallback key उपयोग करेगा.",
+  "settings.ai.hosted.title": "Hosted",
+  "settings.ai.hosted.description": "Spenza का मुफ़्त AI. कोई key नहीं चाहिए.",
   "settings.ai.userKey.title": "मेरी key उपयोग करें",
   "settings.ai.userKey.description": "अपना Gemini free tier और quota उपयोग करें.",
   "settings.ai.disabled.title": "बंद",

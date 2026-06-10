@@ -119,7 +119,20 @@ function localeFromPayload(payload) {
     }
     return 'en-IN';
 }
+const GROQ_SCHEMA_HINT = `
+Respond with a JSON object matching this exact structure — no other keys:
+{
+  "sections": [
+    { "label": "Anomaly",         "title": "...", "detail": "...", "tone": "warn|good|info", "icon": "alert-triangle|check-circle-2|lightbulb|clock-3|sparkles" },
+    { "label": "Behavior hack",   "title": "...", "detail": "...", "tone": "warn|good|info", "icon": "alert-triangle|check-circle-2|lightbulb|clock-3|sparkles" },
+    { "label": "What if",         "title": "...", "detail": "...", "tone": "warn|good|info", "icon": "alert-triangle|check-circle-2|lightbulb|clock-3|sparkles" },
+    { "label": "Seasonal timing", "title": "...", "detail": "...", "tone": "warn|good|info", "icon": "alert-triangle|check-circle-2|lightbulb|clock-3|sparkles" },
+    { "label": "Intent check",    "title": "...", "detail": "...", "tone": "warn|good|info", "icon": "alert-triangle|check-circle-2|lightbulb|clock-3|sparkles" }
+  ]
+}
+Return exactly 5 sections in that order. Use only the label values shown above verbatim.`;
 async function callGroq(apiKey, prompt) {
+    const groqPrompt = prompt + '\n' + GROQ_SCHEMA_HINT;
     const response = await fetch(GROQ_API_URL, {
         method: 'POST',
         headers: {
@@ -128,7 +141,7 @@ async function callGroq(apiKey, prompt) {
         },
         body: JSON.stringify({
             model: GROQ_MODEL,
-            messages: [{ role: 'user', content: prompt }],
+            messages: [{ role: 'user', content: groqPrompt }],
             temperature: 0.35,
             max_tokens: 1400,
             response_format: { type: 'json_object' },

@@ -344,7 +344,22 @@ interface BeforeInstallPromptEvent extends Event {
         [description]="'settings.ai.description' | translate"
       >
         <div class="space-y-4">
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="grid gap-3 md:grid-cols-3">
+            <button
+              type="button"
+              (click)="onAiProviderChange('hosted')"
+              [attr.aria-pressed]="aiProviderMode() === 'hosted'"
+              [class]="aiProviderButtonClass('hosted')"
+            >
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <lucide-icon name="sparkles" class="h-5 w-5" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold">{{ 'settings.ai.hosted.title' | translate }}</span>
+                <span class="mt-1 block text-xs text-muted-foreground">{{ 'settings.ai.hosted.description' | translate }}</span>
+              </span>
+            </button>
+
             <button
               type="button"
               (click)="onAiProviderChange('user-key')"

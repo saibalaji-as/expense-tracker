@@ -1,5 +1,5 @@
 export const environment = {
   production: false,
   // Firebase Functions — run: firebase emulators:start --only functions
-  firebaseFunctionsUrl: 'http://localhost:5001/spenza-notifications/us-central1',
+  firebaseFunctionsUrl: 'https://us-central1-spenza-notifications.cloudfunctions.net',
 };
