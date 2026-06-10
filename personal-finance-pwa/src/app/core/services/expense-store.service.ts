@@ -614,6 +614,7 @@ export const ExpenseStore = signalStore(
       });
       localRevision += 1;
       await methods.persistToDrive();
+      pushFamilyState();
 
       if (store.syncStatus() === 'error') {
         if (isDevMode()) { console.warn('[ExpenseStore] Widget expenses were added locally but Drive persistence is pending.'); }
@@ -706,7 +707,7 @@ export const ExpenseStore = signalStore(
     };
 
     const refreshNativeExpenseWidget = async (): Promise<void> => {
-      if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+      if (!Capacitor.isNativePlatform()) return;
 
       try {
         await ExpenseWidget.refresh();
