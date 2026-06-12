@@ -730,11 +730,6 @@ export class GoogleDriveService {
     }
   }
 
-  async ensureReceiptsFolder(): Promise<string> {
-    const token = await this.#authService.ensureToken();
-    return this.findOrCreateReceiptsFolder(token);
-  }
-
   getDriveFolderUrl(folderId: string): string {
     return `https://drive.google.com/drive/folders/${folderId}`;
   }
@@ -757,21 +752,25 @@ export class GoogleDriveService {
     return response.blob();
   }
 
+  /**
+   * Uploads a receipt into the user's private Drive appDataFolder.
+   * Works with the drive.appdata scope only — no full Drive scope required.
+   * appDataFolder files are not viewable in the Drive web UI, so viewUrl is
+   * intentionally empty; previews must go through downloadFile() blobs.
+   */
   async uploadReceiptFile(
     file: File,
     entryId: string,
     expenseDate: string,
-    receiptFolderId?: string | null,
   ): Promise<ExpenseReceipt> {
     const token = await this.#authService.ensureToken();
-    const folderId = receiptFolderId || await this.findOrCreateReceiptsFolder(token);
     const safeName = file.name.replace(/[^\w.\- ()]/g, '_');
     const timestamp = new Date().toISOString();
     const fileName = `${expenseDate}_${entryId}_${safeName}`;
     const boundary = `spenza_receipt_${crypto.randomUUID()}`;
     const metadata = JSON.stringify({
       name: fileName,
-      parents: [folderId],
+      parents: ['appDataFolder'],
       description: `Spenza receipt for expense ${entryId}`,
     });
 
@@ -788,7 +787,7 @@ export class GoogleDriveService {
     ], { type: `multipart/related; boundary=${boundary}` });
 
     const response = await fetch(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size',
       {
         method: 'POST',
         headers: {
@@ -809,7 +808,6 @@ export class GoogleDriveService {
       name?: string;
       mimeType?: string;
       size?: string;
-      webViewLink?: string;
     };
 
     return {
@@ -817,17 +815,9 @@ export class GoogleDriveService {
       fileName: data.name ?? file.name,
       mimeType: data.mimeType ?? file.type,
       size: Number(data.size ?? file.size),
-      viewUrl: data.webViewLink ?? `https://drive.google.com/file/d/${data.id}/view`,
+      viewUrl: '', // appDataFolder files have no Drive web view — preview via downloadFile() blob.
       uploadedAt: timestamp,
     };
-  }
-
-  private async findOrCreateReceiptsFolder(token: string): Promise<string> {
-    const folderName = 'Spenza Receipts';
-    const existing = await this.findFolderInParent(token, folderName, 'root');
-    if (existing) return existing;
-
-    return this.createDriveFolder(folderName, 'root');
   }
 
   private async findFolderInParent(

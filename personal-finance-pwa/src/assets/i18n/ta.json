@@ -423,6 +423,7 @@
   "daily.receipt.previewTitle": "பில் படம் முன்னோட்டம்",
   "daily.receipt.closePreview": "பில் முன்னோட்டத்தை மூடு",
   "daily.receipt.openPdf": "PDF திற",
+  "daily.receipt.openFailed": "பில்லைத் திறக்க முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.",
   "daily.receipt.extracting": "பிலை வாசித்து செலவு விவரங்களை கண்டறிகிறது...",
   "daily.receipt.smartFill.title": "ஸ்மார்ட் நிரப்பு பரிந்துரைகள்",
   "daily.receipt.smartFill.apply": "பயன்படுத்து",

@@ -423,6 +423,7 @@
   "daily.receipt.previewTitle": "Bill image preview",
   "daily.receipt.closePreview": "Close bill preview",
   "daily.receipt.openPdf": "Open PDF",
+  "daily.receipt.openFailed": "Could not open the bill. Check your connection and try again.",
   "daily.receipt.extracting": "Reading bill and finding expense details...",
   "daily.receipt.smartFill.title": "Smart fill suggestions",
   "daily.receipt.smartFill.apply": "Apply",

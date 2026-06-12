@@ -787,10 +787,21 @@ export const ExpenseStore = signalStore(
       if (!currentUid) return;
       const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
       const doc = buildBackupDocument();
+      // Strip receipt metadata before pushing to Firestore: receipt files live in the
+      // author's private Drive appDataFolder, so the partner cannot access them —
+      // syncing the metadata would only produce dead links on the partner's device.
+      const sanitizedDoc = {
+        ...doc,
+        expenses: doc.expenses.map((entry) => {
+          if (!entry.receipt) return entry;
+          const { receipt: _receipt, ...rest } = entry;
+          return rest;
+        }),
+      };
       const deletedIds = Array.from(localDeletedEntryIds);
       void (async () => {
         try {
-          await familySyncService.pushState(familyId, doc, writer, deletedIds);
+          await familySyncService.pushState(familyId, sanitizedDoc, writer, deletedIds);
         } catch (err) {
           console.error('[ExpenseStore] pushFamilyState failed:', err);
         }
@@ -1789,7 +1800,12 @@ export const ExpenseStore = signalStore(
         for (const remoteEntry of (remoteDoc.expenses ?? [])) {
           const local = mergedEntriesById.get(remoteEntry.id);
           if (!local || (remoteEntry.timestamp ?? '') >= (local.timestamp ?? '')) {
-            mergedEntriesById.set(remoteEntry.id, remoteEntry);
+            // Receipts are device-private (appDataFolder) and stripped from pushed
+            // state, so an incoming partner edit must not wipe the local attachment.
+            const merged = (local?.receipt && !remoteEntry.receipt)
+              ? { ...remoteEntry, receipt: local.receipt }
+              : remoteEntry;
+            mergedEntriesById.set(remoteEntry.id, merged);
           }
         }
         // Apply tombstones: remote deletions are accumulated into our own set so future pushes carry them.

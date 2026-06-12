@@ -30,6 +30,11 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Receipt storage moved to Drive appDataFolder + family receipt stripping (2026-06-12):
+  - Bill/receipt upload works again under drive.appdata-only scope: `uploadReceiptFile` uploads to `appDataFolder`; root "Spenza Receipts" folder logic and `ensureReceiptsFolder` removed.
+  - `ExpenseReceipt.viewUrl` is `''` for new receipts; all previews (image + PDF) go through `downloadFile()` blobs. Settings "Receipt Folder" card removed.
+  - `pushFamilyState` strips `entry.receipt` before the Firestore push (device-private files; avoids dead partner links); incoming merge preserves local receipts when the remote copy lacks one.
+  - Receipt image sharing between family members is intentionally not implemented; agreed future approach is a transient base64 relay subcollection, never base64 in the backup/state doc (1 MiB Firestore doc limit).
 - Netlify → Firebase migration + hosted AI tier (2026-06-10):
   - All Netlify functions fully deprecated. Firebase Functions (`functions/src/`) is the sole serverless backend.
   - `netlify.toml` functions config removed. `personal-finance-pwa/netlify/` folder is dead code pending manual deletion.

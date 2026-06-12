@@ -1010,16 +1010,15 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                     {{ 'daily.receipt.preview' | translate }}
                   </button>
                 } @else {
-                  <a
-                    [href]="entry.receipt.viewUrl"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    (click)="previewReceipt(entry.receipt)"
                     class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2 text-xs font-semibold text-primary transition-all hover:border-primary/40"
                   >
                     <lucide-icon name="file-text" class="h-3.5 w-3.5" />
                     {{ 'daily.receipt.openPdf' | translate }}
                     <lucide-icon name="external-link" class="h-3 w-3" />
-                  </a>
+                  </button>
                 }
               }
             </div>
@@ -1172,15 +1171,14 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           {{ 'daily.receipt.preview' | translate }}
                         </button>
                       } @else {
-                        <a
-                          [href]="entry.receipt.viewUrl"
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          (click)="previewReceipt(entry.receipt)"
                           class="mt-2 inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold text-primary hover:underline"
                         >
                           <lucide-icon name="file-text" class="h-3.5 w-3.5" />
                           {{ 'daily.receipt.openPdf' | translate }}
-                        </a>
+                        </button>
                       }
                     }
                   </div>
@@ -2388,8 +2386,21 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   async previewReceipt(receipt: ExpenseReceipt): Promise<void> {
+    // appDataFolder receipts have no Drive web view (viewUrl is empty),
+    // so both images and PDFs are served from a downloaded blob.
     if (!this.isImageReceipt(receipt)) {
-      window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+      try {
+        const blob = await this.googleDriveService.downloadFile(receipt.fileId);
+        const typedBlob = blob.type ? blob : new Blob([blob], { type: receipt.mimeType || 'application/pdf' });
+        window.open(URL.createObjectURL(typedBlob), '_blank', 'noopener,noreferrer');
+      } catch (error) {
+        if (isDevMode()) { console.warn('[DailyExpense] Failed to open receipt file:', error); }
+        if (receipt.viewUrl) {
+          window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          this.feedback.error(this.i18n.t('daily.receipt.openFailed'));
+        }
+      }
       return;
     }
 
@@ -2399,7 +2410,11 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       this.setReceiptPreview(url, receipt.fileName);
     } catch (error) {
       if (isDevMode()) { console.warn('[DailyExpense] Failed to preview receipt image:', error); }
-      window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+      if (receipt.viewUrl) {
+        window.open(receipt.viewUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        this.feedback.error(this.i18n.t('daily.receipt.openFailed'));
+      }
     }
   }
 
@@ -2439,14 +2454,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     this.uploadingReceipt.set(true);
     try {
-      let receiptFolderId = this.expenseStore.receiptFolderId();
-      if (!receiptFolderId) {
-        receiptFolderId = await this.googleDriveService.ensureReceiptsFolder();
-        this.expenseStore.patchReceiptFolderId(receiptFolderId);
-      }
-
+      // Receipts are stored in the user's private Drive appDataFolder (drive.appdata scope).
       const uploadFile = await this.prepareReceiptForUpload(file);
-      return await this.googleDriveService.uploadReceiptFile(uploadFile, entryId, date, receiptFolderId);
+      return await this.googleDriveService.uploadReceiptFile(uploadFile, entryId, date);
     } finally {
       this.uploadingReceipt.set(false);
     }

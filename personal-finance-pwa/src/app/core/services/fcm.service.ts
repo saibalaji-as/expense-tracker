@@ -8,6 +8,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { firebaseConfig } from '../config/firebase.config';
 import { environment } from '../../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface PushReminderPreferences {
   dailyReminderEnabled: boolean;
@@ -44,7 +45,14 @@ export class FcmService {
 
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
+  private readonly authService = inject(AuthService);
   private listenersSetup = false;
+
+  /** Auth headers for Firebase Functions calls — the backend requires a Firebase ID token. */
+  private async authHeaders(): Promise<Record<string, string>> {
+    const idToken = await this.authService.getFirebaseIdToken();
+    return idToken ? { Authorization: `Bearer ${idToken}` } : {};
+  }
 
   /**
    * Register for notifications and store token in backend
@@ -99,7 +107,7 @@ export class FcmService {
           timezone,
           ...reminderPreferences,
           timestamp: Date.now()
-        })
+        }, { headers: await this.authHeaders() })
       );
 
       if (isDevMode()) { console.log('[FCM] Token registered with backend:', response); }
@@ -121,7 +129,7 @@ export class FcmService {
       // Unregister from backend
       const endpoint = this.functionsEndpoint('unregisterToken');
       await firstValueFrom(
-        this.http.post(endpoint, { userId })
+        this.http.post(endpoint, { userId }, { headers: await this.authHeaders() })
       );
       if (isDevMode()) { console.log('[FCM] Token unregistered from backend'); }
 

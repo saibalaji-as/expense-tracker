@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
+import { AuthService } from './auth.service';
 
 export interface AiVoiceExpensePayload {
   transcript: string;
@@ -33,6 +34,7 @@ export interface AiVoiceExpenseAttempt {
 @Injectable({ providedIn: 'root' })
 export class AiVoiceExpenseService {
   private readonly aiSettingsService = inject(AiSettingsService);
+  private readonly authService = inject(AuthService);
 
   async parse(
     context: AiVoiceExpensePayload
@@ -56,6 +58,9 @@ export class AiVoiceExpenseService {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+      // Hosted AI requires a signed-in user — the server validates this token.
+      const idToken = await this.authService.getFirebaseIdToken();
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
 
       const response = await fetch(`${this.functionsBaseUrl()}/parseVoiceExpense`, {
         method: 'POST',

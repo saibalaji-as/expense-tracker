@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
+import { AuthService } from './auth.service';
 import { StorageService } from './storage.service';
 
 export type InsightTone = 'good' | 'warn' | 'info';
@@ -154,6 +155,7 @@ interface AiInsightUsage {
 export class AiInsightService {
   private readonly storageService = inject(StorageService);
   private readonly aiSettingsService = inject(AiSettingsService);
+  private readonly authService = inject(AuthService);
   private readonly cacheKey = 'ai_weekly_insight_cache_v1';
   private readonly usageKey = 'ai_weekly_insight_usage_v2';
   private readonly maxCallsPerLocalePerDay = 2;
@@ -234,6 +236,9 @@ export class AiInsightService {
         if (s.groqApiKey)   headers['X-Groq-Api-Key']   = s.groqApiKey;
         headers['X-Ai-Preference'] = s.byokPreference;
       }
+      // Hosted AI requires a signed-in user — the server validates this token.
+      const idToken = await this.authService.getFirebaseIdToken();
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
 
       const response = await fetch(`${this.functionsBaseUrl()}/generateInsights`, {
         method: 'POST',

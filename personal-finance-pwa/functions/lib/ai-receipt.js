@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractReceipt = void 0;
 const https_1 = require("firebase-functions/v2/https");
+const auth_1 = require("./auth");
 const DEFAULT_GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
 const GEMINI_API_VERSION = 'v1beta';
 const MAX_BASE64_LENGTH = 7_000_000;
@@ -39,10 +40,21 @@ exports.extractReceipt = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ_AP
         return;
     }
     // User key takes priority; fall back to server-hosted Gemini key (GEMINI_API_KEY env var)
-    const apiKey = (req.headers['x-gemini-api-key']?.trim() || process.env.GEMINI_API_KEY?.trim()) || null;
+    const userApiKey = req.headers['x-gemini-api-key']?.trim() || null;
+    const apiKey = (userApiKey || process.env.GEMINI_API_KEY?.trim()) || null;
     if (!apiKey) {
         res.status(503).json({ error: 'AI receipt extraction unavailable: no Gemini API key configured.' });
         return;
+    }
+    // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+    if (!userApiKey) {
+        try {
+            await (0, auth_1.requireFirebaseUid)(req);
+        }
+        catch {
+            res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI receipt extraction.' });
+            return;
+        }
     }
     try {
         const payload = req.body;

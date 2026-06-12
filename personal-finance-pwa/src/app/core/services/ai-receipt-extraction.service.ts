@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
 import { AiSettingsService } from './ai-settings.service';
+import { AuthService } from './auth.service';
 import { ReceiptExtractionResult } from './receipt-extraction.service';
 
 interface AiReceiptExtractionResponse {
@@ -26,6 +27,7 @@ export interface AiReceiptExtractionPayload {
 @Injectable({ providedIn: 'root' })
 export class AiReceiptExtractionService {
   private readonly aiSettingsService = inject(AiSettingsService);
+  private readonly authService = inject(AuthService);
 
   async extract(
     file: File,
@@ -60,6 +62,9 @@ export class AiReceiptExtractionService {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+      // Hosted AI requires a signed-in user — the server validates this token.
+      const idToken = await this.authService.getFirebaseIdToken();
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
 
       const response = await fetch(`${this.functionsBaseUrl()}/extractReceipt`, {
         method: 'POST',

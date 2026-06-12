@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.leaveFamily = exports.dissolveFamily = exports.redeemFamilyInvite = exports.createFamilyInvite = exports.createFamily = exports.testNotification = exports.parseVoiceExpense = exports.generateInsights = exports.extractReceipt = exports.unregisterToken = exports.registerToken = exports.sendReminders = exports.redeemSubscriptionHandoff = exports.createSubscriptionHandoff = exports.webhookHealthCheck = exports.razorpayWebhook = exports.cancelRazorpaySubscription = exports.restoreRazorpaySubscription = exports.verifyRazorpayPayment = exports.createRazorpaySubscription = void 0;
+exports.leaveFamily = exports.dissolveFamily = exports.redeemFamilyInvite = exports.createFamilyInvite = exports.createFamily = exports.parseVoiceExpense = exports.generateInsights = exports.extractReceipt = exports.unregisterToken = exports.registerToken = exports.sendReminders = exports.redeemSubscriptionHandoff = exports.createSubscriptionHandoff = exports.webhookHealthCheck = exports.razorpayWebhook = exports.cancelRazorpaySubscription = exports.restoreRazorpaySubscription = exports.verifyRazorpayPayment = exports.createRazorpaySubscription = void 0;
 const admin = __importStar(require("firebase-admin"));
 const razorpay_1 = require("./razorpay");
 Object.defineProperty(exports, "createRazorpaySubscription", { enumerable: true, get: function () { return razorpay_1.createRazorpaySubscription; } });
@@ -57,8 +57,9 @@ const ai_insights_1 = require("./ai-insights");
 Object.defineProperty(exports, "generateInsights", { enumerable: true, get: function () { return ai_insights_1.generateInsights; } });
 const ai_voice_1 = require("./ai-voice");
 Object.defineProperty(exports, "parseVoiceExpense", { enumerable: true, get: function () { return ai_voice_1.parseVoiceExpense; } });
-const test_notification_1 = require("./test-notification");
-Object.defineProperty(exports, "testNotification", { enumerable: true, get: function () { return test_notification_1.testNotification; } });
+// SECURITY: testNotification is intentionally NOT deployed to production.
+// It allowed unauthenticated callers to push notifications to every user.
+// Re-import locally only when testing with the Firebase emulator.
 const family_1 = require("./family");
 Object.defineProperty(exports, "createFamily", { enumerable: true, get: function () { return family_1.createFamily; } });
 Object.defineProperty(exports, "createFamilyInvite", { enumerable: true, get: function () { return family_1.createFamilyInvite; } });

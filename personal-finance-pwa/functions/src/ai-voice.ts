@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { requireFirebaseUid } from './auth';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
@@ -64,6 +65,16 @@ export const parseVoiceExpense = onRequest({ cors: true, secrets: ['GROQ_API_KEY
   if (!userApiKey && !hostedGroqKey) {
     res.status(503).json({ error: 'AI voice parsing unavailable: no API key configured on server.' });
     return;
+  }
+
+  // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+  if (!userApiKey) {
+    try {
+      await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI voice parsing.' });
+      return;
+    }
   }
 
   try {

@@ -1,12 +1,22 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions/v2/https';
 import { resolveTimezone } from './scheduler-utils';
+import { requireFirebaseUid } from './auth';
 
 export const registerToken = functions.onRequest(
   { cors: true, invoker: 'public' },
   async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    // Only signed-in Spenza users may write to the token registry.
+    let authUid: string;
+    try {
+      authUid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Unauthorized' });
       return;
     }
 
@@ -18,8 +28,20 @@ export const registerToken = functions.onRequest(
     }
 
     const db = admin.firestore();
-    await db.collection('users').doc(userId).set({
+    const ref = db.collection('users').doc(userId);
+
+    // Bind the registration to the Firebase account that created it.
+    // Legacy docs (no ownerUid) are claimed on first authenticated write.
+    const existing = await ref.get();
+    const existingOwner = existing.exists ? (existing.data()?.ownerUid as string | undefined) : undefined;
+    if (existingOwner && existingOwner !== authUid) {
+      res.status(403).json({ error: 'Forbidden: registration belongs to another account' });
+      return;
+    }
+
+    await ref.set({
       fcmToken,
+      ownerUid: authUid,
       timezone: resolveTimezone(timezone),
       enabled: true,
       dailyReminderEnabled: dailyReminderEnabled === true,
@@ -41,6 +63,14 @@ export const unregisterToken = functions.onRequest(
       return;
     }
 
+    let authUid: string;
+    try {
+      authUid = await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const { userId } = req.body;
 
     if (!userId) {
@@ -53,6 +83,12 @@ export const unregisterToken = functions.onRequest(
 
     if (!userDoc.exists) {
       res.json({ success: true, message: 'User already unregistered', userId });
+      return;
+    }
+
+    const ownerUid = userDoc.data()?.ownerUid as string | undefined;
+    if (ownerUid && ownerUid !== authUid) {
+      res.status(403).json({ error: 'Forbidden: registration belongs to another account' });
       return;
     }
 

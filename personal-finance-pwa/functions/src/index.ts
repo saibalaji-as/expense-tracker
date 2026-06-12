@@ -7,7 +7,9 @@ import { registerToken, unregisterToken } from './fcm';
 import { extractReceipt } from './ai-receipt';
 import { generateInsights } from './ai-insights';
 import { parseVoiceExpense } from './ai-voice';
-import { testNotification } from './test-notification';
+// SECURITY: testNotification is intentionally NOT deployed to production.
+// It allowed unauthenticated callers to push notifications to every user.
+// Re-import locally only when testing with the Firebase emulator.
 import { createFamily, createFamilyInvite, redeemFamilyInvite, dissolveFamily, leaveFamily } from './family';
 
 admin.initializeApp();
@@ -27,7 +29,6 @@ export {
   extractReceipt,
   generateInsights,
   parseVoiceExpense,
-  testNotification,
   createFamily,
   createFamilyInvite,
   redeemFamilyInvite,

@@ -2359,3 +2359,21 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
   - Added durable secret-hygiene guidance for generated Firebase config and signing files: `google-services.json`, `GoogleService-Info.plist`, `sha-keys.md`, `*.keystore`, `*.jks`, and `*.p12`.
 - Verification:
   - Compared memory against current Angular subscription code, Firebase Functions source, deploy workflow, and ignore files.
+
+## 2026-06-12 — Production-readiness security audit (Cowork)
+- CRITICAL fixes: AI endpoints (generateInsights/parseVoiceExpense/extractReceipt) now require Firebase ID token on the hosted-key path (were an open unauthenticated AI proxy burning GROQ/GEMINI quota). Clients send Authorization header via AuthService.getFirebaseIdToken().
+- CRITICAL: testNotification removed from functions/src/index.ts exports — it allowed unauthenticated push to ALL users. Delete live instance: `firebase functions:delete testNotification`.
+- HIGH: registerToken/unregisterToken now require Firebase ID token; docs bound to ownerUid (legacy docs claimed on first authed write; cross-account 403).
+- HIGH (Play policy): removed unused REQUEST_IGNORE_BATTERY_OPTIMIZATIONS from AndroidManifest.xml.
+- Verified: functions tsc build green; app tsc -p tsconfig.app.json --noEmit green. Full ng prod build not run in sandbox (slow) — run in CI.
+- Open decisions documented in docs/PRODUCTION_LAUNCH_CHECKLIST.md: Razorpay-vs-Play-Billing for Android, web/native OAuth client ID mismatch (index.html vs auth.service.ts), notification-listener Play declaration, google-services.json needed locally for release build.
+
+## 2026-06-12 — Receipt upload fixed for drive.appdata-only scope + family sync receipt stripping
+- Root cause found: receipt upload broke for ALL users after full `drive` scope removal (SCOPE_VERSION 8) — `findOrCreateReceiptsFolder`/`uploadReceiptFile` created "Spenza Receipts" in My Drive root, which 403s under drive.appdata-only.
+- `GoogleDriveService.uploadReceiptFile` now uploads with `parents: ['appDataFolder']`; folder param removed; `viewUrl` is now always `''` (appData files have no Drive web view). Removed `ensureReceiptsFolder` + `findOrCreateReceiptsFolder`.
+- `DailyExpenseComponent`: upload path no longer resolves/creates a receipt folder; PDF "Open PDF" template links changed from `<a [href]=viewUrl>` to buttons calling `previewReceipt()`, which now serves both images and PDFs from `downloadFile()` blobs (viewUrl kept as legacy fallback). New i18n key `daily.receipt.openFailed` (en/ta/hi + i18n.service fallback).
+- `SettingsComponent`: removed the "Receipt Folder" setup card, `onSetupReceiptFolder()`, `receiptFolderUrl()`, `isSettingUpReceiptFolder`. `receiptFolderId` backup metadata passthrough kept for backward compat with old backups.
+- `ExpenseStore.pushFamilyState` now strips `entry.receipt` from the BackupDocument pushed to Firestore `families/{id}/state/current` — receipts are device-private appData files; partner would only get dead links (also keeps the 1 MiB Firestore doc limit safer).
+- Incoming family state merge preserves `local.receipt` when a newer remote copy of the same entry has no receipt, so partner edits don't wipe local attachments.
+- Verified: `tsc -p tsconfig.app.json --noEmit` green; `ngc -p tsconfig.app.json --noEmit` (AOT template check) green; vitest expense-store (37), daily-expense + settings specs (80) all pass. Full ng prod build not run in sandbox (slow) — run in CI.
+- Decision: family receipt image sharing deliberately NOT implemented yet. Agreed direction if demanded: transient base64 relay docs in `families/{id}/receipts/{entryId}` (~160 KB < 1 MiB), partner saves to own appDataFolder then deletes relay doc. Never embed base64 in backup doc or state doc.

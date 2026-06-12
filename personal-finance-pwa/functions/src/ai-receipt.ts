@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { requireFirebaseUid } from './auth';
 
 interface AiReceiptPayload {
   fileName?: string;
@@ -80,10 +81,21 @@ export const extractReceipt = onRequest({ cors: true, secrets: ['GROQ_API_KEY', 
   }
 
   // User key takes priority; fall back to server-hosted Gemini key (GEMINI_API_KEY env var)
-  const apiKey = ((req.headers['x-gemini-api-key'] as string | undefined)?.trim() || process.env.GEMINI_API_KEY?.trim()) || null;
+  const userApiKey = (req.headers['x-gemini-api-key'] as string | undefined)?.trim() || null;
+  const apiKey = (userApiKey || process.env.GEMINI_API_KEY?.trim()) || null;
   if (!apiKey) {
     res.status(503).json({ error: 'AI receipt extraction unavailable: no Gemini API key configured.' });
     return;
+  }
+
+  // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+  if (!userApiKey) {
+    try {
+      await requireFirebaseUid(req);
+    } catch {
+      res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI receipt extraction.' });
+      return;
+    }
   }
 
   try {

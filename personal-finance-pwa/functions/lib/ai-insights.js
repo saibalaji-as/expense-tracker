@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateInsights = void 0;
 const https_1 = require("firebase-functions/v2/https");
+const auth_1 = require("./auth");
 // ---------------------------------------------------------------------------
 // Provider config
 // ---------------------------------------------------------------------------
@@ -57,6 +58,16 @@ exports.generateInsights = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ_
     if (!hasUserKey && !hostedGroqKey && !hostedGeminiKey) {
         res.status(503).json({ error: 'AI insights unavailable: no API key configured on server.' });
         return;
+    }
+    // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+    if (!hasUserKey) {
+        try {
+            await (0, auth_1.requireFirebaseUid)(req);
+        }
+        catch {
+            res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI insights.' });
+            return;
+        }
     }
     try {
         const payload = req.body;

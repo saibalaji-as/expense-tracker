@@ -37,9 +37,19 @@ exports.unregisterToken = exports.registerToken = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v2/https"));
 const scheduler_utils_1 = require("./scheduler-utils");
+const auth_1 = require("./auth");
 exports.registerToken = functions.onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    // Only signed-in Spenza users may write to the token registry.
+    let authUid;
+    try {
+        authUid = await (0, auth_1.requireFirebaseUid)(req);
+    }
+    catch {
+        res.status(401).json({ error: 'Unauthorized' });
         return;
     }
     const { userId, fcmToken, timezone, timestamp, dailyReminderEnabled, reminderHour, reminderMinute } = req.body;
@@ -48,8 +58,18 @@ exports.registerToken = functions.onRequest({ cors: true, invoker: 'public' }, a
         return;
     }
     const db = admin.firestore();
-    await db.collection('users').doc(userId).set({
+    const ref = db.collection('users').doc(userId);
+    // Bind the registration to the Firebase account that created it.
+    // Legacy docs (no ownerUid) are claimed on first authenticated write.
+    const existing = await ref.get();
+    const existingOwner = existing.exists ? existing.data()?.ownerUid : undefined;
+    if (existingOwner && existingOwner !== authUid) {
+        res.status(403).json({ error: 'Forbidden: registration belongs to another account' });
+        return;
+    }
+    await ref.set({
         fcmToken,
+        ownerUid: authUid,
         timezone: (0, scheduler_utils_1.resolveTimezone)(timezone),
         enabled: true,
         dailyReminderEnabled: dailyReminderEnabled === true,
@@ -65,6 +85,14 @@ exports.unregisterToken = functions.onRequest({ cors: true, invoker: 'public' },
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
+    let authUid;
+    try {
+        authUid = await (0, auth_1.requireFirebaseUid)(req);
+    }
+    catch {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+    }
     const { userId } = req.body;
     if (!userId) {
         res.status(400).json({ error: 'Missing required field', required: ['userId'] });
@@ -74,6 +102,11 @@ exports.unregisterToken = functions.onRequest({ cors: true, invoker: 'public' },
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
         res.json({ success: true, message: 'User already unregistered', userId });
+        return;
+    }
+    const ownerUid = userDoc.data()?.ownerUid;
+    if (ownerUid && ownerUid !== authUid) {
+        res.status(403).json({ error: 'Forbidden: registration belongs to another account' });
         return;
     }
     await db.collection('users').doc(userId).delete();

@@ -423,6 +423,7 @@
   "daily.receipt.previewTitle": "बिल इमेज प्रीव्यू",
   "daily.receipt.closePreview": "बिल प्रीव्यू बंद करें",
   "daily.receipt.openPdf": "PDF खोलें",
+  "daily.receipt.openFailed": "बिल नहीं खुल सका. कनेक्शन जांचें और फिर कोशिश करें.",
   "daily.receipt.extracting": "बिल पढ़कर खर्च की जानकारी ढूंढी जा रही है...",
   "daily.receipt.smartFill.title": "स्मार्ट फिल सुझाव",
   "daily.receipt.smartFill.apply": "लागू करें",

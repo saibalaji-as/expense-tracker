@@ -101,6 +101,7 @@ const FALLBACK_TRANSLATIONS: Record<string, string> = {
   'daily.receipt.invalidType': 'Please attach an image or PDF file.',
   'daily.receipt.tooLarge': 'Bill file must be 10 MB or smaller.',
   'daily.receipt.offline': 'Go online to upload a bill.',
+  'daily.receipt.openFailed': 'Could not open the bill. Check your connection and try again.',
   'daily.receipt.view': 'View bill',
   'daily.receipt.extracting': 'Reading bill and finding expense details...',
   'daily.receipt.smartFill.title': 'Smart fill suggestions',

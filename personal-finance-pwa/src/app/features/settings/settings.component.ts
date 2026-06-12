@@ -766,43 +766,8 @@ interface BeforeInstallPromptEvent extends Event {
 
       </app-section-card>
 
-      @if (backupModeService.mode() !== 'family') {
-        <!-- Receipt folder sharing -->
-        <app-section-card
-          [title]="'settings.receipts.title' | translate"
-          [description]="'settings.receipts.description' | translate"
-        >
-          <div class="rounded-2xl border border-border bg-card/40 p-4">
-            @if (expenseStore.receiptFolderId()) {
-              <p class="text-sm font-semibold">{{ 'settings.receipts.ready' | translate }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.shareHint' | translate }}</p>
-              <a
-                [href]="receiptFolderUrl()"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
-              >
-                <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
-                {{ 'settings.receipts.openFolder' | translate }}
-              </a>
-            } @else {
-              <p class="text-sm font-semibold">{{ 'settings.receipts.notReady' | translate }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.receipts.setupHint' | translate }}</p>
-              <button
-                type="button"
-                (click)="onSetupReceiptFolder()"
-                [disabled]="isSettingUpReceiptFolder()"
-                class="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-primary-foreground gradient-primary shadow-glow disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                @if (isSettingUpReceiptFolder()) {
-                  <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                }
-                {{ 'settings.receipts.setup' | translate }}
-              </button>
-            }
-          </div>
-        </app-section-card>
-      }
+      <!-- Receipt folder card removed: receipts now live in the private Drive
+           appDataFolder (drive.appdata scope) — no user-visible folder to set up. -->
 
       <!-- Import from Google Sheets -->
       <app-section-card [title]="'settings.import.title' | translate" [description]="'settings.import.description' | translate">
@@ -1527,7 +1492,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isImporting = signal(false);
   readonly importMessage = signal<string | null>(null);
   readonly importError = signal(false);
-  readonly isSettingUpReceiptFolder = signal(false);
   readonly isRestoringJson = signal(false);
   readonly restoreJsonMessage = signal<string | null>(null);
   readonly restoreJsonError = signal(false);
@@ -1728,32 +1692,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.dialogGroqKey = '';
     this.isAiKeysDialogOpen.set(false);
     this.feedback.success('API keys saved.', 'Your keys are stored privately on this device and in Drive.');
-  }
-
-  receiptFolderUrl(): string {
-    const folderId = this.expenseStore.receiptFolderId();
-    return folderId ? this.googleDriveService.getDriveFolderUrl(folderId) : '#';
-  }
-
-  async onSetupReceiptFolder(): Promise<void> {
-    this.isSettingUpReceiptFolder.set(true);
-    try {
-      const folderId = await this.googleDriveService.ensureReceiptsFolder();
-      await this.expenseStore.patchReceiptFolderId(folderId);
-      this.feedback.success(
-        'Receipt folder saved.',
-        'Bills linked to expenses will be stored in this Drive folder.'
-      );
-    } catch (error) {
-      this.feedback.error(
-        'Receipt folder was not saved.',
-        error instanceof Error
-          ? error.message
-          : 'Check your Google Drive access and try again.'
-      );
-    } finally {
-      this.isSettingUpReceiptFolder.set(false);
-    }
   }
 
   private async loadNotificationPreferences(): Promise<void> {
