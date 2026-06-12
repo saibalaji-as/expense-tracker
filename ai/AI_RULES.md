@@ -61,7 +61,8 @@
 ## Google Auth / Drive Rules
 - Use `AuthService.ensureToken()` for Google API access.
 - Do not manually cache or pass access tokens outside existing service boundaries.
-- Exception: native Android may persist the latest short-lived access token via `AuthService` only for the standalone home screen widget sync path. Keep keys scoped to `gapi_access_token` / `gapi_access_token_expires_at`, clear them on sign-out/scope mismatch/account-local clears, and do not use this pattern for web.
+- The latest short-lived Google access token + expiry are persisted via `AuthService` on BOTH web and native (keys `gapi_access_token` / `gapi_access_token_expires_at`; the Android widget reads these key strings natively — never rename them). Restore on startup with a 5-minute expiry buffer; clear them on sign-out, scope mismatch, `clearToken()`, and account-local clears. Product rule: a signed-in user must not be asked to sign in again before token expiry.
+- After any Google sign-in, verify the granted scopes include `drive.appdata` (web: token response `scope`; native: tokeninfo). On a missing scope, throw `MissingDriveScopeError`, force `prompt: 'consent'` on the next web sign-in, and show the `auth.error.driveAccess` message — never let a scope-less token reach Drive calls (it causes a 403 sign-in loop).
 - Do not clear persisted signed-in state just because a silent web access-token refresh fails; users should remain locally signed in and re-consent only when Drive access is actually needed.
 - Do not re-add the full drive scope. Family sync uses Firestore. Only drive.appdata is needed.
 - Keep family mode folder-based logic deprecated. Do not add new features against GoogleDriveService shared-folder methods (`createFamilyFolderBundle`, `findExistingFamilyFolderBundle`, `findBackupFileInFolder`, `findOrCreateReceiptsFolderInFamilyFolder`). These are marked for removal after 2026-09-01.

@@ -1,10 +1,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -23,6 +26,7 @@ import {
   Check,
 } from 'lucide-angular';
 import { ReminderService, ReminderLocation } from '../../core/services/reminder.service';
+import { GoogleMapsLoaderService, GMap, GMarker, GCircle } from '../../core/services/google-maps-loader.service';
 import { AiVoiceReminderService } from '../../core/services/ai-voice-reminder.service';
 import { AuthService } from '../../core/services/auth.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
@@ -192,6 +196,14 @@ interface GeocodingResult {
               </div>
             }
 
+            <!-- Map picker -->
+            @if (mapsAvailable()) {
+              <div class="space-y-1.5">
+                <div #mapHost class="h-60 w-full rounded-xl border border-border overflow-hidden"></div>
+                <p class="text-xs text-muted-foreground">{{ 'reminders.form.mapHint' | translate }}</p>
+              </div>
+            }
+
             <!-- Confirmed location -->
             @if (confirmedLocation()) {
               <div class="rounded-xl bg-green-500/10 border border-green-500/20 p-3 flex items-center gap-2">
@@ -250,6 +262,7 @@ export class ReminderFormComponent implements OnInit {
   private readonly feedback = inject(UserFeedbackService);
   private readonly i18n = inject(I18nService);
   private readonly subscriptionService = inject(SubscriptionService);
+  private readonly mapsLoader = inject(GoogleMapsLoaderService);
 
   readonly isEditMode = signal(false);
   readonly editId = signal<string | null>(null);
@@ -262,6 +275,38 @@ export class ReminderFormComponent implements OnInit {
   readonly geocodeResults = signal<GeocodingResult[]>([]);
   readonly confirmedLocation = signal<GeocodingResult | null>(null);
   readonly radiusKm = signal(5);
+  readonly mapsAvailable = signal(this.mapsLoader.isConfigured());
+
+  private readonly mapHost = viewChild<ElementRef<HTMLDivElement>>('mapHost');
+  #map: GMap | null = null;
+  #marker: GMarker | null = null;
+  #circle: GCircle | null = null;
+  #mapInitStarted = false;
+
+  constructor() {
+    // Initialize (or tear down) the map when its host element enters/leaves the DOM.
+    effect(() => {
+      const host = this.mapHost();
+      if (!host) {
+        this.#map = null;
+        this.#marker = null;
+        this.#circle = null;
+        this.#mapInitStarted = false;
+        return;
+      }
+      if (!this.#mapInitStarted) {
+        this.#mapInitStarted = true;
+        void this.#initMap(host.nativeElement);
+      }
+    });
+
+    // Keep pin + radius circle in sync with the confirmed location.
+    effect(() => {
+      const loc = this.confirmedLocation();
+      const radius = this.radiusKm();
+      this.#syncMapPin(loc, radius);
+    });
+  }
 
   readonly isPro = computed(() => this.subscriptionService.isPro());
 
@@ -439,6 +484,90 @@ export class ReminderFormComponent implements OnInit {
   confirmLocation(result: GeocodingResult): void {
     this.confirmedLocation.set({ ...result, name: this.locationQuery().trim() || result.displayName.split(',')[0] });
     this.geocodeResults.set([]);
+    this.#map?.setZoom(15);
+  }
+
+  // ─── Map picker ──────────────────────────────────────────────────────────
+
+  async #initMap(el: HTMLElement): Promise<void> {
+    try {
+      const maps = await this.mapsLoader.load();
+      const loc = this.confirmedLocation();
+      const center = loc ? { lat: loc.lat, lng: loc.lng } : { lat: 20.5937, lng: 78.9629 };
+
+      this.#map = new maps.Map(el, {
+        center,
+        zoom: loc ? 15 : 4,
+        disableDefaultUI: true,
+        zoomControl: true,
+        clickableIcons: false,
+        gestureHandling: 'greedy',
+      });
+      this.#marker = new maps.Marker({ position: center, draggable: true });
+      this.#circle = new maps.Circle({
+        center,
+        radius: this.radiusKm() * 1000,
+        fillColor: '#7c3aed',
+        fillOpacity: 0.12,
+        strokeColor: '#7c3aed',
+        strokeOpacity: 0.6,
+        strokeWeight: 1.5,
+      });
+
+      this.#map.addListener('click', (e) => {
+        const ll = e.latLng;
+        if (ll) this.#onMapPick(ll.lat(), ll.lng());
+      });
+      this.#marker.addListener('dragend', () => {
+        const p = this.#marker?.getPosition();
+        if (p) this.#onMapPick(p.lat(), p.lng());
+      });
+
+      this.#syncMapPin(loc, this.radiusKm());
+    } catch {
+      // No key configured or script blocked — search-only flow still works.
+      this.mapsAvailable.set(false);
+    }
+  }
+
+  #onMapPick(lat: number, lng: number): void {
+    const fallbackName = this.locationQuery().trim() || this.i18n.t('reminders.form.pinnedLocation');
+    this.confirmedLocation.set({ name: fallbackName, lat, lng, displayName: fallbackName });
+    this.geocodeResults.set([]);
+    void this.#reverseGeocodeName(lat, lng);
+  }
+
+  /** Resolve a human-readable name for a map-picked point (free Nominatim reverse lookup). */
+  async #reverseGeocodeName(lat: number, lng: number): Promise<void> {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+      const res = await fetch(url, { headers: { 'Accept-Language': this.i18n.locale() } });
+      if (!res.ok) return;
+      const data = await res.json() as { display_name?: string };
+      const current = this.confirmedLocation();
+      // Only apply if the user has not picked a different point meanwhile.
+      if (data.display_name && current && current.lat === lat && current.lng === lng) {
+        const name = data.display_name.split(',')[0]?.trim() || current.name;
+        this.confirmedLocation.set({ ...current, name, displayName: data.display_name });
+        this.locationQuery.set(name);
+      }
+    } catch { /* keep fallback name */ }
+  }
+
+  #syncMapPin(loc: GeocodingResult | null, radiusKm: number): void {
+    if (!this.#map || !this.#marker || !this.#circle) return;
+    if (!loc) {
+      this.#marker.setMap(null);
+      this.#circle.setMap(null);
+      return;
+    }
+    const center = { lat: loc.lat, lng: loc.lng };
+    this.#marker.setMap(this.#map);
+    this.#marker.setPosition(center);
+    this.#circle.setMap(this.#map);
+    this.#circle.setCenter(center);
+    this.#circle.setRadius(radiusKm * 1000);
+    this.#map.setCenter(center);
   }
 
   // ─── Save ────────────────────────────────────────────────────────────────

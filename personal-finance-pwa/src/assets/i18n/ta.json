@@ -225,6 +225,7 @@
   "auth.subtitle": "செலவுகளை பதிவு செய்யுங்கள், ஸ்மார்ட் வரம்புகளை அமைக்குங்கள், செலவுகளை பாருங்கள் — Google Drive உடன் ஒத்திசைவு.",
   "auth.signIn": "Google மூலம் உள்நுழை",
   "auth.signingIn": "உள்நுழைகிறது...",
+  "auth.error.driveAccess": "Google Drive அணுகல் வழங்கப்படவில்லை, எனவே Spenza உங்கள் தரவை ஏற்ற முடியாது. மீண்டும் உள்நுழைந்து Google திரையில் உள்ள அனைத்து அனுமதி பெட்டிகளையும் — குறிப்பாக Google Drive அணுகலை — தேர்வு செய்யவும்.",
   "auth.feature.daily.title": "தினசரி செலவுகளை பதிவு செய்",
   "auth.feature.daily.description": "ஸ்மார்ட் வகைகளுடன் செலவுகளை உடனே பதிவு செய்யுங்கள்.",
   "auth.feature.limits.title": "ஸ்மார்ட் வரம்புகள் அமை",
@@ -581,9 +582,7 @@
   "settings.legal.title": "சட்ட தகவல்",
   "settings.privacyPolicy": "தனியுரிமைக் கொள்கை",
   "settings.terms": "சேவை விதிமுறைகள்",
-
   "nav.reminders": "நினைவூட்டல்கள்",
-
   "reminders.title": "நினைவூட்டல்கள்",
   "reminders.subtitle": "தேதி, நேரம் மற்றும் இடம் சார்ந்த கொள்முதல் நினைவூட்டல்கள்",
   "reminders.create": "புதிய நினைவூட்டல்",
@@ -594,7 +593,6 @@
   "reminders.expired": "காலாவதியானது",
   "reminders.action.complete": "முடிந்தது என குறி",
   "reminders.action.delete": "நீக்கு",
-
   "reminders.form.newTitle": "புதிய நினைவூட்டல்",
   "reminders.form.editTitle": "நினைவூட்டலை திருத்து",
   "reminders.form.title": "என்னை நினைவில் வைக்க",
@@ -611,7 +609,8 @@
   "reminders.form.locationProHint": "இட நினைவூட்டல்கள் Pro அம்சம். மேம்படுத்தவும்.",
   "reminders.form.notifDenied": "அறிவிப்பு அனுமதி மறுக்கப்பட்டது — எச்சரிக்கை கிடைக்காது.",
   "reminders.form.geocodeError": "அந்த இடம் கிடைக்கவில்லை. வேறு தேடலை முயற்சிக்கவும்.",
-
+  "reminders.form.mapHint": "இடத்தைச் சரிசெய்ய வரைபடத்தைத் தட்டவும் அல்லது குண்டூசியை இழுக்கவும்.",
+  "reminders.form.pinnedLocation": "குறிக்கப்பட்ட இடம்",
   "reminders.form.voice.title": "குரல் மூலம் உருவாக்கு",
   "reminders.form.voice.hint": "எ.கா \"நாளை மாலை கிரோஸரி வாங்க நினைவூட்டு\" என்று சொல்லுங்கள்.",
   "reminders.form.voice.start": "குரல் தொடங்கு",
@@ -619,7 +618,6 @@
   "reminders.form.voice.parsing": "பகுப்பாய்வு செய்கிறது…",
   "reminders.form.voice.fallback": "AI புரிந்துகொள்ளவில்லை. படிவத்தை நிரப்பவும்.",
   "reminders.form.voice.ambiguous": "தெளிவில்லை. படிவத்தை நிரப்பவும்.",
-
   "reminders.feedback.created": "நினைவூட்டல் உருவாக்கப்பட்டது",
   "reminders.feedback.updated": "நினைவூட்டல் புதுப்பிக்கப்பட்டது",
   "reminders.feedback.completed": "நினைவூட்டல் முடிந்தது என குறிக்கப்பட்டது",

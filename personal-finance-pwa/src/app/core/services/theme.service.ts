@@ -62,7 +62,7 @@ export class ThemeService {
   async setTheme(t: 'light' | 'dark' | 'system'): Promise<void> {
     this._theme.set(t);
     await this.storageService.set('pf-theme', t);
-    this.applyTheme();
+    this.#withViewTransition(() => this.applyTheme());
   }
 
   async setPalette(p: AppPalette): Promise<void> {
@@ -75,7 +75,24 @@ export class ThemeService {
   async setStyle(s: AppStyle): Promise<void> {
     this._style.set(s);
     await this.storageService.set('pf-style', s);
-    this.#applyStyle();
+    this.#withViewTransition(() => {
+      this.#applyStyle();
+      // Style blocks change --background/--primary, keep browser chrome in sync
+      this.#updateMetaThemeColor();
+    });
+  }
+
+  /** Cross-fade DOM-wide visual changes when supported; apply directly otherwise. */
+  #withViewTransition(apply: () => void): void {
+    const doc = document as Document & {
+      startViewTransition?: (cb: () => void) => void;
+    };
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (doc.startViewTransition && !reducedMotion) {
+      doc.startViewTransition(() => apply());
+    } else {
+      apply();
+    }
   }
 
   getCssVar(name: string): string {

@@ -1,5 +1,25 @@
 # Task History
 
+## 2026-06-12 - Reminders Fix (Missing Firestore Rules) + Google Maps Location Picker
+
+### What was changed
+- **`firestore.rules`**: Added `match /users/{uid}/reminders/{reminderId}` with owner-only read/write. This was the root cause of the reminder screen "not working" — the catch-all deny rule blocked every reminder read/write (permission-denied on list load and save). **Must be deployed manually**: `npx firebase-tools deploy --only firestore:rules --project spenza-notifications` (the CI workflow does not deploy rules).
+- **`src/index.html`**: Added `window.__GOOGLE_MAPS_API_KEY__ = 'GOOGLE_MAPS_API_KEY_PLACEHOLDER'` (same injection pattern as Razorpay key).
+- **NEW `core/services/google-maps-loader.service.ts`**: Lazy one-time loader for the Google Maps JS API with minimal structural typings (no `@types/google.maps` dependency). `isConfigured()` returns false when the placeholder is unreplaced (local dev) so the UI falls back to search-only.
+- **`reminder-form.component.ts`**: Interactive map picker for location reminders — tap-to-pick, draggable marker, radius circle synced to the slider, search results recenter the map. Map-picked points get a human-readable name via free Nominatim reverse geocoding (keeps Google billing to map loads only). Map block hidden entirely when key is missing or script fails.
+- **`.github/workflows/deploy-firebase.yml`**: New warn-only injection step replacing `GOOGLE_MAPS_API_KEY_PLACEHOLDER` from the `GOOGLE_MAPS_API_KEY` GitHub secret. Deliberately non-fatal (unlike Razorpay validation) so deploys don't break before the secret exists.
+- i18n: `reminders.form.mapHint`, `reminders.form.pinnedLocation` in en/ta/hi.
+
+### Why these decisions were made
+- Firestore denies by default; the reminders feature shipped without rules, so the failure was silent (generic error toast / empty list). Rules deploy is manual because CI `--only` list excludes `firestore:rules`.
+- Google Maps JS chosen by user over Leaflet/OSM despite key+billing requirement. Key exposure client-side is normal for Maps JS; must be HTTP-referrer-restricted (`https://spenza-finance.web.app/*` and `https://localhost/*` for Capacitor Android WebView).
+- Reverse geocoding stays on Nominatim (free) rather than Google Geocoder to avoid per-call billing.
+
+### Verification
+- `tsc -p tsconfig.app.json --noEmit` clean. Full `ng build --configuration production` could not run in the agent sandbox (macOS esbuild binaries) — run locally before deploy.
+
+---
+
 ## 2026-06-10 - Netlify → Firebase Migration + Hosted AI Tier (C1 Fix)
 
 ### What was changed
@@ -2434,3 +2454,21 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
 ### Build verification
 - `npx tsc --noEmit` — zero errors
 - `npm run build` — zero errors (pre-existing budget warnings only)
+
+
+## 2026-06-12 — Partner login loop fix, token-lifetime sessions, sub-500ms startup
+- Bug: partner account looped "login error → sign in → login error" while owner was fine. Diagnosis: Google granular consent — partner had not ticked the Drive checkbox, so the token lacked `drive.appdata`; every Drive call 403'd, app cleared the token and redirected to `/auth/callback`, and the next sign-in silently returned the same scope-less token (Google does not re-show consent by default), looping forever.
+- Fix: scope validation after every token grant (web token response `scope`; native tokeninfo lookup), `MissingDriveScopeError`, forced `prompt: 'consent'` on next web sign-in, and a precise i18n error (`auth.error.driveAccess`, en/ta/hi) in `AuthCallbackComponent`.
+- Requirement "no re-sign-in until token expiry": web now persists the access token + expiry like native (shared `gapi_access_token*` keys), restored in `#restoreSession`; `clearToken()` also clears the persisted copy so revoked tokens (Drive 401) are not restored.
+- Requirement "startup < 500 ms": batched `#restoreSession` Preferences reads into one `Promise.all`; made the `LocalNotificationService` `APP_INITIALIZER` non-blocking; `loadFromLocalCache` no longer awaits the widget-queue flush whose `persistToDrive` network write sat on the cached-startup critical path.
+- Rejected approach: silent `ensureToken()` attempt during web bootstrap before redirecting to `/auth/callback` — GSI `requestAccessToken` outside a user gesture risks popup blocking and a visible popup flash; token persistence covers the requirement instead.
+- Verification: `npx tsc --noEmit -p tsconfig.app.json` clean; `npx vitest run` auth.service.spec (11) + expense-store.service.spec (37) pass. Production build not completed in the (slow emulated) fix environment — run locally before deploy.
+
+## 2026-06-12 — Mobile nav redesign: floating glass pill (app-shell)
+- Decision: keep bottom nav for mobile (thumb reach, finance-app convention) but trim from 7 to 5 tabs; Alerts (`/reminders`) and Settings moved to mobile top bar as icon buttons (`.top-icon-btn`, active = primary tint).
+- Portrait bottom nav rebuilt in `app-shell.component.ts`: detached floating pill (`.float-nav`, 14px inset + safe-area, blur/glass via color-mix + backdrop-filter) with a sliding `--gradient-primary` pill (`.nav-pill`) behind the active tab; position driven by `activeMobileIndex` signal updated on `NavigationEnd`; index -1 (route not in pill) fades the highlight. Old wave-peak/bump styles removed.
+- `navItems` (7) still used by desktop top nav; new `mobileNavItems` (5: daily, monthly, limits, finances, dashboard) used by portrait pill and landscape side rail.
+- Note: `shared/components/bottom-nav/bottom-nav.component.ts` is legacy/unused (app-shell renders the real nav) — candidate for deletion.
+- Verification: `npx tsc --noEmit` clean; `ng build --configuration development` succeeds (built to /tmp due to sandbox EPERM on dist/).
+- Follow-up (same day): fixed invisible header logo — `SpenzaLogoComponent` SVG defs used static ids while the logo renders twice (desktop + mobile headers); url(#id) resolved to the copy inside the display:none header, so gradients/filters didn't paint. Ids are now per-instance (`uid` counter + `ref()` helper, [attr.*] bindings).
+- Follow-up: removed `<app-theme-toggle />` from both headers per user request — theme is changed in Settings (theme/palette/style pickers already exist there). ThemeToggleComponent no longer imported by app-shell; component file itself left in place.

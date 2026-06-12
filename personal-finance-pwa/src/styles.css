@@ -370,53 +370,65 @@
 
 /* ============================================
    DESIGN STYLE — Neumorphism (Soft UI)
-   Subtle, extruded from background, dual shadows
+   Subtle, extruded from background, dual shadows.
+   Backgrounds are palette-aware via color-mix so
+   Rose/Azure/Emerald/Amber tint the soft surfaces.
    ============================================ */
 :root[data-style="neumorphism"] {
-  --shadow-sm: 2px 2px 4px 0px oklch(0.20 0.04 265 / 0.10), -2px -2px 4px 0px oklch(1 0 0 / 0.7);
-  --shadow-md: 5px 5px 10px 0px oklch(0.20 0.04 265 / 0.12), -5px -5px 10px 0px oklch(1 0 0 / 0.7);
-  --shadow-lg: 10px 10px 20px 0px oklch(0.20 0.04 265 / 0.15), -10px -10px 20px 0px oklch(1 0 0 / 0.7);
-  --shadow-glow: 0 0 20px color-mix(in oklab, var(--primary) 25%, transparent);
+  --radius: 1.4rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+  --radius-3xl: calc(var(--radius) + 16px);
+
+  /* Palette-tinted soft shadows — light source top-left */
+  --neu-shadow-ink: color-mix(in oklab, var(--primary) 18%, oklch(0.35 0.02 270));
+  --shadow-sm: 2px 2px 5px 0px color-mix(in oklab, var(--neu-shadow-ink) 14%, transparent), -2px -2px 5px 0px oklch(1 0 0 / 0.75);
+  --shadow-md: 6px 6px 12px 0px color-mix(in oklab, var(--neu-shadow-ink) 16%, transparent), -6px -6px 12px 0px oklch(1 0 0 / 0.78);
+  --shadow-lg: 12px 12px 24px 0px color-mix(in oklab, var(--neu-shadow-ink) 20%, transparent), -12px -12px 24px 0px oklch(1 0 0 / 0.80);
+  --shadow-glow: 0 0 24px color-mix(in oklab, var(--primary) 28%, transparent);
 
   --gradient-mesh: none;
 
-  --background: oklch(0.92 0.005 270);
-  --card: oklch(0.96 0.005 270);
+  --background: color-mix(in oklab, var(--primary) 6%, oklch(0.93 0 0));
+  --card: color-mix(in oklab, var(--primary) 4%, oklch(0.96 0 0));
   --card-foreground: oklch(0.25 0.03 265);
 
-  --border: oklch(0.88 0.005 270);
-  --input: oklch(0.88 0.005 270);
+  --border: color-mix(in oklab, var(--primary) 6%, oklch(0.88 0 0));
+  --input: color-mix(in oklab, var(--primary) 6%, oklch(0.88 0 0));
 
-  --secondary: oklch(0.90 0.005 270);
+  --secondary: color-mix(in oklab, var(--primary) 6%, oklch(0.90 0 0));
   --secondary-foreground: oklch(0.30 0.03 265);
 
-  --muted: oklch(0.90 0.005 270);
+  --muted: color-mix(in oklab, var(--primary) 5%, oklch(0.90 0 0));
   --muted-foreground: oklch(0.50 0.02 260);
 
-  --popover: oklch(0.96 0.005 270);
+  --popover: color-mix(in oklab, var(--primary) 4%, oklch(0.96 0 0));
   --popover-foreground: oklch(0.25 0.03 265);
 }
 
 :root[data-style="neumorphism"].dark {
-  --background: oklch(0.18 0.02 265);
+  --background: color-mix(in oklab, var(--primary) 7%, oklch(0.18 0 0));
   --foreground: oklch(0.92 0.005 250);
 
-  --card: oklch(0.22 0.02 265);
+  --card: color-mix(in oklab, var(--primary) 6%, oklch(0.22 0 0));
   --card-foreground: oklch(0.92 0.005 250);
 
-  --border: oklch(0.15 0.02 265);
-  --input: oklch(0.15 0.02 265);
+  --border: color-mix(in oklab, var(--primary) 5%, oklch(0.15 0 0));
+  --input: color-mix(in oklab, var(--primary) 5%, oklch(0.15 0 0));
 
-  --secondary: oklch(0.25 0.02 265);
+  --secondary: color-mix(in oklab, var(--primary) 7%, oklch(0.25 0 0));
   --secondary-foreground: oklch(0.85 0.005 250);
 
-  --muted: oklch(0.22 0.02 265);
-  --muted-foreground: oklch(0.60 0.01 260);
+  --muted: color-mix(in oklab, var(--primary) 6%, oklch(0.22 0 0));
+  --muted-foreground: oklch(0.62 0.01 260);
 
-  --shadow-sm: 2px 2px 4px 0px oklch(0 0 0 / 0.30), -2px -2px 4px 0px oklch(1 0 0 / 0.05);
-  --shadow-md: 5px 5px 10px 0px oklch(0 0 0 / 0.35), -5px -5px 10px 0px oklch(1 0 0 / 0.05);
-  --shadow-lg: 10px 10px 20px 0px oklch(0 0 0 / 0.40), -10px -10px 20px 0px oklch(1 0 0 / 0.05);
-  --shadow-glow: 0 0 20px color-mix(in oklab, var(--primary) 25%, transparent);
+  --shadow-sm: 2px 2px 5px 0px oklch(0 0 0 / 0.32), -2px -2px 5px 0px oklch(1 0 0 / 0.05);
+  --shadow-md: 6px 6px 12px 0px oklch(0 0 0 / 0.38), -6px -6px 12px 0px oklch(1 0 0 / 0.06);
+  --shadow-lg: 12px 12px 24px 0px oklch(0 0 0 / 0.45), -12px -12px 24px 0px oklch(1 0 0 / 0.06);
+  --shadow-glow: 0 0 24px color-mix(in oklab, var(--primary) 30%, transparent);
 
   --gradient-mesh: none;
 }
@@ -426,34 +438,42 @@
    Soft, rounded, clay-like puffed cards
    ============================================ */
 :root[data-style="claymorphism"] {
-  --radius: 1.25rem;
+  --radius: 1.35rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 10px);
-  --radius-3xl: calc(var(--radius) + 16px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-3xl: calc(var(--radius) + 18px);
 
-  --shadow-sm: 0 4px 6px -2px oklch(0.20 0.04 265 / 0.12), 0 8px 12px -4px oklch(0.20 0.04 265 / 0.08);
-  --shadow-md: 0 8px 16px -4px oklch(0.20 0.04 265 / 0.15), 0 16px 24px -8px oklch(0.20 0.04 265 / 0.10);
-  --shadow-lg: 0 16px 32px -8px oklch(0.20 0.04 265 / 0.18), 0 32px 48px -12px oklch(0.20 0.04 265 / 0.12);
-  --shadow-glow: 0 10px 40px -10px color-mix(in oklab, var(--primary) 30%, transparent);
+  /* Clay lip — palette-tinted edge used for the pressed-clay border */
+  --clay-lip: color-mix(in oklab, var(--primary) 22%, oklch(0.82 0.01 270));
 
-  --gradient-mesh: none;
+  /* Soft, palette-tinted dual-layer drop shadows */
+  --clay-shadow-ink: color-mix(in oklab, var(--primary) 30%, oklch(0.30 0.02 270));
+  --shadow-sm: 0 4px 8px -2px color-mix(in oklab, var(--clay-shadow-ink) 14%, transparent), 0 8px 14px -4px color-mix(in oklab, var(--clay-shadow-ink) 9%, transparent);
+  --shadow-md: 0 8px 18px -4px color-mix(in oklab, var(--clay-shadow-ink) 18%, transparent), 0 18px 28px -8px color-mix(in oklab, var(--clay-shadow-ink) 11%, transparent);
+  --shadow-lg: 0 16px 36px -8px color-mix(in oklab, var(--clay-shadow-ink) 22%, transparent), 0 34px 52px -12px color-mix(in oklab, var(--clay-shadow-ink) 14%, transparent);
+  --shadow-glow: 0 12px 44px -10px color-mix(in oklab, var(--primary) 34%, transparent);
 
-  --background: oklch(0.96 0.01 270);
+  /* Pastel candy wash instead of flat grey */
+  --gradient-mesh:
+    radial-gradient(at 8% 0%, color-mix(in oklab, var(--primary) 10%, transparent) 0px, transparent 45%),
+    radial-gradient(at 92% 12%, color-mix(in oklab, var(--primary-glow) 8%, transparent) 0px, transparent 45%);
+
+  --background: color-mix(in oklab, var(--primary) 7%, oklch(0.965 0 0));
   --foreground: oklch(0.18 0.04 265);
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.18 0.04 265);
 
-  --border: oklch(0.85 0.01 270);
-  --input: oklch(0.85 0.01 270);
+  --border: color-mix(in oklab, var(--primary) 10%, oklch(0.87 0 0));
+  --input: color-mix(in oklab, var(--primary) 10%, oklch(0.87 0 0));
 
-  --secondary: oklch(0.91 0.015 270);
+  --secondary: color-mix(in oklab, var(--primary) 8%, oklch(0.92 0 0));
   --secondary-foreground: oklch(0.25 0.03 265);
 
-  --muted: oklch(0.925 0.01 270);
+  --muted: color-mix(in oklab, var(--primary) 6%, oklch(0.93 0 0));
   --muted-foreground: oklch(0.50 0.02 260);
 
   --popover: oklch(1 0 0);
@@ -461,30 +481,34 @@
 }
 
 :root[data-style="claymorphism"].dark {
-  --background: oklch(0.14 0.02 265);
+  --clay-lip: color-mix(in oklab, var(--primary) 35%, oklch(0.32 0.02 270));
+
+  --background: color-mix(in oklab, var(--primary) 6%, oklch(0.15 0 0));
   --foreground: oklch(0.97 0.005 250);
 
-  --card: oklch(0.20 0.025 265);
+  --card: color-mix(in oklab, var(--primary) 5%, oklch(0.21 0 0));
   --card-foreground: oklch(0.97 0.005 250);
 
   --border: oklch(1 0 0 / 0.12);
   --input: oklch(1 0 0 / 0.15);
 
-  --secondary: oklch(0.25 0.03 265);
+  --secondary: color-mix(in oklab, var(--primary) 8%, oklch(0.26 0 0));
   --secondary-foreground: oklch(0.85 0.02 270);
 
-  --muted: oklch(0.18 0.025 265);
-  --muted-foreground: oklch(0.55 0.02 260);
+  --muted: color-mix(in oklab, var(--primary) 5%, oklch(0.19 0 0));
+  --muted-foreground: oklch(0.58 0.02 260);
 
-  --popover: oklch(0.20 0.025 265);
+  --popover: color-mix(in oklab, var(--primary) 5%, oklch(0.21 0 0));
   --popover-foreground: oklch(0.97 0.005 250);
 
-  --shadow-sm: 0 4px 6px -2px oklch(0 0 0 / 0.25), 0 8px 12px -4px oklch(0 0 0 / 0.15);
-  --shadow-md: 0 8px 16px -4px oklch(0 0 0 / 0.30), 0 16px 24px -8px oklch(0 0 0 / 0.20);
-  --shadow-lg: 0 16px 32px -8px oklch(0 0 0 / 0.35), 0 32px 48px -12px oklch(0 0 0 / 0.25);
-  --shadow-glow: 0 10px 40px -10px color-mix(in oklab, var(--primary) 40%, transparent);
+  --shadow-sm: 0 4px 8px -2px oklch(0 0 0 / 0.28), 0 8px 14px -4px oklch(0 0 0 / 0.16);
+  --shadow-md: 0 8px 18px -4px oklch(0 0 0 / 0.32), 0 18px 28px -8px oklch(0 0 0 / 0.22);
+  --shadow-lg: 0 16px 36px -8px oklch(0 0 0 / 0.38), 0 34px 52px -12px oklch(0 0 0 / 0.26);
+  --shadow-glow: 0 12px 44px -10px color-mix(in oklab, var(--primary) 42%, transparent);
 
-  --gradient-mesh: none;
+  --gradient-mesh:
+    radial-gradient(at 8% 0%, color-mix(in oklab, var(--primary) 12%, transparent) 0px, transparent 50%),
+    radial-gradient(at 92% 12%, color-mix(in oklab, var(--primary-glow) 9%, transparent) 0px, transparent 50%);
 }
 
 /* ============================================
@@ -500,55 +524,61 @@
   --radius-2xl: 0px;
   --radius-3xl: 0px;
 
-  --shadow-sm: 3px 3px 0px 0px oklch(0.20 0.04 265);
-  --shadow-md: 5px 5px 0px 0px oklch(0.20 0.04 265);
-  --shadow-lg: 8px 8px 0px 0px oklch(0.20 0.04 265);
-  --shadow-glow: 5px 5px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
+  /* Ink — single source for borders + hard offset shadows */
+  --nb-ink: oklch(0.17 0.03 265);
 
-  --background: oklch(0.95 0.012 85);
+  --shadow-sm: 3px 3px 0px 0px var(--nb-ink);
+  --shadow-md: 5px 5px 0px 0px var(--nb-ink);
+  --shadow-lg: 8px 8px 0px 0px var(--nb-ink);
+  --shadow-glow: 6px 6px 0px 0px color-mix(in oklab, var(--primary) 70%, var(--nb-ink));
+
+  /* Paper — warm cream, lightly tinted by the active palette */
+  --background: color-mix(in oklab, var(--primary) 5%, oklch(0.955 0.012 90));
   --foreground: oklch(0.15 0.04 85);
 
-  --border: oklch(0.20 0.04 265);
-  --input: oklch(0.20 0.04 265);
+  --border: var(--nb-ink);
+  --input: var(--nb-ink);
 
   --gradient-mesh: none;
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.18 0.04 265);
 
-  --secondary: oklch(0.94 0.01 280);
+  --secondary: color-mix(in oklab, var(--primary) 9%, oklch(0.94 0 0));
   --secondary-foreground: oklch(0.18 0.04 265);
 
   --muted: oklch(0.92 0.005 270);
-  --muted-foreground: oklch(0.45 0.02 260);
+  --muted-foreground: oklch(0.42 0.02 260);
 
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.15 0.04 85);
 }
 
 :root[data-style="neobrutalism"].dark {
-  --background: oklch(0.16 0.03 265);
+  --nb-ink: oklch(0 0 0 / 0.55);
+
+  --background: color-mix(in oklab, var(--primary) 6%, oklch(0.16 0.01 265));
   --foreground: oklch(0.97 0.005 250);
 
-  --card: oklch(0.22 0.03 265);
+  --card: color-mix(in oklab, var(--primary) 4%, oklch(0.22 0.01 265));
   --card-foreground: oklch(0.97 0.005 250);
 
   --border: oklch(1 0 0 / 0.85);
   --input: oklch(1 0 0 / 0.85);
 
-  --secondary: oklch(0.28 0.03 265);
+  --secondary: color-mix(in oklab, var(--primary) 8%, oklch(0.28 0.01 265));
   --secondary-foreground: oklch(0.97 0.005 250);
 
   --muted: oklch(0.25 0.02 265);
-  --muted-foreground: oklch(0.65 0.02 260);
+  --muted-foreground: oklch(0.68 0.02 260);
 
-  --popover: oklch(0.22 0.03 265);
+  --popover: color-mix(in oklab, var(--primary) 4%, oklch(0.22 0.01 265));
   --popover-foreground: oklch(0.97 0.005 250);
 
-  --shadow-sm: 3px 3px 0px 0px oklch(0 0 0 / 0.5);
-  --shadow-md: 5px 5px 0px 0px oklch(0 0 0 / 0.5);
-  --shadow-lg: 8px 8px 0px 0px oklch(0 0 0 / 0.55);
-  --shadow-glow: 5px 5px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
+  --shadow-sm: 3px 3px 0px 0px var(--nb-ink);
+  --shadow-md: 5px 5px 0px 0px var(--nb-ink);
+  --shadow-lg: 8px 8px 0px 0px var(--nb-ink);
+  --shadow-glow: 6px 6px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
 
   --gradient-mesh: none;
 }
@@ -628,6 +658,22 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-md);
     border-radius: var(--radius-2xl);
+    /* Smooth morph when the user switches design styles */
+    transition:
+      background-color 0.35s ease,
+      border-color 0.35s ease,
+      border-radius 0.35s ease,
+      box-shadow 0.35s ease,
+      transform 0.25s ease;
+  }
+
+  /* Light glass — translucent frosted surface over the mesh */
+  :root:not([data-style]):not(.dark) .glass-card {
+    background-color: color-mix(in oklab, var(--card) 72%, transparent);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    border: 1px solid oklch(1 0 0 / 0.55);
+    box-shadow: var(--shadow-md), inset 0 1px 0 0 oklch(1 0 0 / 0.65);
   }
 
   .dark .glass-card {
@@ -647,7 +693,8 @@
     box-shadow: var(--shadow-md);
   }
 
-  :root[data-style="neumorphism"] .dark .glass-card {
+  :root[data-style="neumorphism"] .dark .glass-card,
+  :root[data-style="neumorphism"].dark .glass-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: var(--card);
@@ -661,17 +708,18 @@
     -webkit-backdrop-filter: none;
     background-color: var(--card);
     border: 1px solid var(--border);
-    border-bottom-width: 4px;
-    box-shadow: var(--shadow-md);
+    border-bottom: 4px solid var(--clay-lip);
+    box-shadow: var(--shadow-md), inset 0 2px 0 0 oklch(1 0 0 / 0.6);
   }
 
-  :root[data-style="claymorphism"] .dark .glass-card {
+  :root[data-style="claymorphism"] .dark .glass-card,
+  :root[data-style="claymorphism"].dark .glass-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: var(--card);
     border: 1px solid var(--border);
-    border-bottom-width: 4px;
-    box-shadow: var(--shadow-md);
+    border-bottom: 4px solid var(--clay-lip);
+    box-shadow: var(--shadow-md), inset 0 1px 0 0 oklch(1 0 0 / 0.08);
   }
 
   /* ── NeoBrutalism glass-card overrides ── */
@@ -683,7 +731,8 @@
     box-shadow: var(--shadow-md);
   }
 
-  :root[data-style="neobrutalism"] .dark .glass-card {
+  :root[data-style="neobrutalism"] .dark .glass-card,
+  :root[data-style="neobrutalism"].dark .glass-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: var(--card);
@@ -774,7 +823,7 @@
 }
 [data-style="claymorphism"] ::-webkit-scrollbar-thumb {
   border-radius: 20px;
-  border-bottom: 2px solid color-mix(in oklab, var(--border) 80%, black);
+  border-bottom: 2px solid var(--clay-lip);
 }
 
 /* ============================================
@@ -853,7 +902,7 @@
 /* ── Claymorphism ─────────────────────────── */
 [data-style="claymorphism"] app-button button:not([class*="bg-transparent"]),
 [data-style="claymorphism"] .btn-primary {
-  border-bottom: 4px solid color-mix(in oklab, var(--border) 80%, black);
+  border-bottom: 4px solid color-mix(in oklab, var(--primary) 40%, oklch(0.3 0.02 270));
 }
 [data-style="claymorphism"] input,
 [data-style="claymorphism"] textarea,
@@ -877,20 +926,20 @@
 
 /* Card component — clay bottom lip */
 [data-style="claymorphism"] app-card > div {
-  border-bottom: 3px solid color-mix(in oklab, var(--border) 85%, black);
+  border-bottom: 3px solid var(--clay-lip);
   border-radius: var(--radius-lg);
 }
 
 /* Themed select trigger — clay bottom lip */
 [data-style="claymorphism"] app-themed-select button {
   border-bottom-width: 3px;
-  border-bottom-color: color-mix(in oklab, var(--border) 85%, black);
+  border-bottom-color: var(--clay-lip);
 }
 
 /* Themed select dropdown — clay shadow */
 [data-style="claymorphism"] app-themed-select .absolute.inset-x-0 {
   box-shadow: var(--shadow-md);
-  border-bottom: 2px solid color-mix(in oklab, var(--border) 80%, black);
+  border-bottom: 2px solid var(--clay-lip);
 }
 
 /* Ghost buttons — subtle clay border */
@@ -924,9 +973,12 @@
 }
 
 /* Card hover — subtle clay lift */
-[data-style="claymorphism"] app-card > div:hover {
-  box-shadow: var(--shadow-lg);
-  border-bottom-color: color-mix(in oklab, var(--border) 75%, black);
+@media (hover: hover) {
+  [data-style="claymorphism"] app-card > div:hover {
+    box-shadow: var(--shadow-lg);
+    border-bottom-color: color-mix(in oklab, var(--primary) 32%, var(--clay-lip));
+    transform: translateY(-2px);
+  }
 }
 
 /* ============================================
@@ -960,8 +1012,8 @@
 /* Buttons pressed state — compress shadow */
 [data-style="neobrutalism"] app-button button:not([class*="bg-transparent"]):active,
 [data-style="neobrutalism"] .btn-primary:active {
-  box-shadow: 1px 1px 0px 0px oklch(0.20 0.04 265);
-  transform: translateY(2px);
+  box-shadow: 1px 1px 0px 0px var(--nb-ink);
+  transform: translate(2px, 2px);
 }
 
 /* Ghost buttons pressed */
@@ -1117,4 +1169,161 @@
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root) { animation: 200ms ease both fade-out; }
   ::view-transition-new(root) { animation: 200ms ease both fade-in; }
+}
+
+/* ============================================
+   ELEGANCE LAYER — per-style polish
+   ============================================ */
+
+/* ── Smooth morph when switching design styles ──
+   Form controls and primitives transition their
+   shape/shadow instead of snapping. */
+app-card > div,
+app-button button,
+app-themed-select button,
+input,
+textarea,
+select {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    border-radius 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.15s ease;
+}
+
+/* ── Glass — living aurora background ──
+   The mesh drifts slowly behind frosted cards.
+   Other styles set --gradient-mesh: none, so this
+   pseudo-element is invisible for them. */
+body {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -22%;
+    z-index: -1;
+    pointer-events: none;
+    background-image: var(--gradient-mesh);
+    background-size: cover;
+    animation: aurora-drift 48s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
+  /* Mesh now lives on the animated layer */
+  body {
+    background-image: none;
+  }
+}
+
+@keyframes aurora-drift {
+  0%   { transform: translate3d(-2.5%, -1.5%, 0) scale(1) rotate(0.001deg); }
+  50%  { transform: translate3d(2%, 2.5%, 0) scale(1.06) rotate(0.001deg); }
+  100% { transform: translate3d(-1.5%, 1%, 0) scale(1.03) rotate(0.001deg); }
+}
+
+/* Glass cards lift gently on pointer hover */
+@media (hover: hover) {
+  :root:not([data-style]) .glass-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
+  }
+}
+
+/* ── NeoBrutalism — sticker physics + poster type ── */
+[data-style="neobrutalism"] h1,
+[data-style="neobrutalism"] h2,
+[data-style="neobrutalism"] h3 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+[data-style="neobrutalism"] app-button button:not([class*="bg-transparent"]),
+[data-style="neobrutalism"] .btn-primary {
+  border: 2px solid var(--border);
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  [data-style="neobrutalism"] .glass-card:hover,
+  [data-style="neobrutalism"] app-card > div:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 7px 7px 0px 0px var(--nb-ink);
+  }
+
+  [data-style="neobrutalism"] app-button button:not([class*="bg-transparent"]):hover,
+  [data-style="neobrutalism"] .btn-primary:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 6px 6px 0px 0px var(--nb-ink);
+  }
+}
+
+[data-style="neobrutalism"] ::selection {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* Brutalist nav — active tab becomes a stamped square */
+[data-style="neobrutalism"] .bump-nav-icon.active {
+  border-radius: 6px;
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0px 0px var(--nb-ink);
+}
+
+/* ── Neumorphism — soft pillow physics ── */
+@media (hover: hover) {
+  [data-style="neumorphism"] .glass-card:hover {
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+[data-style="neumorphism"] .bump-nav-icon.active {
+  box-shadow:
+    4px 4px 10px color-mix(in oklab, var(--neu-shadow-ink, oklch(0.3 0.02 270)) 22%, transparent),
+    -4px -4px 10px oklch(1 0 0 / 0.55),
+    var(--shadow-glow);
+}
+
+[data-style="neumorphism"] .bump-nav-icon.inactive {
+  box-shadow: inset 1px 1px 3px oklch(0 0 0 / 0.07), inset -1px -1px 3px oklch(1 0 0 / 0.5);
+  border-radius: 14px;
+}
+
+/* ── Claymorphism — squishy candy physics ── */
+[data-style="claymorphism"] app-button button:not([class*="bg-transparent"]),
+[data-style="claymorphism"] .btn-primary {
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  [data-style="claymorphism"] .glass-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg), inset 0 2px 0 0 oklch(1 0 0 / 0.6);
+  }
+
+  [data-style="claymorphism"] app-button button:not([class*="bg-transparent"]):hover,
+  [data-style="claymorphism"] .btn-primary:hover {
+    transform: translateY(-1px);
+  }
+}
+
+[data-style="claymorphism"] .glass-card:active {
+  transform: translateY(1px) scale(0.998);
+}
+
+[data-style="claymorphism"] .bump-nav-icon.active {
+  border-bottom: 3px solid var(--clay-lip);
+  box-shadow: var(--shadow-md), var(--shadow-glow);
+}
+
+/* Reduced motion — no lifts or squishes */
+@media (prefers-reduced-motion: reduce) {
+  .glass-card,
+  app-card > div,
+  app-button button {
+    transform: none !important;
+  }
 }

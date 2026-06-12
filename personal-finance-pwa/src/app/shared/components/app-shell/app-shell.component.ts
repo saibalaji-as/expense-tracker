@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   LucideAngularModule,
   LucideIconData,
@@ -13,7 +14,6 @@ import {
   Settings,
   Bell,
 } from 'lucide-angular';
-import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
 import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
@@ -30,7 +30,7 @@ interface NavItem {
   selector: 'app-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule, ThemeToggleComponent, TranslatePipe, SpenzaLogoComponent],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, TranslatePipe, SpenzaLogoComponent],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -42,131 +42,111 @@ interface NavItem {
     :host { display: contents; }
 
     /* ══════════════════════════════════════════════════════════
-       PORTRAIT — Full-width gradient bottom nav
-       Active icon lifts out of bar; its label stays inside bar.
+       PORTRAIT — Floating glass pill nav
+       Detached rounded bar, blur + glow, sliding gradient pill
+       behind the active tab.
     ══════════════════════════════════════════════════════════ */
 
-    .bottom-nav-bar {
-      /* gradient uses the app primary colours */
-      background: var(--gradient-primary);
-      /* soft top shadow to lift the bar */
-      box-shadow: 0 -4px 24px -4px color-mix(in oklab, var(--primary) 35%, transparent);
-      overflow: visible;           /* bumped icon renders above the bar */
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-      border-top-left-radius: 10px;
-      border-top-right-radius: 10px;
+    .float-nav {
+      position: fixed;
+      left: 14px;
+      right: 14px;
+      bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+      z-index: 50;
+      border-radius: 999px;
+      background: color-mix(in oklab, var(--background) 72%, transparent);
+      -webkit-backdrop-filter: blur(22px) saturate(160%);
+      backdrop-filter: blur(22px) saturate(160%);
+      border: 1px solid color-mix(in oklab, var(--primary) 22%, var(--border));
+      box-shadow:
+        0 12px 32px -8px color-mix(in oklab, var(--primary) 35%, transparent),
+        0 2px 8px rgba(0, 0, 0, 0.10);
+      padding: 6px;
     }
 
-    .bottom-nav-inner {
-      display: flex;
-      align-items: flex-end;
-      /* icon zone (34) + label zone (11) + bottom pad (10) = 55  +  bump head-room = 62 */
-      height: 62px;
-      overflow: visible;
-    }
-
-    /* ── Each tab item ── */
-    .tab-item {
+    .float-nav-inner {
       position: relative;
+      display: flex;
+    }
+
+    /* ── Sliding gradient pill behind the active tab ── */
+    .nav-pill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: calc(100% / 5);
+      border-radius: 999px;
+      background: var(--gradient-primary);
+      box-shadow: 0 6px 18px -4px color-mix(in oklab, var(--primary) 60%, transparent);
+      transition:
+        transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 0.25s ease;
+      pointer-events: none;
+    }
+    .nav-pill.hidden-pill { opacity: 0; }
+
+    /* ── Tab item ── */
+    .float-tab {
+      position: relative;
+      z-index: 1;
       flex: 1;
       min-width: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding-bottom: 10px;
+      justify-content: center;
+      gap: 2px;
+      height: 56px;
+      border-radius: 999px;
       text-decoration: none;
+      color: var(--muted-foreground);
       -webkit-tap-highlight-color: transparent;
-      /* spring bump */
-      transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transition: color 0.25s ease;
     }
-    /* Active: whole column lifts 18px above bar */
-    .tab-item.active {
-      transform: translateY(-18px);
-    }
+    .float-tab.active { color: #ffffff; }
+    .float-tab:not(.active):active .float-tab-icon { transform: scale(0.88); }
 
-    /* ── Icon bubble ── */
-    .tab-icon {
+    .float-tab-icon {
       display: grid;
       place-items: center;
-      flex-shrink: 0;
-      transition:
-        width  0.30s cubic-bezier(0.34, 1.56, 0.64, 1),
-        height 0.30s cubic-bezier(0.34, 1.56, 0.64, 1),
-        border-radius 0.22s ease,
-        background    0.22s ease,
-        box-shadow    0.22s ease;
-      /* inactive: small, no bg — icon is white on the gradient bar */
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
+      transition: transform 0.2s ease;
     }
-    /* active: solid primary colour bubble, no border, floating bob */
-    .tab-icon.active {
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      background: var(--gradient-primary);
-      box-shadow: 0 6px 18px -4px color-mix(in oklab, var(--primary) 55%, transparent);
-      animation: icon-float 2s ease-in-out infinite;
+    .float-tab.active .float-tab-icon {
+      animation: tab-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes tab-pop {
+      0%   { transform: scale(0.7); }
+      60%  { transform: scale(1.18); }
+      100% { transform: scale(1); }
     }
 
-    @keyframes icon-float {
-      0%   { transform: translateY(0px);   }
-      50%  { transform: translateY(-4px);  }
-      100% { transform: translateY(0px);   }
-    }
-
-    /* ── Label ── */
-    .tab-label {
-      margin-top: 3px;
+    .float-tab-label {
       font-size: 9.5px;
       font-weight: 700;
       line-height: 1;
-      text-align: center;
+      letter-spacing: 0.01em;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 46px;
-      color: rgba(255, 255, 255, 0.85);
-      transition: color 0.2s ease;
-      letter-spacing: 0.01em;
-    }
-    .tab-label.active {
-      color: #ffffff;
-      font-weight: 900;
+      max-width: 56px;
     }
 
-
-    /* ══════════════════════════════════════════════════════════
-       WAVE PEAK — localized bump behind the active tab
-       Smooth quadratic-bezier wave that rises above the bar
-       only at the selected tab.  Hidden otherwise.
-    ══════════════════════════════════════════════════════════ */
-
-    .wave-peak {
-      position: absolute;
-      top: 2px;
-      left: calc(50% - 28.5px);
-      width: 56px;
-      height: 28px;
-      z-index: -1;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-      fill: var(--primary);
-      filter: drop-shadow(0 4px 10px color-mix(in oklab, var(--primary) 25%, transparent));
+    /* ── Top-bar quick actions (Alerts / Settings) ── */
+    .top-icon-btn {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      color: var(--muted-foreground);
+      transition: color 0.2s ease, background 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
     }
-
-    .tab-item.active .wave-peak {
-      opacity: 1;
-      animation: wave-peak-pulse 3s ease-in-out infinite;
+    .top-icon-btn.active {
+      color: var(--primary);
+      background: color-mix(in oklab, var(--primary) 12%, transparent);
     }
-
-    @keyframes wave-peak-pulse {
-      0%, 100% { transform: scaleY(1) translateY(0); }
-      50%      { transform: scaleY(1.06) translateY(-1.5px); }
-    }
-
 
     /* ══════════════════════════════════════════════════════════
        LANDSCAPE (mobile < 887px) — Gradient left side rail
@@ -200,7 +180,6 @@ interface NavItem {
       background: rgba(255, 255, 255, 0.15);
       color: #fff;
     }
-
 
     /* ══════════════════════════════════════════════════════════
        RESPONSIVE VISIBILITY
@@ -256,8 +235,6 @@ interface NavItem {
                 }
               }
             </nav>
-
-            <app-theme-toggle />
           </div>
         </div>
       </header>
@@ -271,13 +248,36 @@ interface NavItem {
               Spen<span class="gradient-text">za</span>
             </span>
           </a>
-          <app-theme-toggle />
+          <div class="flex items-center gap-1">
+            @if (showNavigation()) {
+              <a
+                routerLink="/reminders"
+                routerLinkActive
+                #raAlerts="routerLinkActive"
+                class="top-icon-btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                [class.active]="raAlerts.isActive"
+                aria-label="Alerts"
+              >
+                <lucide-icon [img]="bellIcon" class="h-5 w-5" style="stroke-width: 2.25;" aria-hidden="true" />
+              </a>
+              <a
+                routerLink="/settings"
+                routerLinkActive
+                #raSettings="routerLinkActive"
+                class="top-icon-btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                [class.active]="raSettings.isActive"
+                aria-label="Settings"
+              >
+                <lucide-icon [img]="settingsIcon" class="h-5 w-5" style="stroke-width: 2.25;" aria-hidden="true" />
+              </a>
+            }
+          </div>
         </div>
       </header>
 
       <!-- ── Main content ──────────────────────────────────────── -->
       <main [class]="showNavigation()
-          ? 'flex-1 overflow-x-hidden pb-24 landscape-pl min-[887px]:pb-12 min-[887px]:pl-0'
+          ? 'flex-1 overflow-x-hidden pb-28 landscape-pl min-[887px]:pb-12 min-[887px]:pl-0'
           : 'flex-1 overflow-x-hidden pb-12'">
         <div class="mx-auto w-full max-w-7xl px-4 py-6 min-[887px]:px-6 min-[887px]:py-8">
           <ng-content />
@@ -287,49 +287,37 @@ interface NavItem {
 
       @if (showNavigation()) {
 
-        <!-- ══ PORTRAIT: Edge-to-edge gradient bump nav ════════════ -->
-        <nav
-          class="mobile-bottom-nav fixed inset-x-0 bottom-0 z-50 bottom-nav-bar"
-          aria-label="Mobile navigation"
-        >
-          <div class="bottom-nav-inner">
-            @for (item of navItems; track item.path) {
+        <!-- ══ PORTRAIT: Floating glass pill nav ═══════════════════ -->
+        <nav class="mobile-bottom-nav float-nav" aria-label="Mobile navigation">
+          <div class="float-nav-inner">
+
+            <!-- Sliding gradient pill -->
+            <span
+              class="nav-pill"
+              [class.hidden-pill]="activeMobileIndex() < 0"
+              [style.transform]="'translateX(' + (activeMobileIndex() < 0 ? 0 : activeMobileIndex()) * 100 + '%)'"
+              aria-hidden="true"
+            ></span>
+
+            @for (item of mobileNavItems; track item.path) {
               <a
                 [routerLink]="item.path"
                 routerLinkActive
                 #rb="routerLinkActive"
                 [routerLinkActiveOptions]="{ exact: false }"
                 [attr.aria-label]="item.shortLabel"
-                class="tab-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-inset"
+                class="float-tab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                 [class.active]="rb.isActive"
                 (click)="onNavTap($event)"
               >
-                <!-- Localized wave peak — only visible on the active tab -->
-                <svg class="wave-peak" viewBox="0 0 56 28" preserveAspectRatio="none" aria-hidden="true">
-                  <path d="M0,28 Q14,2 28,2 Q42,2 56,28 Z" />
-                </svg>
-                <!--
-                  Icon bubble:
-                  • Inactive → small, icon white/translucent on the gradient bar
-                  • Active   → white circle, icon uses primary colour (for any theme)
-                -->
-                <span
-                  class="tab-icon"
-                  [class.active]="rb.isActive"
-                  aria-hidden="true"
-                >
+                <span class="float-tab-icon" aria-hidden="true">
                   <lucide-icon
                     [img]="item.icon"
-                    style="color: #ffffff; stroke-width: 2.5;"
-                    [class]="rb.isActive ? 'h-[18px] w-[18px]' : 'h-[15px] w-[15px] opacity-85'"
+                    [class]="rb.isActive ? 'h-[19px] w-[19px]' : 'h-[17px] w-[17px]'"
+                    style="stroke-width: 2.5;"
                   />
                 </span>
-
-                <!-- Label — always shown; white, brighter when active -->
-                <span
-                  class="tab-label"
-                  [class.active]="rb.isActive"
-                >{{ item.shortLabel }}</span>
+                <span class="float-tab-label">{{ item.shortLabel }}</span>
               </a>
             }
           </div>
@@ -342,7 +330,7 @@ interface NavItem {
           style="width: 56px;"
           aria-label="Mobile navigation"
         >
-          @for (item of navItems; track item.path) {
+          @for (item of mobileNavItems; track item.path) {
             <a
               [routerLink]="item.path"
               routerLinkActive
@@ -371,7 +359,12 @@ interface NavItem {
 export class AppShellComponent {
   readonly authService = inject(AuthService);
   private readonly backupModeService = inject(BackupModeService);
+  private readonly router = inject(Router);
 
+  readonly bellIcon = Bell;
+  readonly settingsIcon = Settings;
+
+  /** Full set — desktop top nav. */
   readonly navItems: NavItem[] = [
     { path: '/daily',     labelKey: 'nav.daily',     shortLabel: 'Daily',    icon: CalendarDays },
     { path: '/monthly',   labelKey: 'nav.monthly',   shortLabel: 'Monthly',  icon: CalendarRange },
@@ -381,6 +374,34 @@ export class AppShellComponent {
     { path: '/reminders', labelKey: 'nav.reminders', shortLabel: 'Alerts',   icon: Bell },
     { path: '/settings',  labelKey: 'nav.settings',  shortLabel: 'Settings', icon: Settings },
   ];
+
+  /** Trimmed set — mobile bottom pill + landscape rail.
+   *  Alerts & Settings live in the mobile top bar. */
+  readonly mobileNavItems: NavItem[] = [
+    { path: '/daily',     labelKey: 'nav.daily',     shortLabel: 'Daily',    icon: CalendarDays },
+    { path: '/monthly',   labelKey: 'nav.monthly',   shortLabel: 'Monthly',  icon: CalendarRange },
+    { path: '/limits',    labelKey: 'nav.limits',    shortLabel: 'Limits',   icon: SlidersHorizontal },
+    { path: '/finances',  labelKey: 'nav.finances',  shortLabel: 'Finance',  icon: WalletCards },
+    { path: '/dashboard', labelKey: 'nav.dashboard', shortLabel: 'Dash',     icon: LayoutDashboard },
+  ];
+
+  /** Index of the active mobile tab; -1 when current route isn't in the pill
+   *  (e.g. /reminders or /settings) so the highlight fades out. */
+  readonly activeMobileIndex = signal(this.indexForUrl(this.router.url));
+
+  constructor() {
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
+      if (event instanceof NavigationEnd) {
+        this.activeMobileIndex.set(this.indexForUrl(event.urlAfterRedirects));
+      }
+    });
+  }
+
+  private indexForUrl(url: string): number {
+    return this.mobileNavItems.findIndex(
+      (item) => url === item.path || url.startsWith(item.path + '/') || url.startsWith(item.path + '?'),
+    );
+  }
 
   /** Store the tap coordinates as CSS custom properties so the View Transition
    *  wave animation originates from the tapped nav icon. */

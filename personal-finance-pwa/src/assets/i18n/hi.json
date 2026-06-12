@@ -225,6 +225,7 @@
   "auth.subtitle": "खर्च ट्रैक करें, स्मार्ट सीमाएं सेट करें, और खर्च देखें — Google Drive के साथ सिंक.",
   "auth.signIn": "Google से साइन इन करें",
   "auth.signingIn": "साइन इन हो रहा है...",
+  "auth.error.driveAccess": "Google Drive एक्सेस नहीं दिया गया, इसलिए Spenza आपका डेटा लोड नहीं कर सकता. फिर से साइन इन करें और Google स्क्रीन पर सभी अनुमति चेकबॉक्स — विशेष रूप से Google Drive एक्सेस — चुनें.",
   "auth.feature.daily.title": "दैनिक खर्च ट्रैक करें",
   "auth.feature.daily.description": "स्मार्ट श्रेणियों के साथ खर्च तुरंत दर्ज करें.",
   "auth.feature.limits.title": "स्मार्ट सीमाएं सेट करें",
@@ -581,9 +582,7 @@
   "settings.legal.title": "कानूनी",
   "settings.privacyPolicy": "गोपनीयता नीति",
   "settings.terms": "सेवा की शर्तें",
-
   "nav.reminders": "रिमाइंडर",
-
   "reminders.title": "रिमाइंडर",
   "reminders.subtitle": "तारीख, समय और स्थान-आधारित खरीदारी रिमाइंडर",
   "reminders.create": "नया रिमाइंडर",
@@ -594,7 +593,6 @@
   "reminders.expired": "समाप्त",
   "reminders.action.complete": "पूर्ण करें",
   "reminders.action.delete": "हटाएं",
-
   "reminders.form.newTitle": "नया रिमाइंडर",
   "reminders.form.editTitle": "रिमाइंडर संपादित करें",
   "reminders.form.title": "क्या याद रखना है",
@@ -611,7 +609,8 @@
   "reminders.form.locationProHint": "स्थान रिमाइंडर Pro सुविधा है। अपग्रेड करें।",
   "reminders.form.notifDenied": "सूचना अनुमति अस्वीकृत — आपको अलर्ट नहीं मिलेगा।",
   "reminders.form.geocodeError": "वह स्थान नहीं मिला। कोई और खोज आज़माएं।",
-
+  "reminders.form.mapHint": "स्थान सटीक करने के लिए मैप पर टैप करें या पिन खींचें।",
+  "reminders.form.pinnedLocation": "पिन किया गया स्थान",
   "reminders.form.voice.title": "वॉयस से बनाएं",
   "reminders.form.voice.hint": "जैसे कहें \"कल शाम किराना खरीदना याद दिलाओ\"।",
   "reminders.form.voice.start": "वॉयस शुरू करें",
@@ -619,7 +618,6 @@
   "reminders.form.voice.parsing": "विश्लेषण हो रहा है…",
   "reminders.form.voice.fallback": "AI रिमाइंडर नहीं समझ पाया। ट्रांसक्रिप्ट भर दिया गया है।",
   "reminders.form.voice.ambiguous": "स्पष्ट नहीं हुआ। कृपया फॉर्म भरें।",
-
   "reminders.feedback.created": "रिमाइंडर बनाया गया",
   "reminders.feedback.updated": "रिमाइंडर अपडेट किया गया",
   "reminders.feedback.completed": "रिमाइंडर पूर्ण किया गया",

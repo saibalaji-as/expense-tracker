@@ -18,13 +18,34 @@ const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 // spreadsheets for Sheets import migration. Full drive scope removed in v8.
 const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE}`;
 const SCOPE_VERSION = '8'; // v8 = removed full drive scope (family sync now uses Firestore)
-const NATIVE_ACCESS_TOKEN_KEY = 'gapi_access_token';
-const NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+// Persisted short-lived Google access token (web + native). Key names are read by the
+// native Android widget sync — do NOT rename the storage key strings.
+const ACCESS_TOKEN_KEY = 'gapi_access_token';
+const ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+/** 5-minute safety buffer so a token that is about to expire is never handed out. */
+const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
 
 export interface SignInResult {
   email: string | null;
   accountChanged: boolean;
+}
+
+/**
+ * Thrown when Google sign-in succeeded but the user did not grant the Drive
+ * AppData scope (unticked checkbox on Google's granular-consent screen).
+ * Without this scope every Drive call returns 403, which previously produced
+ * an endless sign-in → error → sign-in loop.
+ */
+export class MissingDriveScopeError extends Error {
+  readonly code = 'missing-drive-scope';
+  constructor() {
+    super('Google sign-in completed, but Drive access was not granted. Please sign in again and tick ALL permission checkboxes (especially "See, edit, create and delete its own configuration data in your Google Drive").');
+  }
+}
+
+function grantedScopesIncludeDrive(scopeString: string | null | undefined): boolean {
+  return !!scopeString && scopeString.includes(DRIVE_APPDATA_SCOPE);
 }
 
 export function computeScopes(_mode: BackupMode | null): string {
@@ -59,6 +80,14 @@ export class AuthService {
 
   #accessToken: string | null = null;
   #firebaseAuth: Auth | null = null;
+
+  /**
+   * Set when a previous sign-in came back without the Drive scope. The next
+   * interactive sign-in then forces Google's consent screen so the user gets
+   * another chance to tick the Drive checkbox (otherwise Google silently
+   * returns the same scope-less token and the user loops forever).
+   */
+  #forceConsentOnNextSignIn = false;
 
   /**
    * Shared promise for an in-flight token request (web only).
@@ -115,41 +144,55 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async #restoreSession(): Promise<void> {
-    const authState = await this.storageService.get('gapi_auth_state');
+    // Single parallel batch — sequential Preferences bridge calls were a measurable
+    // chunk of cold-start time on Android (each get is a native round-trip).
+    const [authState, storedScopeVersion, email, uid, storedToken, expiresAtStr] = await Promise.all([
+      this.storageService.get('gapi_auth_state'),
+      this.storageService.get('gapi_scope_version'),
+      this.storageService.get('gapi_user_email'),
+      this.storageService.get('firebase_uid'),
+      this.storageService.get(ACCESS_TOKEN_KEY),
+      this.storageService.get(ACCESS_TOKEN_EXPIRES_AT_KEY),
+    ]);
+
     if (authState !== '1') return;
 
-    const currentScopeVersion = SCOPE_VERSION;
-    const storedScopeVersion = await this.storageService.get('gapi_scope_version');
-    if (storedScopeVersion !== currentScopeVersion) {
+    if (storedScopeVersion !== SCOPE_VERSION) {
       console.info('[AuthService] Scope version changed — clearing cached auth state to force re-consent.');
-      await this.storageService.remove('gapi_auth_state');
-      await this.storageService.remove('gapi_user_email');
-      await this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
-      await this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
-      await this.storageService.set('gapi_scope_version', currentScopeVersion);
+      await Promise.all([
+        this.storageService.remove('gapi_auth_state'),
+        this.storageService.remove('gapi_user_email'),
+        this.storageService.remove(ACCESS_TOKEN_KEY),
+        this.storageService.remove(ACCESS_TOKEN_EXPIRES_AT_KEY),
+        this.storageService.set('gapi_scope_version', SCOPE_VERSION),
+      ]);
       return;
     }
 
     this.isAuthenticated.set(true);
-    const email = await this.storageService.get('gapi_user_email');
     if (email) this.userEmail.set(email);
-    const uid = await this.storageService.get('firebase_uid');
     if (uid) this.firebaseUid.set(uid);
 
-    // Restore the native access token so ensureToken() doesn't re-trigger the
-    // full SocialLogin.login() flow on app resume (avoids the 20-second delay
-    // when opening the subscription page after a cold start).
-    if (this.#isNative) {
-      const storedToken = await this.storageService.get(NATIVE_ACCESS_TOKEN_KEY);
-      const expiresAtStr = await this.storageService.get(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
-      if (storedToken && expiresAtStr) {
-        const expiresAt = parseInt(expiresAtStr, 10);
-        // Keep a 5-minute buffer so we don't hand out a token that's about to expire.
-        if (Number.isFinite(expiresAt) && Date.now() < expiresAt - 5 * 60 * 1000) {
-          this.#accessToken = storedToken;
-        }
+    // Restore the persisted access token (web AND native) so the app never asks
+    // the user to sign in again while the token is still valid. Native: avoids
+    // re-triggering the full SocialLogin.login() flow. Web: avoids redirecting a
+    // returning user to the sign-in landing page on every reload.
+    if (storedToken && expiresAtStr) {
+      const expiresAt = parseInt(expiresAtStr, 10);
+      if (Number.isFinite(expiresAt) && Date.now() < expiresAt - TOKEN_EXPIRY_BUFFER_MS) {
+        this.#accessToken = storedToken;
       }
     }
+  }
+
+  /** Persists the short-lived access token + absolute expiry for session restore. */
+  async #persistAccessToken(token: string, expiresInSeconds?: number | string): Promise<void> {
+    const seconds = Number(expiresInSeconds);
+    const expiresAt = Date.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 3300) * 1000;
+    await Promise.all([
+      this.storageService.set(ACCESS_TOKEN_KEY, token),
+      this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, String(expiresAt)),
+    ]);
   }
 
   // ---------------------------------------------------------------------------
@@ -195,10 +238,16 @@ export class AuthService {
                   reject(new Error(response.error_description ?? response.error));
                   return;
                 }
+                if (!grantedScopesIncludeDrive(response.scope)) {
+                  this.#forceConsentOnNextSignIn = true;
+                  reject(new MissingDriveScopeError());
+                  return;
+                }
                 this.#accessToken = response.access_token;
                 this.isAuthenticated.set(true);
                 void this.storageService.set('gapi_auth_state', '1');
                 void this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+                void this.#persistAccessToken(response.access_token, response.expires_in);
                 resolve(response.access_token);
               },
             });
@@ -217,10 +266,12 @@ export class AuthService {
     return this.#isNative ? this.#nativeSignOut() : this.#webSignOut();
   }
 
-  /** Discards the in-memory access token so the next ensureToken() call fetches a fresh one. */
+  /** Discards the in-memory + persisted access token so the next ensureToken() call fetches a fresh one. */
   clearToken(): void {
     this.#accessToken = null;
     this.#tokenRequestPromise = null;
+    void this.storageService.remove(ACCESS_TOKEN_KEY);
+    void this.storageService.remove(ACCESS_TOKEN_EXPIRES_AT_KEY);
   }
 
   getAccessToken(): string | null {
@@ -410,12 +461,16 @@ export class AuthService {
     const token = googleResult.accessToken?.token ?? null;
     if (!token) throw new Error('Google Sign-In did not return an access token.');
 
+    // Verify the user actually granted the Drive scope (partner-account loop fix):
+    // a token without drive.appdata 403s on every Drive call and re-triggers sign-in forever.
+    await this.#assertDriveScopeGranted(token);
+
     this.#accessToken = token;
     this.isAuthenticated.set(true);
     await this.storageService.set('gapi_auth_state', '1');
     await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
-    await this.storageService.set(NATIVE_ACCESS_TOKEN_KEY, token);
-    await this.storageService.set(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY, this.#nativeTokenExpiresAt(googleResult.accessToken));
+    await this.storageService.set(ACCESS_TOKEN_KEY, token);
+    await this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, this.#nativeTokenExpiresAt(googleResult.accessToken));
 
     const email = googleResult.profile?.email ?? null;
     if (email) {
@@ -449,6 +504,7 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   #webSignIn(): Promise<SignInResult> {
+    const forceConsent = this.#forceConsentOnNextSignIn;
     return waitForGsiScript().then(
       () =>
         new Promise<SignInResult>((resolve, reject) => {
@@ -460,10 +516,20 @@ export class AuthService {
                 reject(new Error(response.error_description ?? response.error));
                 return;
               }
+              // Granular consent: Google lets users untick individual scopes.
+              // Without drive.appdata every Drive call 403s, producing a
+              // sign-in loop — detect it here and tell the user exactly what to fix.
+              if (!grantedScopesIncludeDrive(response.scope)) {
+                this.#forceConsentOnNextSignIn = true;
+                reject(new MissingDriveScopeError());
+                return;
+              }
+              this.#forceConsentOnNextSignIn = false;
               this.#accessToken = response.access_token;
               this.isAuthenticated.set(true);
               await this.storageService.set('gapi_auth_state', '1');
               await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+              await this.#persistAccessToken(response.access_token, response.expires_in);
               const previousEmail = await this.storageService.get('gapi_user_email');
               let signedInEmail: string | null = null;
               try {
@@ -496,7 +562,9 @@ export class AuthService {
               });
             },
           });
-          tokenClient.requestAccessToken();
+          // 'consent' re-shows the checkbox screen after a scope was denied;
+          // otherwise let GSI decide (no prompt for already-consented users).
+          tokenClient.requestAccessToken(forceConsent ? { prompt: 'consent' } : undefined);
         })
     );
   }
@@ -523,6 +591,27 @@ export class AuthService {
   // Shared helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Throws MissingDriveScopeError when the token lacks drive.appdata.
+   * Network failures of the tokeninfo endpoint are ignored — the check is a
+   * fast-fail aid, not a gate; Drive itself remains the authority (403).
+   */
+  async #assertDriveScopeGranted(accessToken: string): Promise<void> {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
+      );
+      if (!res.ok) return;
+      const info = await res.json();
+      if (typeof info.scope === 'string' && !grantedScopesIncludeDrive(info.scope)) {
+        throw new MissingDriveScopeError();
+      }
+    } catch (err) {
+      if (err instanceof MissingDriveScopeError) throw err;
+      // tokeninfo unreachable — skip the check rather than block sign-in.
+    }
+  }
+
   async #signIntoFirebase(idToken: string | null, accessToken: string): Promise<void> {
     try {
       const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
@@ -547,8 +636,8 @@ export class AuthService {
     void this.storageService.remove('gapi_user_email');
     void this.storageService.remove('gapi_scope_version');
     void this.storageService.remove('firebase_uid');
-    void this.storageService.remove(NATIVE_ACCESS_TOKEN_KEY);
-    void this.storageService.remove(NATIVE_ACCESS_TOKEN_EXPIRES_AT_KEY);
+    void this.storageService.remove(ACCESS_TOKEN_KEY);
+    void this.storageService.remove(ACCESS_TOKEN_EXPIRES_AT_KEY);
     void (async () => {
       const { signOut } = await import('firebase/auth');
       const auth = await this.#getFirebaseAuth();

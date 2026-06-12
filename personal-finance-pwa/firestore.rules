@@ -8,6 +8,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Reminders: owner-only read/write ──
+    match /users/{uid}/reminders/{reminderId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // ── New: family document (read-only for members) ──
     match /families/{familyId} {
       allow read: if request.auth != null &&

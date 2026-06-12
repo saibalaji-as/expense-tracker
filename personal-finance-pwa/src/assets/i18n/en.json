@@ -225,6 +225,7 @@
   "auth.subtitle": "Track expenses, set smart limits, and visualize your spending — synced with Google Drive.",
   "auth.signIn": "Sign in with Google",
   "auth.signingIn": "Signing in...",
+  "auth.error.driveAccess": "Google Drive access wasn't granted, so Spenza can't load your data. Tap Sign in and tick ALL permission checkboxes on the Google screen — especially Google Drive access.",
   "auth.feature.daily.title": "Track Daily Expenses",
   "auth.feature.daily.description": "Log expenses instantly with smart categories.",
   "auth.feature.limits.title": "Set Smart Limits",
@@ -581,9 +582,7 @@
   "settings.legal.title": "Legal",
   "settings.privacyPolicy": "Privacy Policy",
   "settings.terms": "Terms of Service",
-
   "nav.reminders": "Reminders",
-
   "reminders.title": "Reminders",
   "reminders.subtitle": "Date, time, and location-based purchase reminders",
   "reminders.create": "New Reminder",
@@ -594,7 +593,6 @@
   "reminders.expired": "Expired",
   "reminders.action.complete": "Mark complete",
   "reminders.action.delete": "Delete",
-
   "reminders.form.newTitle": "New Reminder",
   "reminders.form.editTitle": "Edit Reminder",
   "reminders.form.title": "What to remember",
@@ -611,7 +609,8 @@
   "reminders.form.locationProHint": "Location reminders are a Pro feature. Upgrade to unlock.",
   "reminders.form.notifDenied": "Notification permission denied — you won't receive alerts.",
   "reminders.form.geocodeError": "Could not find that place. Try a different search.",
-
+  "reminders.form.mapHint": "Tap the map or drag the pin to fine-tune the spot.",
+  "reminders.form.pinnedLocation": "Pinned location",
   "reminders.form.voice.title": "Voice creation",
   "reminders.form.voice.hint": "Say something like \"Remind me to buy groceries tomorrow evening\" or \"Near DMart\".",
   "reminders.form.voice.start": "Start voice",
@@ -619,7 +618,6 @@
   "reminders.form.voice.parsing": "Parsing…",
   "reminders.form.voice.fallback": "AI couldn't parse the reminder. Form is prefilled with your transcript.",
   "reminders.form.voice.ambiguous": "I'm not sure what you meant. Please clarify or fill the form.",
-
   "reminders.feedback.created": "Reminder created",
   "reminders.feedback.updated": "Reminder updated",
   "reminders.feedback.completed": "Reminder marked complete",

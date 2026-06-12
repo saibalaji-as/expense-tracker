@@ -281,10 +281,10 @@ export class ReminderService {
 
   #setupAppResumeListener(): void {
     if (!Capacitor.isNativePlatform()) return;
-    const listener = App.addListener('appStateChange', ({ isActive }) => {
+    const listener = App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
       if (isActive) void this.checkLocationReminders();
     });
-    this.#appResumeListener = () => listener.then((h) => h.remove());
+    this.#appResumeListener = () => listener.then((h: { remove: () => void }) => h.remove());
   }
 
   async #cancelNotification(notifId: number): Promise<void> {

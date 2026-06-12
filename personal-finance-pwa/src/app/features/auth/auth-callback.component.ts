@@ -7,7 +7,8 @@ import {
   Zap, Check, ArrowRight, Star, PiggyBank, Mic, ScanLine,
   Globe, MessageSquare, CreditCard, Archive, Cpu, RefreshCw,
 } from 'lucide-angular';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, MissingDriveScopeError } from '../../core/services/auth.service';
+import { I18nService } from '../../core/services/i18n.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { SubscriptionService } from '../../core/services/subscription.service';
@@ -638,6 +639,7 @@ export class AuthCallbackComponent {
   private readonly backupModeService = inject(BackupModeService);
   private readonly subscriptionService = inject(SubscriptionService);
   private readonly familySyncService = inject(FamilySyncService);
+  private readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
 
   readonly errorMessage = signal<string | null>(null);
@@ -712,7 +714,14 @@ export class AuthCallbackComponent {
         if (mode === 'family' && familyId && uid) this.familySyncService.startListening(familyId, uid);
       })();
     } catch (err) {
-      this.errorMessage.set(err instanceof Error ? err.message : 'Sign-in failed. Please try again.');
+      // Missing Drive scope (unticked consent checkbox) or Drive 403 right after
+      // sign-in: explain the exact fix instead of looping with a generic error.
+      const status = (err as { status?: number } | null)?.status;
+      if (err instanceof MissingDriveScopeError || status === 403) {
+        this.errorMessage.set(this.i18n.t('auth.error.driveAccess'));
+      } else {
+        this.errorMessage.set(err instanceof Error ? err.message : 'Sign-in failed. Please try again.');
+      }
     } finally {
       this.isLoading.set(false);
     }

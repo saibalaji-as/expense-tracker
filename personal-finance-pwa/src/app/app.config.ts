@@ -26,7 +26,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: APP_INITIALIZER,
       useFactory: (localNotificationService: LocalNotificationService) => {
-        return () => localNotificationService.initialize();
+        // Fire-and-forget: notification permission checks must NOT block first
+        // paint (startup budget < 500 ms). initialize() handles its own errors.
+        return () => {
+          void localNotificationService.initialize();
+        };
       },
       deps: [LocalNotificationService],
       multi: true,

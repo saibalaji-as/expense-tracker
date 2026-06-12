@@ -253,36 +253,37 @@ interface BeforeInstallPromptEvent extends Event {
         <!-- Design Style -->
         <div class="mt-5">
           <p class="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Design Style</p>
-          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="grid grid-cols-2 gap-3 xl:grid-cols-4">
             @for (opt of styleOptions; track opt.value) {
               <button
                 type="button"
-                (click)="onStyleChange(opt.value)"
+                (click)="onStyleChange(opt.value, $event)"
                 [attr.aria-label]="opt.label"
                 [attr.aria-pressed]="themeService.style() === opt.value"
                 [class]="
-                  'group relative flex items-center gap-3 rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+                  'group relative flex flex-col gap-2.5 rounded-2xl border p-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
                   (themeService.style() === opt.value
                     ? 'border-primary bg-accent shadow-glow'
                     : 'border-border bg-card/40 hover:border-primary/40')
                 "
               >
-                <span
-                  [class]="
-                    'grid h-10 w-10 place-items-center rounded-xl transition-all ' +
-                    (themeService.style() === opt.value
-                      ? 'gradient-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground')
-                  "
-                >
-                  <lucide-icon [img]="opt.icon" class="h-5 w-5" />
+                <!-- Live mini preview of the style -->
+                <span [class]="'style-preview sp-' + opt.value" aria-hidden="true">
+                  <span class="sp-mini-card">
+                    <span class="sp-dot"></span>
+                    <span class="sp-bars">
+                      <span class="sp-bar"></span>
+                      <span class="sp-bar sp-bar--short"></span>
+                    </span>
+                  </span>
+                  <span class="sp-chip"></span>
                 </span>
-                <div>
-                  <p class="text-sm font-semibold">{{ opt.label }}</p>
-                  <p class="text-xs text-muted-foreground">{{ opt.desc }}</p>
+                <div class="px-1 pb-0.5">
+                  <p class="text-sm font-semibold leading-tight">{{ opt.label }}</p>
+                  <p class="mt-0.5 text-xs leading-snug text-muted-foreground">{{ opt.desc }}</p>
                 </div>
                 @if (themeService.style() === opt.value) {
-                  <span class="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+                  <span class="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground shadow-md">
                     <lucide-icon [img]="checkIcon" class="h-3 w-3" />
                   </span>
                 }

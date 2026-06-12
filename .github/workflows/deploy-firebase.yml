@@ -87,6 +87,24 @@ jobs:
             echo "Razorpay key injection OK: ${KEY:0:12}..."
           fi
 
+      - name: Inject Google Maps API key into index.html
+        working-directory: personal-finance-pwa
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: |
+          if [[ -z "$GOOGLE_MAPS_API_KEY" ]]; then
+            echo "WARNING: GOOGLE_MAPS_API_KEY secret not set — reminder map picker will be hidden (search-only fallback)."
+          else
+            node -e "
+              const fs = require('fs');
+              const html = fs.readFileSync('dist/personal-finance-pwa/browser/index.html', 'utf8');
+              fs.writeFileSync('dist/personal-finance-pwa/browser/index.html',
+                html.replace(/GOOGLE_MAPS_API_KEY_PLACEHOLDER/g, process.env.GOOGLE_MAPS_API_KEY)
+              );
+            "
+            echo "Google Maps key injection OK."
+          fi
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:

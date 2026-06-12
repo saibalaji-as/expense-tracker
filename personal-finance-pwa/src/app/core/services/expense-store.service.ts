@@ -950,7 +950,12 @@ export const ExpenseStore = signalStore(
         });
         localRevision = snapshot.dirty ? 1 : 0;
         persistedRevision = 0;
-        await flushPendingWidgetExpenses();
+        // Fire-and-forget: the flush includes a Drive write (persistToDrive) which
+        // must not block cached startup (< 500 ms budget). The local merge inside
+        // the flush still runs immediately after first render.
+        void flushPendingWidgetExpenses().catch((err) => {
+          if (isDevMode()) { console.warn('[ExpenseStore] Background widget queue flush failed:', err); }
+        });
         return true;
       },
 
