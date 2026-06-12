@@ -13,6 +13,7 @@ import {
   Settings,
 } from 'lucide-angular';
 import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
+import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { TranslatePipe } from '../../pipes';
@@ -27,7 +28,7 @@ interface NavItem {
   selector: 'app-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule, ThemeToggleComponent, TranslatePipe],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, ThemeToggleComponent, TranslatePipe, SpenzaLogoComponent],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -45,7 +46,7 @@ interface NavItem {
 
             <!-- Logo -->
             <a routerLink="/daily" class="flex items-center">
-              <img src="/spenza-logo.svg" alt="Spenza Logo" class="h-10 w-10 object-contain" />
+              <app-spenza-logo [size]="40" />
               <span class="text-lg font-semibold tracking-tight">
                 Spen<span class="gradient-text">za</span>
               </span>
@@ -80,7 +81,7 @@ interface NavItem {
       <header class="sticky top-0 z-40 min-[887px]:hidden">
         <div class="flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl">
           <a routerLink="/daily" class="flex items-center gap-2">
-            <img src="/spenza-logo.svg" alt="Spenza Logo" class="h-8 w-8 object-contain" />
+            <app-spenza-logo [size]="32" />
             <span class="text-base font-semibold tracking-tight">
               Spen<span class="gradient-text">za</span>
             </span>

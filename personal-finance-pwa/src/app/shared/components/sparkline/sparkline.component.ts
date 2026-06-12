@@ -43,8 +43,8 @@ export class SparklineComponent implements OnChanges, AfterViewInit {
   @Input() data: SparklineDataPoint[] = [];
   @Input() width = '100px';
   @Input() height = '32px';
-  @Input() lineColor = '#3b82f6'; // Default blue
-  @Input() fillColor = 'rgba(59, 130, 246, 0.1)'; // Default blue with transparency
+  @Input() lineColor = '';
+  @Input() fillColor = '';
   @Input() strokeWidth = 2;
   @Input() showTrend = true; // Show trend indicator color
 
@@ -99,9 +99,10 @@ export class SparklineComponent implements OnChanges, AfterViewInit {
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
+    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || 'oklch(0.55 0.22 280)';
     // Determine color based on trend if showTrend is enabled
-    let color = this.lineColor;
-    let fillColor = this.fillColor;
+    let color = this.lineColor || primaryColor;
+    let fillColor = this.fillColor || `color-mix(in oklab, ${primaryColor} 15%, transparent)`;
     
     if (this.showTrend) {
       const trendValue = this.trend();

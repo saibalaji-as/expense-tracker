@@ -18,23 +18,23 @@ import { SubscriptionService } from '../../core/services/subscription.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink],
   template: `
-    <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-white py-12 px-4">
+    <div class="min-h-screen bg-gradient-to-br from-primary/5 to-background py-12 px-4">
       <div class="max-w-2xl mx-auto">
 
         <!-- Header -->
         <div class="text-center mb-10">
-          <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 text-white text-2xl mb-4">
+          <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary text-primary-foreground text-2xl mb-4">
             💸
           </div>
-          <h1 class="text-3xl font-bold text-gray-900">Upgrade to Spenza Pro</h1>
-          <p class="text-gray-500 mt-2">Unlock advanced insights, family sync, and more.</p>
+          <h1 class="text-3xl font-bold text-foreground">Upgrade to Spenza Pro</h1>
+          <p class="text-muted-foreground mt-2">Unlock advanced insights, family sync, and more.</p>
         </div>
 
         <!-- Feature list -->
-        <div class="grid grid-cols-2 gap-3 mb-10 text-sm text-gray-600">
+        <div class="grid grid-cols-2 gap-3 mb-10 text-sm text-muted-foreground">
           @for (f of features; track f) {
             <div class="flex items-center gap-2">
-              <span class="text-indigo-500 font-bold">✓</span> {{ f }}
+              <span class="text-primary font-bold">✓</span> {{ f }}
             </div>
           }
         </div>
@@ -45,18 +45,18 @@ import { SubscriptionService } from '../../core/services/subscription.service';
             <button
               (click)="selectPlan(plan)"
               [class]="selectedPlan()?.id === plan.id
-                ? 'ring-2 ring-indigo-600 bg-indigo-50 border-indigo-600'
-                : 'border-gray-200 bg-white hover:border-indigo-400'"
+                ? 'ring-2 ring-primary bg-primary/10 border-primary'
+                : 'border-border bg-card hover:border-primary/40'"
               class="relative border-2 rounded-2xl p-6 text-left transition-all cursor-pointer focus:outline-none"
             >
               @if (plan.savings) {
-                <span class="absolute top-3 right-3 bg-indigo-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
+                <span class="absolute top-3 right-3 bg-primary text-primary-foreground text-xs font-semibold px-2 py-0.5 rounded-full">
                   {{ plan.savings }}
                 </span>
               }
-              <p class="font-semibold text-gray-800 text-base mb-1">{{ plan.label }}</p>
-              <p class="text-2xl font-bold text-indigo-600">
-                {{ plan.priceDisplay }}<span class="text-sm font-normal text-gray-400">{{ plan.period }}</span>
+              <p class="font-semibold text-foreground text-base mb-1">{{ plan.label }}</p>
+              <p class="text-2xl font-bold text-primary">
+                {{ plan.priceDisplay }}<span class="text-sm font-normal text-muted-foreground">{{ plan.period }}</span>
               </p>
             </button>
           }
@@ -64,14 +64,14 @@ import { SubscriptionService } from '../../core/services/subscription.service';
 
         <!-- Payment button -->
         @if (errorMsg()) {
-          <p class="text-red-500 text-sm text-center mb-4">{{ errorMsg() }}</p>
+          <p class="text-destructive text-sm text-center mb-4">{{ errorMsg() }}</p>
         }
 
         <button
           (click)="pay()"
           [disabled]="!selectedPlan() || loading() || authorizing()"
-          class="w-full py-4 rounded-2xl text-white font-semibold text-base transition-all
-                 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full py-4 rounded-2xl font-semibold text-base transition-all
+                 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           @if (authorizing()) {
             Connecting your Spenza account...
@@ -84,23 +84,23 @@ import { SubscriptionService } from '../../core/services/subscription.service';
           }
         </button>
 
-        <p class="text-xs text-center text-gray-400 mt-4">
+        <p class="text-xs text-center text-muted-foreground mt-4">
           Secure payments via Razorpay. Cancel anytime. By subscribing you agree to our
           <a routerLink="/terms" class="underline">Terms</a> and
           <a routerLink="/privacy" class="underline">Privacy Policy</a>.
         </p>
 
         <p class="text-center mt-6">
-          <a routerLink="/" class="text-sm text-indigo-600 hover:underline">Continue with Free plan</a>
+          <a routerLink="/" class="text-sm text-primary hover:underline">Continue with Free plan</a>
         </p>
 
         <!-- Restore subscription for users who paid but weren't activated -->
-        <div class="mt-8 pt-6 border-t border-gray-100">
-          <p class="text-xs text-center text-gray-400 mb-3">Already paid but not activated?</p>
+        <div class="mt-8 pt-6 border-t border-border">
+          <p class="text-xs text-center text-muted-foreground mb-3">Already paid but not activated?</p>
           @if (!showRestore()) {
             <button
               (click)="showRestore.set(true)"
-              class="w-full py-2 text-sm text-indigo-600 hover:underline"
+              class="w-full py-2 text-sm text-primary hover:underline"
             >
               Restore my subscription
             </button>
@@ -110,12 +110,12 @@ import { SubscriptionService } from '../../core/services/subscription.service';
                 #subIdInput
                 type="text"
                 placeholder="Razorpay subscription ID (sub_...)"
-                class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                class="flex-1 px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/60"
               />
               <button
                 (click)="restore(subIdInput.value)"
                 [disabled]="restoring()"
-                class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl disabled:opacity-50"
+                class="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-xl disabled:opacity-50"
               >
                 {{ restoring() ? '…' : 'Restore' }}
               </button>

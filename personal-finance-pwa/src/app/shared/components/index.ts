@@ -15,3 +15,4 @@ export { SparklineComponent } from './sparkline/sparkline.component';
 export { ThemedSelectComponent, type ThemedSelectOption } from './themed-select/themed-select.component';
 export { ClearableInputDirective } from '../directives/clearable-input.directive';
 export { NotificationDisclosureComponent } from './notification-disclosure/notification-disclosure.component';
+export { SpenzaLogoComponent } from './spenza-logo/spenza-logo.component';

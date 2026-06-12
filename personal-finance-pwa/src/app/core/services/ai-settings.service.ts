@@ -4,18 +4,23 @@ import { DriveApiError, GoogleDriveService, SpenzaConfig } from './google-drive.
 import { StorageService } from './storage.service';
 
 // 'hosted'   → Spenza-managed AI (Groq for insights/voice, Gemini for receipts). Default for all users.
-// 'user-key' → User supplies their own Gemini API key (power users / legacy).
+// 'byok'     → User brings their own Groq and/or Gemini API key.
 // 'disabled' → User has explicitly turned AI off in Settings.
-export type AiProviderMode = 'default' | 'user-key' | 'hosted' | 'disabled';
+export type AiProviderMode = 'hosted' | 'byok' | 'disabled';
+export type ByokPreference = 'groq' | 'gemini' | 'both';
 
 export interface AiSettings {
   provider: AiProviderMode;
   geminiApiKey: string | null;
+  groqApiKey: string | null;
+  byokPreference: ByokPreference;
 }
 
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: 'hosted',
   geminiApiKey: null,
+  groqApiKey: null,
+  byokPreference: 'gemini',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -88,7 +93,7 @@ export class AiSettingsService {
   }
 
   async clearUserKey(): Promise<void> {
-    await this.save({ provider: 'disabled', geminiApiKey: null });
+    await this.save({ provider: 'disabled', geminiApiKey: null, groqApiKey: null, byokPreference: 'gemini' });
   }
 
   async clearLocalState(): Promise<void> {
@@ -112,7 +117,18 @@ export class AiSettingsService {
       this.settings.set(local);
     }
 
-    return current.provider === 'user-key' ? current.geminiApiKey : null;
+    return current.provider === 'byok' ? current.geminiApiKey : null;
+  }
+
+  async getActiveGroqKey(): Promise<string | null> {
+    let current = this.settings();
+    const local = await this.readLocal();
+    if (local) {
+      current = local;
+      this.settings.set(local);
+    }
+
+    return current.provider === 'byok' ? current.groqApiKey : null;
   }
 
   isDisabled(): boolean {
@@ -123,8 +139,24 @@ export class AiSettingsService {
     return this.settings().provider === 'hosted';
   }
 
+  isByok(): boolean {
+    return this.settings().provider === 'byok';
+  }
+
+  maskedGeminiKey(): string {
+    return this.maskKey(this.settings().geminiApiKey);
+  }
+
+  maskedGroqKey(): string {
+    return this.maskKey(this.settings().groqApiKey);
+  }
+
+  /** @deprecated use maskedGeminiKey() */
   maskedKey(): string {
-    const key = this.settings().geminiApiKey;
+    return this.maskedGeminiKey();
+  }
+
+  private maskKey(key: string | null): string {
     if (!key) return '';
     return key.length <= 10 ? 'Saved key' : `${key.slice(0, 6)}...${key.slice(-4)}`;
   }
@@ -174,7 +206,10 @@ export class AiSettingsService {
       ...config,
       aiSettings: {
         provider: settings.provider,
-        geminiApiKey: settings.provider === 'user-key' ? settings.geminiApiKey : null,
+        // Always persist keys so switching back to 'byok' restores them
+        geminiApiKey: settings.geminiApiKey,
+        groqApiKey:   settings.groqApiKey,
+        byokPreference: settings.byokPreference,
       },
     });
   }
@@ -213,26 +248,34 @@ export class AiSettingsService {
       && (error as DriveApiError).status === 404;
   }
 
-  private normalize(settings: Partial<AiSettings>): AiSettings {
+  private normalize(settings: { provider?: string; geminiApiKey?: string | null; groqApiKey?: string | null; byokPreference?: string }): AiSettings {
+    // Migrate legacy 'user-key' → 'byok', 'default' → 'hosted'
     const provider: AiProviderMode =
-      settings.provider === 'user-key' ? 'user-key' :
+      (settings.provider === 'user-key' || settings.provider === 'byok') ? 'byok' :
       settings.provider === 'disabled' ? 'disabled' :
-      'hosted'; // 'hosted' | 'default' | unknown → hosted
-    const geminiApiKey = typeof settings.geminiApiKey === 'string'
-      ? settings.geminiApiKey.trim()
-      : null;
+      'hosted';
 
-    return {
-      provider,
-      geminiApiKey: geminiApiKey || null,
-    };
+    const geminiApiKey = typeof settings.geminiApiKey === 'string'
+      ? settings.geminiApiKey.trim() || null
+      : null;
+    const groqApiKey = typeof settings.groqApiKey === 'string'
+      ? settings.groqApiKey.trim() || null
+      : null;
+    const byokPreference: ByokPreference =
+      settings.byokPreference === 'groq' ? 'groq' :
+      settings.byokPreference === 'both' ? 'both' :
+      'gemini';
+
+    return { provider, geminiApiKey, groqApiKey, byokPreference };
   }
 
   private resolveLoadedSettings(local: AiSettings | null, drive: AiSettings): AiSettings {
-    if (local?.provider === 'user-key' && local.geminiApiKey && drive.provider !== 'user-key') {
-      return local;
-    }
-
-    return drive;
+    // Merge: take provider/preference from drive, but preserve keys from local if drive lost them
+    // (drive wipes keys when provider switches — local is the source of truth for keys)
+    return {
+      ...drive,
+      geminiApiKey: drive.geminiApiKey ?? local?.geminiApiKey ?? null,
+      groqApiKey:   drive.groqApiKey   ?? local?.groqApiKey   ?? null,
+    };
   }
 }

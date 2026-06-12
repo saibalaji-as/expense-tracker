@@ -221,9 +221,9 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 
         <!-- Log Expense SectionCard -->
         <app-section-card
+          class="xl:col-span-3"
           [title]="'daily.log.title' | translate"
           [description]="'daily.log.description' | translate"
-          className="xl:col-span-3"
         >
           <!-- Edit mode banner -->
           @if (isEditMode()) {
@@ -819,9 +819,9 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
         <!-- Today's Entries SectionCard -->
         <app-section-card
           id="todays-entries"
+          class="xl:col-span-2"
           [title]="entriesSectionTitle()"
           [description]="entriesDescription()"
-          className="xl:col-span-2"
         >
           <!-- Date selector header -->
           <div class="mb-4 flex items-center justify-between gap-3">

@@ -9,7 +9,7 @@ import { RouterLink } from '@angular/router';
   template: `
     <div class="min-h-screen bg-gray-50 py-10 px-4">
       <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm p-8">
-        <a routerLink="/" class="text-sm text-indigo-600 hover:underline mb-6 inline-block">&larr; Back to Spenza</a>
+        <a routerLink="/" class="text-sm text-primary hover:underline mb-6 inline-block">&larr; Back to Spenza</a>
 
         <h1 class="text-3xl font-bold text-gray-900 mb-2">Terms of Service</h1>
         <p class="text-sm text-gray-500 mb-8">Last updated: June 1, 2026</p>
@@ -102,7 +102,7 @@ import { RouterLink } from '@angular/router';
           <h2 class="text-lg font-semibold text-gray-800 mb-2">11. Contact</h2>
           <p class="text-gray-600 leading-relaxed">
             For questions about these Terms, email
-            <a href="mailto:support@spenza.app" class="text-indigo-600 hover:underline">support&#64;spenza.app</a>.
+            <a href="mailto:support@spenza.app" class="text-primary hover:underline">support&#64;spenza.app</a>.
           </p>
         </section>
       </div>

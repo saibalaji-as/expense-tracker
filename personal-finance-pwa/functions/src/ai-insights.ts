@@ -9,7 +9,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 //   - Receipt extraction → hosted Gemini (multimodal required)
 //     Set GEMINI_API_KEY in Firebase Functions env: firebase functions:secrets:set GEMINI_API_KEY
 //
-// User-key mode (legacy/power users): still supported via X-Gemini-Api-Key header.
+// BYOK mode: user supplies X-Gemini-Api-Key and/or X-Groq-Api-Key + X-Ai-Preference header.
 // ---------------------------------------------------------------------------
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -73,11 +73,16 @@ export const generateInsights = onRequest({ cors: true, secrets: ['GROQ_API_KEY'
     return;
   }
 
-  const userApiKey = (req.headers['x-gemini-api-key'] as string | undefined)?.trim() || null;
+  const userGeminiKey = (req.headers['x-gemini-api-key'] as string | undefined)?.trim() || null;
+  const userGroqKey   = (req.headers['x-groq-api-key']   as string | undefined)?.trim() || null;
+  const aiPreference  = ((req.headers['x-ai-preference']  as string | undefined)?.trim() || 'gemini') as 'groq' | 'gemini' | 'both';
   const hostedGroqKey = process.env.GROQ_API_KEY?.trim() || null;
+  const hostedGeminiKey = process.env.GEMINI_API_KEY?.trim() || null;
 
-  // Require either a user-supplied Gemini key or a hosted Groq key
-  if (!userApiKey && !hostedGroqKey) {
+  const hasUserKey = !!(userGeminiKey || userGroqKey);
+
+  // Require at least one key (user or server)
+  if (!hasUserKey && !hostedGroqKey && !hostedGeminiKey) {
     res.status(503).json({ error: 'AI insights unavailable: no API key configured on server.' });
     return;
   }
@@ -86,10 +91,40 @@ export const generateInsights = onRequest({ cors: true, secrets: ['GROQ_API_KEY'
     const payload = req.body;
     const prompt = buildPrompt(payload);
 
-    // User key → Gemini (full model cascade); hosted → Groq
-    const generated = userApiKey
-      ? await callGeminiWithFallbacks(userApiKey, modelCandidates(process.env.GEMINI_MODEL), prompt)
-      : await callGroq(hostedGroqKey!, prompt);
+    let generated: Awaited<ReturnType<typeof callGroq | typeof callGeminiWithFallbacks>>;
+
+    if (!hasUserKey) {
+      // Hosted path: try Groq first, auto-fallback to Gemini if Groq fails
+      if (hostedGroqKey) {
+        generated = await callGroq(hostedGroqKey, prompt);
+        if (!generated.ok && generated.statusCode !== 200 && hostedGeminiKey) {
+          console.warn('[generateInsights] Groq failed, falling back to hosted Gemini');
+          generated = await callGeminiWithFallbacks(hostedGeminiKey, modelCandidates(process.env.GEMINI_MODEL), prompt);
+        }
+      } else {
+        generated = await callGeminiWithFallbacks(hostedGeminiKey!, modelCandidates(process.env.GEMINI_MODEL), prompt);
+      }
+    } else if (aiPreference === 'groq' && userGroqKey) {
+      generated = await callGroq(userGroqKey, prompt);
+    } else if (aiPreference === 'gemini' && userGeminiKey) {
+      generated = await callGeminiWithFallbacks(userGeminiKey, modelCandidates(process.env.GEMINI_MODEL), prompt);
+    } else if (aiPreference === 'both') {
+      // Both: try user Groq first, fallback to user Gemini
+      if (userGroqKey) {
+        generated = await callGroq(userGroqKey, prompt);
+        if (!generated.ok && generated.statusCode !== 200 && userGeminiKey) {
+          console.warn('[generateInsights] User Groq failed, falling back to user Gemini');
+          generated = await callGeminiWithFallbacks(userGeminiKey, modelCandidates(process.env.GEMINI_MODEL), prompt);
+        }
+      } else {
+        generated = await callGeminiWithFallbacks(userGeminiKey!, modelCandidates(process.env.GEMINI_MODEL), prompt);
+      }
+    } else {
+      // Fallback: use whichever key is available
+      generated = userGroqKey
+        ? await callGroq(userGroqKey, prompt)
+        : await callGeminiWithFallbacks(userGeminiKey!, modelCandidates(process.env.GEMINI_MODEL), prompt);
+    }
 
     if (!generated.ok) {
       if (generated.statusCode === 200) {

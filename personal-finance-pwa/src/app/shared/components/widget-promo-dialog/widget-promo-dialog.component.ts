@@ -41,7 +41,7 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
             <div class="flex items-center gap-2">
               <p class="font-semibold text-foreground">Home Screen Widget</p>
               @if (!subscriptionService.isPro()) {
-                <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                <span class="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary dark:bg-primary/20 dark:text-primary">Pro</span>
               }
             </div>
             <p class="mt-1 text-sm text-muted-foreground">Add the Spenza widget to your home screen to log expenses instantly — without opening the app.</p>
@@ -56,7 +56,7 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
                 type="button"
                 (click)="onAddWidget()"
                 [disabled]="isRequestingPin()"
-                class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 @if (isRequestingPin()) {
                   <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
@@ -73,7 +73,7 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
             <a
               routerLink="/subscribe"
               (click)="dismiss()"
-              class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
             >
               ✨ Upgrade to Pro
             </a>
@@ -86,7 +86,7 @@ const DISMISSED_KEY = 'spenza_widget_promo_dismissed';
             type="checkbox"
             [checked]="dontShowAgain()"
             (change)="onDontShowAgainChange($event)"
-            class="h-4 w-4 rounded border-border accent-indigo-600 cursor-pointer"
+            class="h-4 w-4 rounded border-border accent-primary cursor-pointer"
           />
           <span class="text-sm text-muted-foreground">Don't show again</span>
         </label>

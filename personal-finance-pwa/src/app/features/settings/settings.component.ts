@@ -25,7 +25,7 @@ import { LocalNotificationService } from '../../core/services/local-notification
 import { FcmService } from '../../core/services/fcm.service';
 import { SyncService } from '../../core/services/sync.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
-import { ThemeService } from '../../core/services/theme.service';
+import { ThemeService, AppPalette } from '../../core/services/theme.service';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
@@ -97,7 +97,7 @@ interface BeforeInstallPromptEvent extends Event {
 
       <!-- Spenza Pro -->
       @if (subscriptionService.isPro()) {
-        <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-indigo-500/10 px-5 py-4">
+        <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 px-5 py-4">
           <div class="flex items-center gap-3">
             <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
             <div class="flex-1 min-w-0">
@@ -131,9 +131,9 @@ interface BeforeInstallPromptEvent extends Event {
           }
         </div>
       } @else {
-        <div class="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-5 dark:border-indigo-800 dark:from-indigo-950/50 dark:to-purple-950/50">
+        <div class="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-white to-primary/10 p-5 dark:border-primary/40 dark:from-primary/10 dark:to-primary/5">
           <div class="flex items-start gap-4">
-            <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white text-xl shadow-lg">💸</span>
+            <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground text-xl shadow-lg">💸</span>
             <div class="flex-1 min-w-0">
               <p class="font-semibold text-gray-900 dark:text-white">Upgrade to Spenza Pro</p>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Advanced insights · Family sync · Receipt scanner · Priority support</p>
@@ -143,7 +143,7 @@ interface BeforeInstallPromptEvent extends Event {
                     type="button"
                     (click)="openSubscribePage()"
                     [disabled]="isOpeningSubscribePage()"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     @if (isOpeningSubscribePage()) {
                       <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
@@ -155,13 +155,13 @@ interface BeforeInstallPromptEvent extends Event {
                 } @else {
                   <a
                     routerLink="/subscribe"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+                    class="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
                   >
                     ✨ Upgrade — ₹499/month
                   </a>
                   <a
                     routerLink="/subscribe"
-                    class="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:border-indigo-400 transition-colors dark:bg-transparent dark:border-indigo-700 dark:text-indigo-400"
+                    class="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-white px-4 py-2 text-sm font-semibold text-primary hover:border-primary/60 transition-colors dark:bg-transparent dark:border-primary/40 dark:text-primary"
                   >
                     ₹3,999/year — Save 33%
                   </a>
@@ -212,6 +212,38 @@ interface BeforeInstallPromptEvent extends Event {
               }
             </button>
           }
+        </div>
+
+        <!-- Color Palette -->
+        <div class="mt-5">
+          <p class="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Color Palette</p>
+          <div class="flex flex-wrap gap-3">
+            @for (opt of paletteOptions; track opt.value) {
+              <button
+                type="button"
+                (click)="onPaletteChange(opt.value)"
+                [attr.aria-label]="opt.label + ' palette'"
+                [attr.aria-pressed]="themeService.palette() === opt.value"
+                [class]="
+                  'group relative flex flex-col items-center gap-2 rounded-2xl border p-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+                  (themeService.palette() === opt.value
+                    ? 'border-primary bg-accent shadow-glow'
+                    : 'border-border bg-card/40 hover:border-primary/40')
+                "
+              >
+                <span
+                  class="h-8 w-8 rounded-full border-2 border-white/30 shadow-md"
+                  [style.background-color]="themeService.effectiveTheme() === 'dark' ? opt.dark : opt.light"
+                ></span>
+                <span class="text-xs font-medium text-foreground">{{ opt.label }}</span>
+                @if (themeService.palette() === opt.value) {
+                  <span class="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-primary text-primary-foreground">
+                    <lucide-icon [img]="checkIcon" class="h-2.5 w-2.5" />
+                  </span>
+                }
+              </button>
+            }
+          </div>
         </div>
       </app-section-card>
 
@@ -344,6 +376,7 @@ interface BeforeInstallPromptEvent extends Event {
         [description]="'settings.ai.description' | translate"
       >
         <div class="space-y-4">
+          <!-- Mode selector -->
           <div class="grid gap-3 md:grid-cols-3">
             <button
               type="button"
@@ -362,16 +395,16 @@ interface BeforeInstallPromptEvent extends Event {
 
             <button
               type="button"
-              (click)="onAiProviderChange('user-key')"
-              [attr.aria-pressed]="aiProviderMode() === 'user-key'"
-              [class]="aiProviderButtonClass('user-key')"
+              (click)="onAiProviderChange('byok')"
+              [attr.aria-pressed]="aiProviderMode() === 'byok'"
+              [class]="aiProviderButtonClass('byok')"
             >
               <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
                 <lucide-icon name="key-round" class="h-5 w-5" />
               </span>
               <span>
-                <span class="block text-sm font-semibold">{{ 'settings.ai.userKey.title' | translate }}</span>
-                <span class="mt-1 block text-xs text-muted-foreground">{{ 'settings.ai.userKey.description' | translate }}</span>
+                <span class="block text-sm font-semibold">{{ 'settings.ai.byok.title' | translate }}</span>
+                <span class="mt-1 block text-xs text-muted-foreground">{{ 'settings.ai.byok.description' | translate }}</span>
               </span>
             </button>
 
@@ -391,64 +424,62 @@ interface BeforeInstallPromptEvent extends Event {
             </button>
           </div>
 
-          @if (aiProviderMode() === 'user-key') {
+          <!-- BYOK status panel (read-only) -->
+          @if (aiProviderMode() === 'byok') {
             <div class="rounded-2xl border border-border bg-card/40 p-4">
-              @if (hasSavedGeminiKey() && !isEditingGeminiKey()) {
-                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div class="min-w-0">
-                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      {{ 'settings.ai.apiKey' | translate }}
-                    </p>
-                    <p class="mt-1 text-sm font-semibold">{{ aiSettingsService.maskedKey() }}</p>
-                    <p class="mt-1 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
+              <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div class="space-y-3 min-w-0">
+                  <!-- Key status badges -->
+                  <div class="flex flex-wrap gap-2">
+                    <div class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
+                      [class]="aiSettingsService.settings().geminiApiKey
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        : 'border-border bg-muted/50 text-muted-foreground'">
+                      <span class="h-1.5 w-1.5 rounded-full"
+                        [class]="aiSettingsService.settings().geminiApiKey ? 'bg-emerald-500' : 'bg-muted-foreground/50'"></span>
+                      Gemini
+                      @if (aiSettingsService.settings().geminiApiKey) {
+                        <span class="opacity-60">· {{ aiSettingsService.maskedGeminiKey() }}</span>
+                      } @else {
+                        <span class="opacity-60">· Not set</span>
+                      }
+                    </div>
+                    <div class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
+                      [class]="aiSettingsService.settings().groqApiKey
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        : 'border-border bg-muted/50 text-muted-foreground'">
+                      <span class="h-1.5 w-1.5 rounded-full"
+                        [class]="aiSettingsService.settings().groqApiKey ? 'bg-emerald-500' : 'bg-muted-foreground/50'"></span>
+                      Groq
+                      @if (aiSettingsService.settings().groqApiKey) {
+                        <span class="opacity-60">· {{ aiSettingsService.maskedGroqKey() }}</span>
+                      } @else {
+                        <span class="opacity-60">· Not set</span>
+                      }
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    (click)="onEditGeminiKey()"
-                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
-                  >
-                    <lucide-icon [img]="editIcon" class="h-4 w-4" />
-                    {{ 'settings.ai.edit' | translate }}
-                  </button>
-                </div>
-              } @else {
-                <div class="flex flex-col gap-3 md:flex-row md:items-end">
-                  <div class="min-w-0 flex-1">
-                    <label for="gemini-api-key" class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      {{ 'settings.ai.apiKey' | translate }}
-                    </label>
-                    <input appClearable
-                      id="gemini-api-key"
-                      type="password"
-                      autocomplete="off"
-                      [(ngModel)]="geminiApiKeyInput"
-                      [placeholder]="aiSettingsService.maskedKey() || ('settings.ai.apiKeyPlaceholder' | translate)"
-                      class="mt-2 w-full rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
-                    />
-                    <p class="mt-2 text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
-                  </div>
-                  <div class="flex shrink-0 gap-2">
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="inline-flex items-center justify-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:border-primary/50"
-                    >
-                      <lucide-icon [img]="externalLinkIcon" class="h-4 w-4" />
-                      {{ 'settings.ai.getKey' | translate }}
-                    </a>
-                    <button
-                      type="button"
-                      (click)="onSaveAiSettings()"
-                      [disabled]="aiSettingsService.isLoading()"
-                      class="inline-flex items-center justify-center gap-2 rounded-2xl gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-                    >
-                      <lucide-icon [img]="checkIcon" class="h-4 w-4" />
-                      {{ 'settings.ai.save' | translate }}
-                    </button>
+                  <!-- Active preference badge -->
+                  <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{{ 'settings.ai.preference.label' | translate }}:</span>
+                    @if (aiSettingsService.settings().byokPreference === 'groq') {
+                      <span class="font-semibold text-foreground">⚡ {{ 'settings.ai.preference.groq' | translate }}</span>
+                    } @else if (aiSettingsService.settings().byokPreference === 'gemini') {
+                      <span class="font-semibold text-foreground">✦ {{ 'settings.ai.preference.gemini' | translate }}</span>
+                    } @else {
+                      <span class="font-semibold text-foreground">⚡ + ✦ {{ 'settings.ai.preference.both' | translate }}</span>
+                    }
                   </div>
                 </div>
-              }
+                <!-- Manage button -->
+                <button
+                  type="button"
+                  (click)="onOpenAiKeysDialog()"
+                  class="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-primary/40 bg-primary/5 px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
+                >
+                  <lucide-icon [img]="editIcon" class="h-4 w-4" />
+                  {{ 'settings.ai.manageKeys' | translate }}
+                </button>
+              </div>
             </div>
           }
 
@@ -460,6 +491,138 @@ interface BeforeInstallPromptEvent extends Event {
           }
         </div>
       </app-section-card>
+
+      <!-- Manage AI Keys dialog -->
+      <app-modal
+        [title]="'settings.ai.manageKeys' | translate"
+        [isOpen]="isAiKeysDialogOpen()"
+        [showActions]="false"
+        (cancelled)="isAiKeysDialogOpen.set(false)"
+      >
+        <div class="space-y-5">
+          <!-- Gemini key -->
+          <div>
+            <label for="dialog-gemini-key" class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/10 text-blue-600 text-[10px] font-bold">G</span>
+              {{ 'settings.ai.apiKey' | translate }}
+            </label>
+            <div class="mt-2 flex gap-2">
+              <input appClearable
+                id="dialog-gemini-key"
+                type="password"
+                autocomplete="off"
+                [(ngModel)]="dialogGeminiKey"
+                [placeholder]="aiSettingsService.maskedGeminiKey() || ('settings.ai.apiKeyPlaceholder' | translate)"
+                class="flex-1 rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+              />
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 rounded-2xl border border-border px-3 py-2.5 text-xs font-semibold hover:border-primary/50 transition-colors whitespace-nowrap"
+              >
+                <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
+                {{ 'settings.ai.getKey' | translate }}
+              </a>
+            </div>
+            @if (aiSettingsService.settings().geminiApiKey) {
+              <p class="mt-1.5 text-xs text-muted-foreground">Saved: {{ aiSettingsService.maskedGeminiKey() }} · <button type="button" (click)="dialogGeminiKey = '__CLEAR__'" class="text-destructive hover:underline">Clear</button></p>
+            }
+          </div>
+
+          <!-- Groq key -->
+          <div>
+            <label for="dialog-groq-key" class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/10 text-orange-600 text-[10px]">⚡</span>
+              {{ 'settings.ai.groqKey' | translate }}
+            </label>
+            <div class="mt-2 flex gap-2">
+              <input appClearable
+                id="dialog-groq-key"
+                type="password"
+                autocomplete="off"
+                [(ngModel)]="dialogGroqKey"
+                [placeholder]="aiSettingsService.maskedGroqKey() || ('settings.ai.groqKeyPlaceholder' | translate)"
+                class="flex-1 rounded-2xl border border-border bg-background/70 px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+              />
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 rounded-2xl border border-border px-3 py-2.5 text-xs font-semibold hover:border-primary/50 transition-colors whitespace-nowrap"
+              >
+                <lucide-icon [img]="externalLinkIcon" class="h-3.5 w-3.5" />
+                {{ 'settings.ai.getGroqKey' | translate }}
+              </a>
+            </div>
+            @if (aiSettingsService.settings().groqApiKey) {
+              <p class="mt-1.5 text-xs text-muted-foreground">Saved: {{ aiSettingsService.maskedGroqKey() }} · <button type="button" (click)="dialogGroqKey = '__CLEAR__'" class="text-destructive hover:underline">Clear</button></p>
+            }
+          </div>
+
+          <!-- Preference selector -->
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'settings.ai.preference.label' | translate }}</p>
+            <div class="mt-2 flex gap-2">
+              <button
+                type="button"
+                (click)="dialogPreference = 'groq'"
+                [class]="dialogPreference === 'groq'
+                  ? 'flex-1 rounded-2xl border border-primary bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary transition-all'
+                  : 'flex-1 rounded-2xl border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:border-primary/40 transition-all'"
+              >
+                ⚡ {{ 'settings.ai.preference.groq' | translate }}
+              </button>
+              <button
+                type="button"
+                (click)="dialogPreference = 'gemini'"
+                [class]="dialogPreference === 'gemini'
+                  ? 'flex-1 rounded-2xl border border-primary bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary transition-all'
+                  : 'flex-1 rounded-2xl border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:border-primary/40 transition-all'"
+              >
+                ✦ {{ 'settings.ai.preference.gemini' | translate }}
+              </button>
+              <button
+                type="button"
+                (click)="dialogPreference = 'both'"
+                [class]="dialogPreference === 'both'
+                  ? 'flex-1 rounded-2xl border border-primary bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary transition-all'
+                  : 'flex-1 rounded-2xl border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:border-primary/40 transition-all'"
+              >
+                ↔ {{ 'settings.ai.preference.both' | translate }}
+              </button>
+            </div>
+            @if (dialogPreference === 'both') {
+              <p class="mt-2 flex items-start gap-1.5 rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                <lucide-icon name="info" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {{ 'settings.ai.preference.bothHint' | translate }}
+              </p>
+            }
+          </div>
+
+          <p class="text-xs text-muted-foreground">{{ 'settings.ai.privateHint' | translate }}</p>
+
+          <!-- Dialog actions -->
+          <div class="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              (click)="isAiKeysDialogOpen.set(false)"
+              class="rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-accent transition-colors"
+            >
+              {{ 'common.cancel' | translate }}
+            </button>
+            <button
+              type="button"
+              (click)="onSaveAiKeys()"
+              [disabled]="aiSettingsService.isLoading()"
+              class="inline-flex items-center gap-2 rounded-2xl gradient-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              <lucide-icon [img]="checkIcon" class="h-4 w-4" />
+              {{ 'settings.ai.save' | translate }}
+            </button>
+          </div>
+        </div>
+      </app-modal>
 
       <!-- Google Drive Backup -->
       <app-section-card [title]="'settings.backup.title' | translate">
@@ -787,7 +950,7 @@ interface BeforeInstallPromptEvent extends Event {
                   </button>
                 } @else {
                   <div class="flex items-center gap-2">
-                    <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                    <span class="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary dark:bg-primary/20 dark:text-primary">Pro</span>
                     <button
                       type="button"
                       routerLink="/subscribe"
@@ -899,7 +1062,7 @@ interface BeforeInstallPromptEvent extends Event {
               <div>
                 <div class="flex items-center gap-2">
                   <p class="text-sm font-medium">{{ 'settings.local.budgetWarnings' | translate }}</p>
-                  <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Pro</span>
+                  <span class="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary dark:bg-primary/20 dark:text-primary">Pro</span>
                 </div>
                 <p class="text-xs text-muted-foreground">
                   {{ 'settings.local.budgetWarningsHint' | translate }}
@@ -1337,6 +1500,14 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { value: 'system' as const, label: 'System', icon: Monitor, desc: 'Match my device' },
   ];
 
+  readonly paletteOptions: { value: AppPalette; label: string; light: string; dark: string }[] = [
+    { value: 'violet',  label: 'Violet',  light: 'oklch(0.55 0.22 280)', dark: 'oklch(0.72 0.20 290)' },
+    { value: 'rose',    label: 'Rose',    light: 'oklch(0.55 0.22 10)',  dark: 'oklch(0.72 0.20 10)'  },
+    { value: 'azure',   label: 'Azure',   light: 'oklch(0.55 0.22 230)', dark: 'oklch(0.72 0.20 230)' },
+    { value: 'emerald', label: 'Emerald', light: 'oklch(0.55 0.20 155)', dark: 'oklch(0.72 0.18 155)' },
+    { value: 'amber',   label: 'Amber',   light: 'oklch(0.58 0.20 65)',  dark: 'oklch(0.78 0.18 75)'  },
+  ];
+
   // Icon references for template use
   readonly checkIcon = Check;
   readonly downloadIcon = Download;
@@ -1360,8 +1531,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly isRestoringJson = signal(false);
   readonly restoreJsonMessage = signal<string | null>(null);
   readonly restoreJsonError = signal(false);
-  readonly isEditingGeminiKey = signal(false);
-  geminiApiKeyInput = '';
+  readonly isAiKeysDialogOpen = signal(false);
+  dialogGeminiKey = '';
+  dialogGroqKey = '';
+  dialogPreference: 'groq' | 'gemini' | 'both' = 'gemini';
 
   // ─── Local Notification Preferences ──────────────────────────────────────────
   readonly notificationPrefs = signal<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
@@ -1454,6 +1627,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.feedback.success('Appearance saved.', 'Your theme preference was saved on this device.');
   }
 
+  async onPaletteChange(palette: AppPalette): Promise<void> {
+    await this.themeService.setPalette(palette);
+    this.feedback.success('Palette saved.', 'Your color palette was saved on this device.');
+  }
+
   async onLanguageChange(language: AppLanguage): Promise<void> {
     await this.i18n.setLanguage(language);
     const selected = this.i18n.languageOptions.find((option) => option.code === language);
@@ -1503,54 +1681,53 @@ export class SettingsComponent implements OnInit, OnDestroy {
     ].join(' ');
   }
 
-  hasSavedGeminiKey(): boolean {
-    return !!this.aiSettingsService.settings().geminiApiKey;
+  onOpenAiKeysDialog(): void {
+    const current = this.aiSettingsService.settings();
+    this.dialogGeminiKey = '';
+    this.dialogGroqKey = '';
+    this.dialogPreference = current.byokPreference;
+    this.isAiKeysDialogOpen.set(true);
   }
 
   async onAiProviderChange(provider: AiProviderMode): Promise<void> {
     const current = this.aiSettingsService.settings();
-    this.isEditingGeminiKey.set(provider === 'user-key' && !current.geminiApiKey);
-    await this.aiSettingsService.save({
-      provider,
-      geminiApiKey: provider === 'user-key'
-        ? this.geminiApiKeyInput.trim() || current.geminiApiKey
-        : null,
-    });
+    await this.aiSettingsService.save({ ...current, provider });
+    if (provider === 'byok' && !current.geminiApiKey && !current.groqApiKey) {
+      this.dialogGeminiKey = '';
+      this.dialogGroqKey = '';
+      this.dialogPreference = current.byokPreference;
+      this.isAiKeysDialogOpen.set(true);
+    }
     this.feedback.success(
       'AI settings saved.',
-      provider === 'disabled'
-        ? 'Spenza will use only on-device insights.'
-        : 'Your AI preference was saved.'
+      provider === 'disabled' ? 'Spenza will use only on-device insights.' : 'Your AI preference was saved.'
     );
   }
 
-  onEditGeminiKey(): void {
-    this.geminiApiKeyInput = '';
-    this.isEditingGeminiKey.set(true);
-  }
+  async onSaveAiKeys(): Promise<void> {
+    const current = this.aiSettingsService.settings();
+    const geminiKey = this.dialogGeminiKey === '__CLEAR__'
+      ? null
+      : this.dialogGeminiKey.trim() || current.geminiApiKey;
+    const groqKey = this.dialogGroqKey === '__CLEAR__'
+      ? null
+      : this.dialogGroqKey.trim() || current.groqApiKey;
 
-  async onSaveAiSettings(): Promise<void> {
-    const key = this.geminiApiKeyInput.trim() || this.aiSettingsService.settings().geminiApiKey;
-    if (!key) {
-      this.aiSettingsService.lastError.set('Paste your Gemini API key before saving.');
-      this.isEditingGeminiKey.set(true);
-      this.feedback.warning(
-        'AI settings were not saved.',
-        'Paste your Gemini API key first, then tap Save.'
-      );
+    if (!geminiKey && !groqKey) {
+      this.aiSettingsService.lastError.set('Add at least one API key before saving.');
       return;
     }
 
     await this.aiSettingsService.save({
-      provider: 'user-key',
-      geminiApiKey: key,
+      provider: 'byok',
+      geminiApiKey: geminiKey,
+      groqApiKey: groqKey,
+      byokPreference: this.dialogPreference,
     });
-    this.geminiApiKeyInput = '';
-    this.isEditingGeminiKey.set(false);
-    this.feedback.success(
-      'Gemini API key saved.',
-      'Receipt extraction and weekly AI insights can now use your key when enabled.'
-    );
+    this.dialogGeminiKey = '';
+    this.dialogGroqKey = '';
+    this.isAiKeysDialogOpen.set(false);
+    this.feedback.success('API keys saved.', 'Your keys are stored privately on this device and in Drive.');
   }
 
   receiptFolderUrl(): string {

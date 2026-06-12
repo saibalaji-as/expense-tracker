@@ -231,7 +231,7 @@ interface ActivityItem {
                   }
                 </span>
                 @if (!subscriptionService.isPro()) {
-                  <span class="relative rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Pro</span>
+                  <span class="relative rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary-foreground">Pro</span>
                 }
               </button>
             </div>
@@ -1526,9 +1526,8 @@ export class DashboardComponent implements OnInit {
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    // Use a vibrant purple/blue color for the line
-    const lineColor = 'rgb(99, 102, 241)'; // Indigo-500
-    const gradientFillColor = 'rgba(99, 102, 241, 0.15)';
+    const lineColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || 'oklch(0.55 0.22 280)';
+    const gradientFillColor = `color-mix(in oklab, ${lineColor} 15%, transparent)`;
 
     return {
       labels,

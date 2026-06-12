@@ -160,6 +160,118 @@
   --shadow-glow: 0 10px 50px -10px color-mix(in oklab, var(--primary) 60%, transparent);
 }
 
+/* ============================================
+   PALETTE — Rose  (hue ~10 / 350)
+   ============================================ */
+:root[data-palette="rose"] {
+  --primary: oklch(0.55 0.22 10);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.65 0.24 350);
+  --accent: oklch(0.94 0.04 350);
+  --accent-foreground: oklch(0.30 0.10 350);
+  --ring: oklch(0.65 0.20 10);
+  --logo-primary: oklch(0.55 0.22 10);
+  --logo-primary-glow: oklch(0.65 0.24 350);
+  --logo-accent: oklch(0.60 0.22 5);
+  --gradient-primary: linear-gradient(135deg, oklch(0.55 0.22 10), oklch(0.65 0.24 350));
+}
+:root[data-palette="rose"].dark {
+  --primary: oklch(0.72 0.20 10);
+  --primary-foreground: oklch(0.12 0.03 265);
+  --primary-glow: oklch(0.78 0.22 350);
+  --accent: oklch(0.30 0.08 10);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --ring: oklch(0.72 0.20 10);
+  --logo-primary: oklch(0.72 0.20 10);
+  --logo-primary-glow: oklch(0.78 0.22 350);
+  --logo-accent: oklch(0.75 0.20 5);
+  --gradient-primary: linear-gradient(135deg, oklch(0.72 0.20 10), oklch(0.78 0.22 350));
+}
+
+/* ============================================
+   PALETTE — Azure  (hue ~230 / 210)
+   ============================================ */
+:root[data-palette="azure"] {
+  --primary: oklch(0.55 0.22 230);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.65 0.24 210);
+  --accent: oklch(0.94 0.04 210);
+  --accent-foreground: oklch(0.30 0.10 210);
+  --ring: oklch(0.65 0.20 230);
+  --logo-primary: oklch(0.55 0.22 230);
+  --logo-primary-glow: oklch(0.65 0.24 210);
+  --logo-accent: oklch(0.60 0.22 220);
+  --gradient-primary: linear-gradient(135deg, oklch(0.55 0.22 230), oklch(0.65 0.24 210));
+}
+:root[data-palette="azure"].dark {
+  --primary: oklch(0.72 0.20 230);
+  --primary-foreground: oklch(0.12 0.03 265);
+  --primary-glow: oklch(0.78 0.22 210);
+  --accent: oklch(0.30 0.08 230);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --ring: oklch(0.72 0.20 230);
+  --logo-primary: oklch(0.72 0.20 230);
+  --logo-primary-glow: oklch(0.78 0.22 210);
+  --logo-accent: oklch(0.75 0.20 220);
+  --gradient-primary: linear-gradient(135deg, oklch(0.72 0.20 230), oklch(0.78 0.22 210));
+}
+
+/* ============================================
+   PALETTE — Emerald  (hue ~155 / 175)
+   ============================================ */
+:root[data-palette="emerald"] {
+  --primary: oklch(0.55 0.20 155);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.65 0.22 175);
+  --accent: oklch(0.94 0.04 155);
+  --accent-foreground: oklch(0.30 0.10 155);
+  --ring: oklch(0.65 0.18 155);
+  --logo-primary: oklch(0.55 0.20 155);
+  --logo-primary-glow: oklch(0.65 0.22 175);
+  --logo-accent: oklch(0.60 0.20 165);
+  --gradient-primary: linear-gradient(135deg, oklch(0.55 0.20 155), oklch(0.65 0.22 175));
+}
+:root[data-palette="emerald"].dark {
+  --primary: oklch(0.72 0.18 155);
+  --primary-foreground: oklch(0.12 0.03 265);
+  --primary-glow: oklch(0.78 0.20 175);
+  --accent: oklch(0.30 0.08 155);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --ring: oklch(0.72 0.18 155);
+  --logo-primary: oklch(0.72 0.18 155);
+  --logo-primary-glow: oklch(0.78 0.20 175);
+  --logo-accent: oklch(0.75 0.18 165);
+  --gradient-primary: linear-gradient(135deg, oklch(0.72 0.18 155), oklch(0.78 0.20 175));
+}
+
+/* ============================================
+   PALETTE — Amber  (hue ~65 / 75)
+   ============================================ */
+:root[data-palette="amber"] {
+  --primary: oklch(0.58 0.20 65);
+  --primary-foreground: oklch(0.15 0.03 60);
+  --primary-glow: oklch(0.70 0.22 50);
+  --accent: oklch(0.94 0.06 65);
+  --accent-foreground: oklch(0.30 0.10 65);
+  --ring: oklch(0.65 0.18 65);
+  --logo-primary: oklch(0.58 0.20 65);
+  --logo-primary-glow: oklch(0.70 0.22 50);
+  --logo-accent: oklch(0.64 0.20 58);
+  --gradient-primary: linear-gradient(135deg, oklch(0.58 0.20 65), oklch(0.70 0.22 50));
+}
+:root[data-palette="amber"].dark {
+  --primary: oklch(0.78 0.18 75);
+  --primary-foreground: oklch(0.15 0.04 65);
+  --primary-glow: oklch(0.85 0.20 55);
+  --accent: oklch(0.32 0.08 70);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --ring: oklch(0.78 0.18 75);
+  --logo-primary: oklch(0.78 0.18 75);
+  --logo-primary-glow: oklch(0.85 0.20 55);
+  --logo-accent: oklch(0.82 0.18 65);
+  --gradient-primary: linear-gradient(135deg, oklch(0.78 0.18 75), oklch(0.85 0.20 55));
+}
+
 @layer base {
   * {
     border-color: var(--border);

@@ -87,8 +87,10 @@ export interface SpenzaConfig {
   familySyncMode?: 'firestore' | 'drive';
   firestoreFamilyId?: string | null;
   aiSettings?: {
-    provider: 'default' | 'user-key' | 'hosted' | 'disabled';
+    provider: string;
     geminiApiKey?: string | null;
+    groqApiKey?: string | null;
+    byokPreference?: string;
   };
   lastUpdated: string;
 }

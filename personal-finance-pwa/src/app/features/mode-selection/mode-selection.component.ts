@@ -56,7 +56,7 @@ import { TranslatePipe } from '../../shared/pipes';
             aria-label="Family / Shared mode"
           >
             @if (!subscriptionService.isPro()) {
-              <span class="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+              <span class="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
                 <lucide-icon name="lock" class="h-2.5 w-2.5" /> Pro
               </span>
             }

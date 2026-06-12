@@ -168,11 +168,7 @@ export class AiInsightService {
   async getReusableCachedWeeklyInsights(payload: AiInsightPayload): Promise<AiInsightResult | null> {
     await this.aiSettingsService.load();
     if (this.aiSettingsService.isDisabled()) return null;
-    // Hosted mode: always has AI. User-key mode: requires a key.
-    if (!this.aiSettingsService.isHosted()) {
-      const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-      if (!userGeminiKey) return null;
-    }
+    if (!this.aiSettingsService.isHosted() && !(await this.hasByokKey())) return null;
 
     const cacheEntries = await this.getCacheEntries();
     const signature = this.signatureFor(payload);
@@ -183,9 +179,12 @@ export class AiInsightService {
     await this.aiSettingsService.load();
     if (this.aiSettingsService.isDisabled()) return 'missing-key';
     if (this.aiSettingsService.isHosted()) return 'ready';
+    return (await this.hasByokKey()) ? 'ready' : 'missing-key';
+  }
 
-    const userGeminiKey = await this.aiSettingsService.getActiveGeminiKey();
-    return userGeminiKey ? 'ready' : 'missing-key';
+  private async hasByokKey(): Promise<boolean> {
+    const s = this.aiSettingsService.settings();
+    return !!(s.geminiApiKey || s.groqApiKey);
   }
 
   async clearWeeklyInsightState(): Promise<void> {
@@ -200,8 +199,9 @@ export class AiInsightService {
     if (this.aiSettingsService.isDisabled()) return { result: null, source: 'none' };
 
     const isHosted = this.aiSettingsService.isHosted();
-    const userGeminiKey = isHosted ? null : await this.aiSettingsService.getActiveGeminiKey();
-    if (!isHosted && !userGeminiKey) return { result: null, source: 'none' };
+    const isByok = this.aiSettingsService.isByok();
+    if (!isHosted && !isByok) return { result: null, source: 'none' };
+    if (isByok && !(await this.hasByokKey())) return { result: null, source: 'none' };
 
     const cacheEntries = await this.getCacheEntries();
     const signature = this.signatureFor(payload);
@@ -228,7 +228,12 @@ export class AiInsightService {
       await this.setUsage(todayKey, signature.locale, nextLocaleCallCount);
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (userGeminiKey) headers['X-Gemini-Api-Key'] = userGeminiKey;
+      if (isByok) {
+        const s = this.aiSettingsService.settings();
+        if (s.geminiApiKey) headers['X-Gemini-Api-Key'] = s.geminiApiKey;
+        if (s.groqApiKey)   headers['X-Groq-Api-Key']   = s.groqApiKey;
+        headers['X-Ai-Preference'] = s.byokPreference;
+      }
 
       const response = await fetch(`${this.functionsBaseUrl()}/generateInsights`, {
         method: 'POST',
