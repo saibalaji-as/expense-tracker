@@ -172,7 +172,7 @@ interface ActivityItem {
               </div>
               <div class="rounded-2xl border border-border/80 bg-background/55 p-3">
                 <div class="flex items-center gap-2">
-                  <span class="grid h-8 w-8 place-items-center rounded-xl bg-amber-400/15 text-amber-600">
+                  <span class="grid h-8 w-8 place-items-center rounded-xl bg-warning/15 text-warning">
                     <lucide-icon name="clock-3" class="h-4 w-4" />
                   </span>
                   <div class="min-w-0">
@@ -259,20 +259,20 @@ interface ActivityItem {
                 @for (insight of displayInsightSections(); track insight.label) {
                   <div
                     class="rounded-2xl border px-3.5 py-3"
-                    [class.border-emerald-400\/30]="insight.tone === 'good'"
-                    [class.bg-emerald-400\/10]="insight.tone === 'good'"
-                    [class.border-amber-400\/30]="insight.tone === 'warn'"
-                    [class.bg-amber-400\/10]="insight.tone === 'warn'"
+                    [class.border-success\/30]="insight.tone === 'good'"
+                    [class.bg-success\/10]="insight.tone === 'good'"
+                    [class.border-warning\/30]="insight.tone === 'warn'"
+                    [class.bg-warning\/10]="insight.tone === 'warn'"
                     [class.border-primary\/25]="insight.tone === 'info'"
                     [class.bg-primary\/10]="insight.tone === 'info'"
                   >
                     <div class="flex items-start gap-2">
                       <span
                         class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl"
-                        [class.bg-emerald-400\/15]="insight.tone === 'good'"
-                        [class.text-emerald-600]="insight.tone === 'good'"
-                        [class.bg-amber-400\/15]="insight.tone === 'warn'"
-                        [class.text-amber-600]="insight.tone === 'warn'"
+                        [class.bg-success\/15]="insight.tone === 'good'"
+                        [class.text-success]="insight.tone === 'good'"
+                        [class.bg-warning\/15]="insight.tone === 'warn'"
+                        [class.text-warning]="insight.tone === 'warn'"
                         [class.bg-primary\/15]="insight.tone === 'info'"
                         [class.text-primary]="insight.tone === 'info'"
                       >
@@ -307,16 +307,16 @@ interface ActivityItem {
                   } @else if (!geminiInsightSections()?.length && aiInsightStatusTitle()) {
                     <div
                       class="rounded-2xl border p-4"
-                      [class.border-amber-400\/30]="aiInsightNeedsKey()"
-                      [class.bg-amber-400\/10]="aiInsightNeedsKey()"
+                      [class.border-warning\/30]="aiInsightNeedsKey()"
+                      [class.bg-warning\/10]="aiInsightNeedsKey()"
                       [class.border-primary\/25]="!aiInsightNeedsKey()"
                       [class.bg-primary\/10]="!aiInsightNeedsKey()"
                     >
                       <div class="flex items-start gap-3">
                         <span
                           class="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
-                          [class.bg-amber-400\/15]="aiInsightNeedsKey()"
-                          [class.text-amber-600]="aiInsightNeedsKey()"
+                          [class.bg-warning\/15]="aiInsightNeedsKey()"
+                          [class.text-warning]="aiInsightNeedsKey()"
                           [class.bg-primary\/15]="!aiInsightNeedsKey()"
                           [class.text-primary]="!aiInsightNeedsKey()"
                         >
@@ -342,20 +342,20 @@ interface ActivityItem {
                       @for (insight of geminiInsightSections(); track insight.label) {
                         <div
                           class="rounded-2xl border px-3.5 py-3"
-                          [class.border-emerald-400\/30]="insight.tone === 'good'"
-                          [class.bg-emerald-400\/10]="insight.tone === 'good'"
-                          [class.border-amber-400\/30]="insight.tone === 'warn'"
-                          [class.bg-amber-400\/10]="insight.tone === 'warn'"
+                          [class.border-success\/30]="insight.tone === 'good'"
+                          [class.bg-success\/10]="insight.tone === 'good'"
+                          [class.border-warning\/30]="insight.tone === 'warn'"
+                          [class.bg-warning\/10]="insight.tone === 'warn'"
                           [class.border-primary\/25]="insight.tone === 'info'"
                           [class.bg-primary\/10]="insight.tone === 'info'"
                         >
                           <div class="flex items-start gap-2">
                             <span
                               class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl"
-                              [class.bg-emerald-400\/15]="insight.tone === 'good'"
-                              [class.text-emerald-600]="insight.tone === 'good'"
-                              [class.bg-amber-400\/15]="insight.tone === 'warn'"
-                              [class.text-amber-600]="insight.tone === 'warn'"
+                              [class.bg-success\/15]="insight.tone === 'good'"
+                              [class.text-success]="insight.tone === 'good'"
+                              [class.bg-warning\/15]="insight.tone === 'warn'"
+                              [class.text-warning]="insight.tone === 'warn'"
                               [class.bg-primary\/15]="insight.tone === 'info'"
                               [class.text-primary]="insight.tone === 'info'"
                             >

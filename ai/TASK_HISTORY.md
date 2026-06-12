@@ -2404,3 +2404,33 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
 
 ### Build verification
 - `npm run build -- --configuration production` in `personal-finance-pwa/` — passes (existing initial bundle budget warning: 506.70 kB vs 500.00 kB; pre-existing auth-callback budget warning)
+
+## 2026-06-12 — Design Themes Complete: Claymorphism + Hardcoded Color Fixes + Neumorphism/NeoBrutalism Enhanced Overrides
+
+### What was changed
+
+**CSS variable gaps filled:**
+- **Claymorphism light** (style.css:428): Added `--foreground`, `--secondary`, `--secondary-foreground`, `--muted`, `--muted-foreground`, `--popover`, `--popover-foreground` with clay-harmonized oklch values
+- **NeoBrutalism light** (style.css:494): Added `--background`, `--foreground`, `--popover`, `--popover-foreground`
+- **NeoBrutalism dark** (style.css:529): Added `--popover`, `--popover-foreground`
+
+**Enhanced element-level CSS overrides — all 3 non-glass styles:**
+- **Claymorphism**: `app-card > div` bottom lip + rounded corners; `app-themed-select` trigger lip + dropdown shadow; ghost buttons subtle 2px clay border; all buttons pressed state (`:active`) compress lip + `translateY`; input focus 3px `--primary` ring at 25%; card hover lifts shadow + darkens lip
+- **NeoBrutalism**: `app-card > div` chunky 3px bottom lip; themed-select trigger lip + dropdown with bold border + `--shadow-lg`; ghost buttons 2px bold border; buttons pressed compress shadow to 1px + `translateY(2px)`; input focus 3px solid `--primary` outline
+- **Neumorphism**: `app-card > div` soft inset shadow; themed-select trigger inset shadow + background fill; dropdown extruded shadow; ghost buttons subtle extruded shadow; buttons pressed deeper inset + `translateY(1px)`; input focus combines existing inset shadow with `--primary` ring; card hover extrudes more
+
+**Hardcoded color → CSS variable conversions across components:**
+- `settings.component.ts`: Family migration banner `border-amber-400/60 bg-amber-50/60 text-amber-800` → `border-warning/40 bg-warning/10 text-warning-foreground`; notification permission text `text-amber-600 dark:text-amber-400` → `text-warning`; AI success message `text-emerald-600` → `text-success`
+- `dashboard.component.ts`: All 3 insight card groups (local insights, Gemini insights, AI insight status) — warn-tone cards converted from `border-amber-400/30 bg-amber-400/10 text-amber-600` and `bg-amber-400/15` icon bg → `border-warning/30 bg-warning/10 text-warning` and `bg-warning/15`; good-tone cards from `border-emerald-400/30 bg-emerald-400/10 text-emerald-600` → `border-success/30 bg-success/10 text-success` with `bg-success/15` icon bg
+
+**Backdrop selector broadened:**
+- Changed from `.fixed.inset-0.z-40, .fixed.inset-0.z-50` to also include `.fixed.inset-0[class*="bg-black"]` — catches custom z-index values (`z-[100]`, `z-[110]`, `z-[120]`) used in daily-expense and monthly-expense modals
+
+### Why
+- Complete remaining hardcoded amber/emerald colors that visually jarred in non-glass themes
+- Backdrop CSS needed broader selector to reach modals with non-standard z-index utilities
+- All 4 design styles now have consistent element-level overrides for cards, inputs, buttons, ghost buttons, pressed states, focus rings, themed-select, and hover — matching the claymorphism treatment already approved
+
+### Build verification
+- `npx tsc --noEmit` — zero errors
+- `npm run build` — zero errors (pre-existing budget warnings only)

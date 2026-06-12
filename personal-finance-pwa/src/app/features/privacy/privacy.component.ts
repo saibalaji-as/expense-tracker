@@ -35,7 +35,7 @@ import { RouterLink } from '@angular/router';
 
         <section class="mb-6">
           <h2 class="text-lg font-semibold text-foreground mb-2">3. How We Use Your Data</h2>
-          <ul class="list-disc list-inside text-gray-600 leading-relaxed space-y-1">
+          <ul class="list-disc list-inside text-muted-foreground leading-relaxed space-y-1">
             <li>To provide and improve the Spenza service.</li>
             <li>To authenticate you securely via Google Sign-In.</li>
             <li>To send optional expense reminders (you can disable these in Settings).</li>
@@ -49,7 +49,7 @@ import { RouterLink } from '@angular/router';
             We do not sell or share your personal data with third parties for advertising purposes.
             We use the following sub-processors to operate the service:
           </p>
-          <ul class="list-disc list-inside text-gray-600 leading-relaxed mt-2 space-y-1">
+          <ul class="list-disc list-inside text-muted-foreground leading-relaxed mt-2 space-y-1">
             <li><strong>Google Firebase</strong> — authentication, cloud database, and push notifications.</li>
             <li><strong>Google Drive</strong> — optional backup of your expense data (you control this).</li>
             <li><strong>Razorpay</strong> — payment processing.</li>

@@ -8,7 +8,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       <label [for]="inputId" class="text-sm font-medium text-foreground">{{ label }}</label>
       <ng-content />
       @if (errorMessage) {
-        <p class="text-red-600 text-sm mt-1">{{ errorMessage }}</p>
+        <p class="text-destructive text-sm mt-1">{{ errorMessage }}</p>
       }
     </div>
   `,

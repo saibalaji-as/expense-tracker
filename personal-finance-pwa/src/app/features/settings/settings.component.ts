@@ -103,12 +103,12 @@ interface BeforeInstallPromptEvent extends Event {
       @if (subscriptionService.isPro()) {
         <div class="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 px-5 py-4">
           <div class="flex items-center gap-3">
-            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white text-lg">💎</span>
+            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground text-lg">💎</span>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold text-foreground">Spenza Pro — Active</p>
               @if (subscriptionService.status().expiresAt) {
                 @if (subscriptionService.status().cancelPending) {
-                  <p class="text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <p class="text-xs font-medium text-warning">
                     Cancels {{ subscriptionService.status().expiresAt | date:'mediumDate' }} · Access until then
                   </p>
                 } @else {
@@ -135,12 +135,12 @@ interface BeforeInstallPromptEvent extends Event {
           }
         </div>
       } @else {
-        <div class="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-white to-primary/10 p-5 dark:border-primary/40 dark:from-primary/10 dark:to-primary/5">
+        <div class="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-primary/10 p-5 dark:border-primary/40 dark:from-primary/10 dark:to-primary/5">
           <div class="flex items-start gap-4">
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground text-xl shadow-lg">💸</span>
             <div class="flex-1 min-w-0">
-              <p class="font-semibold text-gray-900 dark:text-white">Upgrade to Spenza Pro</p>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Advanced insights · Family sync · Receipt scanner · Priority support</p>
+              <p class="font-semibold text-foreground">Upgrade to Spenza Pro</p>
+              <p class="mt-1 text-xs text-muted-foreground">Advanced insights · Family sync · Receipt scanner · Priority support</p>
               <div class="mt-3 flex flex-wrap gap-2">
                 @if (isNativePlatform) {
                   <button
@@ -165,7 +165,7 @@ interface BeforeInstallPromptEvent extends Event {
                   </a>
                   <a
                     routerLink="/subscribe"
-                    class="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-white px-4 py-2 text-sm font-semibold text-primary hover:border-primary/60 transition-colors dark:bg-transparent dark:border-primary/40 dark:text-primary"
+                    class="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-card px-4 py-2 text-sm font-semibold text-primary hover:border-primary/60 transition-colors"
                   >
                     ₹3,999/year — Save 33%
                   </a>
@@ -478,10 +478,10 @@ interface BeforeInstallPromptEvent extends Event {
                   <div class="flex flex-wrap gap-2">
                     <div class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
                       [class]="aiSettingsService.settings().geminiApiKey
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        ? 'border-success/30 bg-success/10 text-success'
                         : 'border-border bg-muted/50 text-muted-foreground'">
                       <span class="h-1.5 w-1.5 rounded-full"
-                        [class]="aiSettingsService.settings().geminiApiKey ? 'bg-emerald-500' : 'bg-muted-foreground/50'"></span>
+                        [class]="aiSettingsService.settings().geminiApiKey ? 'bg-success' : 'bg-muted-foreground/50'"></span>
                       Gemini
                       @if (aiSettingsService.settings().geminiApiKey) {
                         <span class="opacity-60">· {{ aiSettingsService.maskedGeminiKey() }}</span>
@@ -491,10 +491,10 @@ interface BeforeInstallPromptEvent extends Event {
                     </div>
                     <div class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
                       [class]="aiSettingsService.settings().groqApiKey
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        ? 'border-success/30 bg-success/10 text-success'
                         : 'border-border bg-muted/50 text-muted-foreground'">
                       <span class="h-1.5 w-1.5 rounded-full"
-                        [class]="aiSettingsService.settings().groqApiKey ? 'bg-emerald-500' : 'bg-muted-foreground/50'"></span>
+                        [class]="aiSettingsService.settings().groqApiKey ? 'bg-success' : 'bg-muted-foreground/50'"></span>
                       Groq
                       @if (aiSettingsService.settings().groqApiKey) {
                         <span class="opacity-60">· {{ aiSettingsService.maskedGroqKey() }}</span>
@@ -529,7 +529,7 @@ interface BeforeInstallPromptEvent extends Event {
           }
 
           @if (aiSettingsService.lastMessage()) {
-            <p class="text-sm text-emerald-600">{{ aiSettingsService.lastMessage() }}</p>
+            <p class="text-sm text-success">{{ aiSettingsService.lastMessage() }}</p>
           }
           @if (aiSettingsService.lastError()) {
             <p class="text-sm text-destructive">{{ aiSettingsService.lastError() }}</p>
@@ -699,8 +699,8 @@ interface BeforeInstallPromptEvent extends Event {
 
         <!-- ── Old shared-Drive family mode — migration prompt ─────────────── -->
         @if (backupModeService.mode() === 'family' && !backupModeService.firestoreFamilyId()) {
-          <div class="mt-3 rounded-xl border border-amber-400/60 bg-amber-50/60 dark:bg-amber-900/20 p-4">
-            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">Your family setup needs to be updated to continue syncing with your partner.</p>
+          <div class="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-4">
+            <p class="text-sm font-medium text-warning-foreground">Your family setup needs to be updated to continue syncing with your partner.</p>
             <button
               type="button"
               routerLink="/family-setup"
@@ -928,7 +928,7 @@ interface BeforeInstallPromptEvent extends Event {
                   <p
                     [class]="
                       'mt-2 text-xs font-medium ' +
-                      (spendNotificationAccess.permissionGranted() ? 'text-success' : 'text-amber-600 dark:text-amber-400')
+                      (spendNotificationAccess.permissionGranted() ? 'text-success' : 'text-warning')
                     "
                   >
                     {{

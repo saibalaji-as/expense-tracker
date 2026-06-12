@@ -99,7 +99,11 @@ export class SparklineComponent implements OnChanges, AfterViewInit {
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || 'oklch(0.55 0.22 280)';
+    const root = document.documentElement;
+    const primaryColor = getComputedStyle(root).getPropertyValue('--primary').trim() || 'oklch(0.55 0.22 280)';
+    const destructiveColor = getComputedStyle(root).getPropertyValue('--destructive').trim() || 'oklch(0.62 0.23 25)';
+    const successColor = getComputedStyle(root).getPropertyValue('--success').trim() || 'oklch(0.65 0.17 155)';
+    const mutedColor = getComputedStyle(root).getPropertyValue('--muted-foreground').trim() || 'oklch(0.50 0.03 260)';
     // Determine color based on trend if showTrend is enabled
     let color = this.lineColor || primaryColor;
     let fillColor = this.fillColor || `color-mix(in oklab, ${primaryColor} 15%, transparent)`;
@@ -107,17 +111,14 @@ export class SparklineComponent implements OnChanges, AfterViewInit {
     if (this.showTrend) {
       const trendValue = this.trend();
       if (trendValue === 'up') {
-        // Red for spending up
-        color = 'rgb(239, 68, 68)'; // red-500
-        fillColor = 'rgba(239, 68, 68, 0.1)';
+        color = destructiveColor;
+        fillColor = `color-mix(in oklab, ${destructiveColor} 10%, transparent)`;
       } else if (trendValue === 'down') {
-        // Green for spending down (savings up)
-        color = 'rgb(34, 197, 94)'; // green-500
-        fillColor = 'rgba(34, 197, 94, 0.1)';
+        color = successColor;
+        fillColor = `color-mix(in oklab, ${successColor} 10%, transparent)`;
       } else {
-        // Gray for stable
-        color = 'rgb(156, 163, 175)'; // gray-400
-        fillColor = 'rgba(156, 163, 175, 0.1)';
+        color = mutedColor;
+        fillColor = `color-mix(in oklab, ${mutedColor} 10%, transparent)`;
       }
     }
 

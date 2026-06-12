@@ -58,7 +58,7 @@ import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/u
     <div>
       @if (monthPickerToast()) {
         <div
-          class="fixed bottom-20 left-0 right-0 z-50 mx-4 rounded-2xl border border-amber-400/40 bg-amber-500 px-4 py-3 text-sm font-medium text-white shadow-2xl"
+          class="fixed bottom-20 left-0 right-0 z-50 mx-4 rounded-2xl border border-warning/40 bg-warning px-4 py-3 text-sm font-medium text-warning-foreground shadow-2xl"
           role="alert"
           aria-live="polite"
         >

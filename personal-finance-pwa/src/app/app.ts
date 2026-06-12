@@ -12,6 +12,7 @@ import { SubscriptionService } from './core/services/subscription.service';
 import { FamilySyncService } from './core/services/family-sync.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
 import { shouldRedirectToIncomeSetup } from './core/guards/setup-income-gate';
+import { Capacitor } from '@capacitor/core';
 
 const LOADING_TIMEOUT_MS = 30000;
 const DRIVE_POLL_INTERVAL_MS = 30000;
@@ -377,6 +378,21 @@ export class App implements OnInit, OnDestroy {
     this.tryStartFamilySync();
   };
 
+  async #setupReminderNotificationTap(): Promise<void> {
+    try {
+      const { LocalNotifications } = await import('@capacitor/local-notifications');
+      await LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+        const extra = action.notification.extra as { reminderId?: string } | undefined;
+        const reminderId = extra?.reminderId;
+        const title = action.notification.body ?? '';
+        const params: Record<string, string> = {};
+        if (title) params['prefill'] = title;
+        if (reminderId) params['linkedReminderId'] = reminderId;
+        void this.router.navigate(['/daily'], { queryParams: params });
+      });
+    } catch { /* ignore on web */ }
+  }
+
   /**
    * Maps Drive error types to user-friendly error messages
    * @param err - DriveApiError or DriveParseError from the Drive service
@@ -456,6 +472,9 @@ export class App implements OnInit, OnDestroy {
     // Capacitor fires 'resume' on the document when the native app returns to foreground.
     // This is more reliable than visibilitychange on Android/iOS after long background sessions.
     document.addEventListener('resume', this.resumeHandler);
+    if (Capacitor.isNativePlatform()) {
+      void this.#setupReminderNotificationTap();
+    }
     this.routeScrollSubscription = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
       .subscribe(() => this.scrollToPageTop());

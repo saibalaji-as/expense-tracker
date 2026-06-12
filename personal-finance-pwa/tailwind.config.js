@@ -82,4 +82,15 @@ module.exports = {
     },
   },
   plugins: [],
+  future: {},
 };
+
+// Orientation variants — used for responsive mobile nav layout
+// Usage: landscape:hidden  portrait:block
+const plugin = require('tailwindcss/plugin');
+module.exports.plugins = [
+  plugin(function ({ addVariant }) {
+    addVariant('portrait', '@media (orientation: portrait)');
+    addVariant('landscape', '@media (orientation: landscape)');
+  }),
+];

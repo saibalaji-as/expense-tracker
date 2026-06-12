@@ -442,11 +442,22 @@
   --gradient-mesh: none;
 
   --background: oklch(0.96 0.01 270);
+  --foreground: oklch(0.18 0.04 265);
+
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.18 0.04 265);
 
   --border: oklch(0.85 0.01 270);
   --input: oklch(0.85 0.01 270);
+
+  --secondary: oklch(0.91 0.015 270);
+  --secondary-foreground: oklch(0.25 0.03 265);
+
+  --muted: oklch(0.925 0.01 270);
+  --muted-foreground: oklch(0.50 0.02 260);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.04 265);
 }
 
 :root[data-style="claymorphism"].dark {
@@ -458,6 +469,15 @@
 
   --border: oklch(1 0 0 / 0.12);
   --input: oklch(1 0 0 / 0.15);
+
+  --secondary: oklch(0.25 0.03 265);
+  --secondary-foreground: oklch(0.85 0.02 270);
+
+  --muted: oklch(0.18 0.025 265);
+  --muted-foreground: oklch(0.55 0.02 260);
+
+  --popover: oklch(0.20 0.025 265);
+  --popover-foreground: oklch(0.97 0.005 250);
 
   --shadow-sm: 0 4px 6px -2px oklch(0 0 0 / 0.25), 0 8px 12px -4px oklch(0 0 0 / 0.15);
   --shadow-md: 0 8px 16px -4px oklch(0 0 0 / 0.30), 0 16px 24px -8px oklch(0 0 0 / 0.20);
@@ -485,6 +505,9 @@
   --shadow-lg: 8px 8px 0px 0px oklch(0.20 0.04 265);
   --shadow-glow: 5px 5px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
 
+  --background: oklch(0.95 0.012 85);
+  --foreground: oklch(0.15 0.04 85);
+
   --border: oklch(0.20 0.04 265);
   --input: oklch(0.20 0.04 265);
 
@@ -498,6 +521,9 @@
 
   --muted: oklch(0.92 0.005 270);
   --muted-foreground: oklch(0.45 0.02 260);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.04 85);
 }
 
 :root[data-style="neobrutalism"].dark {
@@ -515,6 +541,9 @@
 
   --muted: oklch(0.25 0.02 265);
   --muted-foreground: oklch(0.65 0.02 260);
+
+  --popover: oklch(0.22 0.03 265);
+  --popover-foreground: oklch(0.97 0.005 250);
 
   --shadow-sm: 3px 3px 0px 0px oklch(0 0 0 / 0.5);
   --shadow-md: 5px 5px 0px 0px oklch(0 0 0 / 0.5);
@@ -764,7 +793,8 @@
   --backdrop: oklch(0 0 0 / 0.4);
 }
 .fixed.inset-0.z-40,
-.fixed.inset-0.z-50 {
+.fixed.inset-0.z-50,
+.fixed.inset-0[class*="bg-black"] {
   background-color: var(--backdrop) !important;
 }
 
@@ -841,4 +871,250 @@
 [data-style="claymorphism"] [class*="backdrop-blur"] {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+}
+
+/* Enhanced claymorphism element overrides — step 3 additions */
+
+/* Card component — clay bottom lip */
+[data-style="claymorphism"] app-card > div {
+  border-bottom: 3px solid color-mix(in oklab, var(--border) 85%, black);
+  border-radius: var(--radius-lg);
+}
+
+/* Themed select trigger — clay bottom lip */
+[data-style="claymorphism"] app-themed-select button {
+  border-bottom-width: 3px;
+  border-bottom-color: color-mix(in oklab, var(--border) 85%, black);
+}
+
+/* Themed select dropdown — clay shadow */
+[data-style="claymorphism"] app-themed-select .absolute.inset-x-0 {
+  box-shadow: var(--shadow-md);
+  border-bottom: 2px solid color-mix(in oklab, var(--border) 80%, black);
+}
+
+/* Ghost buttons — subtle clay border */
+[data-style="claymorphism"] app-button button.bg-transparent,
+[data-style="claymorphism"] .btn-ghost {
+  border-bottom: 2px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+
+/* Buttons pressed state — compressed clay lip */
+[data-style="claymorphism"] app-button button:not([class*="bg-transparent"]):active,
+[data-style="claymorphism"] .btn-primary:active {
+  border-bottom-width: 2px;
+  transform: translateY(2px);
+}
+
+/* Ghost buttons pressed state */
+[data-style="claymorphism"] app-button button.bg-transparent:active,
+[data-style="claymorphism"] .btn-ghost:active {
+  border-bottom-width: 1px;
+  transform: translateY(1px);
+}
+
+/* Input focus — soft clay ring */
+[data-style="claymorphism"] input:focus,
+[data-style="claymorphism"] textarea:focus,
+[data-style="claymorphism"] select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 25%, transparent);
+  border-color: var(--primary);
+  border-bottom-width: 3px;
+}
+
+/* Card hover — subtle clay lift */
+[data-style="claymorphism"] app-card > div:hover {
+  box-shadow: var(--shadow-lg);
+  border-bottom-color: color-mix(in oklab, var(--border) 75%, black);
+}
+
+/* ============================================
+   ENHANCED — NeoBrutalism element overrides
+   ============================================ */
+
+/* Card — chunky bottom lip */
+[data-style="neobrutalism"] app-card > div {
+  border-bottom: 3px solid var(--border);
+  border-radius: 0;
+}
+
+/* Themed select trigger — chunky bottom lip */
+[data-style="neobrutalism"] app-themed-select button {
+  border-bottom-width: 3px;
+  border-bottom-color: var(--border);
+}
+
+/* Themed select dropdown — bold shadow */
+[data-style="neobrutalism"] app-themed-select .absolute.inset-x-0 {
+  box-shadow: var(--shadow-lg);
+  border: 3px solid var(--border);
+}
+
+/* Ghost buttons — bold border */
+[data-style="neobrutalism"] app-button button.bg-transparent,
+[data-style="neobrutalism"] .btn-ghost {
+  border: 2px solid var(--border);
+}
+
+/* Buttons pressed state — compress shadow */
+[data-style="neobrutalism"] app-button button:not([class*="bg-transparent"]):active,
+[data-style="neobrutalism"] .btn-primary:active {
+  box-shadow: 1px 1px 0px 0px oklch(0.20 0.04 265);
+  transform: translateY(2px);
+}
+
+/* Ghost buttons pressed */
+[data-style="neobrutalism"] app-button button.bg-transparent:active,
+[data-style="neobrutalism"] .btn-ghost:active {
+  transform: translateY(1px);
+}
+
+/* Input focus — thick outline */
+[data-style="neobrutalism"] input:focus,
+[data-style="neobrutalism"] textarea:focus,
+[data-style="neobrutalism"] select:focus {
+  outline: 3px solid var(--primary);
+  outline-offset: 1px;
+}
+
+/* ============================================
+   ENHANCED — Neumorphism element overrides
+   ============================================ */
+
+/* Card — soft inset shadow */
+[data-style="neumorphism"] app-card > div {
+  border-radius: var(--radius-lg);
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.06), inset -3px -3px 5px oklch(1 0 0 / 0.6);
+}
+
+/* Themed select trigger — inset shadow */
+[data-style="neumorphism"] app-themed-select button {
+  border: none;
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.08), inset -3px -3px 5px oklch(1 0 0 / 0.7);
+  background-color: var(--background);
+}
+
+/* Themed select dropdown — extruded shadow */
+[data-style="neumorphism"] app-themed-select .absolute.inset-x-0 {
+  border: none;
+  box-shadow: 4px 4px 8px oklch(0 0 0 / 0.08), -4px -4px 8px oklch(1 0 0 / 0.6);
+}
+
+/* Ghost buttons — subtle extruded shadow */
+[data-style="neumorphism"] app-button button.bg-transparent,
+[data-style="neumorphism"] .btn-ghost {
+  box-shadow: 2px 2px 4px oklch(0 0 0 / 0.06), -2px -2px 4px oklch(1 0 0 / 0.5);
+}
+
+/* Buttons pressed — go deeper */
+[data-style="neumorphism"] app-button button:not([class*="bg-transparent"]):active,
+[data-style="neumorphism"] .btn-primary:active {
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.10), inset -2px -2px 5px oklch(1 0 0 / 0.7);
+  transform: translateY(1px);
+}
+
+/* Ghost buttons pressed */
+[data-style="neumorphism"] app-button button.bg-transparent:active,
+[data-style="neumorphism"] .btn-ghost:active {
+  box-shadow: inset 1px 1px 3px oklch(0 0 0 / 0.08), inset -1px -1px 3px oklch(1 0 0 / 0.5);
+}
+
+/* Input focus — soft shadow ring */
+[data-style="neumorphism"] input:focus,
+[data-style="neumorphism"] textarea:focus,
+[data-style="neumorphism"] select:focus {
+  outline: none;
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.08), inset -3px -3px 5px oklch(1 0 0 / 0.7),
+              0 0 0 3px color-mix(in oklab, var(--primary) 25%, transparent);
+}
+
+/* Card hover — extrude more */
+[data-style="neumorphism"] app-card > div:hover {
+  box-shadow: inset 1px 1px 3px oklch(0 0 0 / 0.04), inset -2px -2px 3px oklch(1 0 0 / 0.5),
+              0 4px 8px oklch(0 0 0 / 0.06);
+}
+
+/* ─── Bump navbar ─────────────────────────────────────────────────────────── */
+.bump-nav-item {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.bump-nav-item.active {
+  transform: translateY(-18px);
+}
+.bump-nav-icon {
+  transition: width 0.25s ease, height 0.25s ease, border-radius 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+.bump-nav-icon.active {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-glow);
+}
+.bump-nav-icon.inactive {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.bump-nav-label {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.bump-nav-label.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+.bump-nav-label.inactive {
+  opacity: 0.55;
+}
+
+/* ─── View Transitions — Wave ripple from nav tap ─────────────────────────── */
+
+/* CSS vars set by JS on each nav tap */
+:root {
+  --nav-tap-x: 50vw;
+  --nav-tap-y: 100vh;
+}
+
+/* Outgoing page: scale down + fade */
+@keyframes vt-fade-scale-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(-6px);
+    filter: blur(2px);
+  }
+}
+
+/* Incoming page: circular ripple expand from tap origin */
+@keyframes vt-wave-in {
+  from {
+    clip-path: circle(0% at var(--nav-tap-x) var(--nav-tap-y));
+    opacity: 0.6;
+  }
+  to {
+    clip-path: circle(150% at var(--nav-tap-x) var(--nav-tap-y));
+    opacity: 1;
+  }
+}
+
+/* Fallback for browsers without View Transitions — plain slide-up */
+@keyframes vt-slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: 280ms cubic-bezier(0.4, 0, 1, 1) both vt-fade-scale-out;
+  }
+
+  ::view-transition-new(root) {
+    animation: 520ms cubic-bezier(0.16, 1, 0.3, 1) both vt-wave-in;
+  }
+}
+
+/* Respect reduced-motion: simple cross-fade */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root) { animation: 200ms ease both fade-out; }
+  ::view-transition-new(root) { animation: 200ms ease both fade-in; }
 }

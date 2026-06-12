@@ -137,7 +137,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
       <!-- Offline toast -->
       @if (offlineToast()) {
         <div
-          class="mb-4 rounded-2xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-300"
+          class="mb-4 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
           role="alert"
           aria-live="polite"
         >
@@ -148,28 +148,28 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
       <!-- Overspending warning -->
       @if (lastMonthOverspend(); as warning) {
         <div
-          class="mb-4 rounded-2xl border border-orange-400/40 bg-orange-400/10 p-4"
+          class="mb-4 rounded-2xl border border-warning/40 bg-warning/10 p-4"
           role="alert"
           aria-live="assertive"
         >
           <div class="flex items-start gap-3">
             <div class="shrink-0 mt-0.5">
-              <lucide-icon name="alert-triangle" class="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              <lucide-icon name="alert-triangle" class="h-5 w-5 text-warning" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-sm font-semibold text-orange-900 dark:text-orange-200 mb-1">
+              <h3 class="text-sm font-semibold text-warning-foreground mb-1">
                 ⚠️ Budget Alert: {{ getCatName(warning.type) }}
               </h3>
-              <p class="text-sm text-orange-800 dark:text-orange-300 mb-2">
+              <p class="text-sm text-warning-foreground mb-2">
                 You overspent on <strong>{{ getCatName(warning.type) }}</strong> last month by 
                 <strong>{{ warning.overspentAmount | currencyFormat }}</strong>.
               </p>
-              <div class="flex items-center gap-4 text-xs text-orange-700 dark:text-orange-400 mb-3">
+              <div class="flex items-center gap-4 text-xs text-warning mb-3">
                 <span>Last Month Spent: <strong>{{ warning.lastMonthSpent | currencyFormat }}</strong></span>
                 <span>•</span>
                 <span>Monthly Limit: <strong>{{ warning.lastMonthLimit | currencyFormat }}</strong></span>
               </div>
-              <p class="text-xs text-orange-700 dark:text-orange-400 italic">
+              <p class="text-xs text-warning italic">
                 💡 Consider if this expense is necessary to avoid overspending again this month.
               </p>
             </div>
@@ -177,7 +177,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
               type="button"
               (click)="dismissOverspendWarning(warning.type)"
               aria-label="Dismiss warning"
-              class="shrink-0 grid h-6 w-6 place-items-center rounded-lg text-orange-600 dark:text-orange-400 transition-all hover:bg-orange-400/20"
+              class="shrink-0 grid h-6 w-6 place-items-center rounded-lg text-warning transition-all hover:bg-warning/20"
             >
               <lucide-icon name="x" class="h-4 w-4" />
             </button>
@@ -652,7 +652,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                       <span class="block font-medium text-foreground">{{ 'common.amount' | translate }}</span>
                       {{ extraction.amount ? (extraction.amount | currencyFormat) : ('daily.receipt.smartFill.notFound' | translate) }}
                       @if (extraction.amount && extraction.amountConfidence < 0.7) {
-                        <span class="mt-0.5 block text-[10px] font-medium text-amber-600">{{ 'daily.receipt.smartFill.lowConfidence' | translate }}</span>
+                        <span class="mt-0.5 block text-[10px] font-medium text-warning">{{ 'daily.receipt.smartFill.lowConfidence' | translate }}</span>
                       }
                     </p>
                     <p>

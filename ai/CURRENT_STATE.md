@@ -837,8 +837,15 @@
   - Fixed `offline-banner.component.ts`: replaced `bg-yellow-500 text-white` with `bg-warning text-warning-foreground`
   - Replaced hardcoded Tailwind colors with CSS variable tokens in `privacy.component.ts`, `terms.component.ts`, `bottom-nav.component.ts`, `button.component.ts`, `input.component.ts`
   - Chart.js (`chart-base.component.ts`): added MutationObserver watching `class`/`data-palette` on `<html>`, reads CSS vars (`--muted-foreground`, `--border`, `--popover`, `--popover-foreground`) via `getComputedStyle` for tick/grid/tooltip colors — charts now respond to theme/style/palette switches without re-creating
-  - Build verified: `npm run build -- --configuration production` passes (existing initial bundle budget warning only)
-  
+   - Build verified: `npm run build -- --configuration production` passes (existing initial bundle budget warning only)
+- Design themes implemented — 4 design styles (Glassmorphism, NeoBrutalism, Neumorphism, Claymorphism) with full CSS variable blocks, element-level overrides for cards/inputs/buttons/modals/scrollbar/selection, all persisted to IndexedDB:
+  - Claymorphism enhanced: bottom lip on cards, inputs (3px bottom), buttons (4px lip), ghost buttons (2px border), pressed/active compression states, focus ring, card hover lift
+  - NeoBrutalism enhanced: chunky 3px borders everywhere, 3px bottom lip on cards/select, bold dropdown shadow, pressed shadow compression, thick primary focus outline
+  - Neumorphism enhanced: soft inset shadows on cards/inputs/select, extruded shadows on buttons/dropdowns, pressed inset transition, combined focus ring + inset shadow, card hover extrude
+  - All remaining hardcoded amber/emerald/orange Tailwind colors across settings, dashboard, daily-expense, monthly-expense converted to `--warning`/`--success`/`--destructive` semantic CSS vars
+  - Backdrop selector broadened to catch custom z-index modals via `[class*="bg-black"]`
+  - Build verified: `npx tsc --noEmit` + `npm run build` — zero errors
+
 ## Immediate Next Steps
 - Human-facing project documentation has been consolidated into `docs/README.md`.
   - Historical feature-completion, phase-status, and duplicate troubleshooting Markdown files were removed.

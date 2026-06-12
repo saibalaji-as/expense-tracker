@@ -121,7 +121,7 @@ import { SubscriptionService } from '../../core/services/subscription.service';
               </button>
             </div>
             @if (restoreMsg()) {
-              <p class="text-xs text-center mt-2" [class]="restoreSuccess() ? 'text-green-600' : 'text-red-500'">
+              <p class="text-xs text-center mt-2" [class]="restoreSuccess() ? 'text-success' : 'text-destructive'">
                 {{ restoreMsg() }}
               </p>
             }

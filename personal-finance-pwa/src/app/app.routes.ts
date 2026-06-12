@@ -110,6 +110,22 @@ export const routes: Routes = [
       ),
     canActivate: [authGuard, setupGuard],
   },
+  {
+    path: 'reminders',
+    loadComponent: () =>
+      import('./features/reminders/reminder-list.component').then(
+        (m) => m.ReminderListComponent
+      ),
+    canActivate: [authGuard, setupGuard],
+  },
+  {
+    path: 'reminders/:id',
+    loadComponent: () =>
+      import('./features/reminders/reminder-form.component').then(
+        (m) => m.ReminderFormComponent
+      ),
+    canActivate: [authGuard, setupGuard],
+  },
   { path: '', redirectTo: '/daily', pathMatch: 'full' },
   { path: '**', redirectTo: '/daily' },
 ];

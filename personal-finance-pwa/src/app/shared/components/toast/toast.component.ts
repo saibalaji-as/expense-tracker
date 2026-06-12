@@ -33,14 +33,14 @@ import { AuthService } from '../../../core/services/auth.service';
         </div>
         @if (showSwitchToSingleUser()) {
           <button
-            class="ml-3 text-white underline text-sm font-semibold hover:text-red-200 focus:outline-none whitespace-nowrap"
+            class="ml-3 underline text-sm font-semibold hover:opacity-80 focus:outline-none whitespace-nowrap"
             (click)="onSwitchToSingleUser()"
           >
             Switch to Single User
           </button>
         }
         <button
-          class="ml-3 shrink-0 text-white opacity-70 hover:opacity-100 focus:outline-none"
+          class="ml-3 shrink-0 opacity-70 hover:opacity-100 focus:outline-none"
           aria-label="Dismiss notification"
           (click)="dismiss()"
         >
@@ -138,7 +138,7 @@ export class ToastComponent implements OnInit, OnDestroy {
   }
 
   toastClass(tone: UserFeedbackTone): string {
-    const base = 'fixed bottom-[calc(6.25rem+env(safe-area-inset-bottom))] left-0 right-0 z-[70] mx-4 flex items-start gap-3 rounded-2xl p-4 text-white shadow-2xl min-[887px]:bottom-6 min-[887px]:left-auto min-[887px]:right-6 min-[887px]:w-[min(420px,calc(100vw-3rem))]';
+    const base = 'fixed bottom-[calc(6.25rem+env(safe-area-inset-bottom))] left-0 right-0 z-[70] mx-4 flex items-start gap-3 rounded-2xl p-4 shadow-2xl min-[887px]:bottom-6 min-[887px]:left-auto min-[887px]:right-6 min-[887px]:w-[min(420px,calc(100vw-3rem))]';
     const toneClass: Record<UserFeedbackTone, string> = {
       success: 'bg-success text-success-foreground',
       error: 'bg-destructive text-destructive-foreground',

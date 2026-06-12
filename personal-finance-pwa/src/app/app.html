@@ -33,13 +33,13 @@
   </div>
 } @else {
   @if (needsFamilyMigration() && !migrationBannerDismissed()) {
-    <div class="fixed top-0 inset-x-0 z-[60] flex items-center gap-3 border-b border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/40 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-200">
+    <div class="fixed top-0 inset-x-0 z-[60] flex items-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2.5 text-sm text-warning-foreground">
       <span class="flex-1">Spenza's family sync has been updated. Please go to <strong>Settings → Family</strong> to reconnect with your partner.</span>
       <button
         type="button"
         (click)="dismissMigrationBanner()"
         aria-label="Dismiss"
-        class="shrink-0 rounded-lg p-1 hover:bg-amber-100 dark:hover:bg-amber-800 transition-colors"
+        class="shrink-0 rounded-lg p-1 hover:bg-warning/30 transition-colors"
       >✕</button>
     </div>
   }
