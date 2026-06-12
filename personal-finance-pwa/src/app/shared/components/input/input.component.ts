@@ -5,7 +5,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
   standalone: true,
   template: `
     <div class="flex flex-col gap-1">
-      <label [for]="inputId" class="text-sm font-medium text-gray-700">{{ label }}</label>
+      <label [for]="inputId" class="text-sm font-medium text-foreground">{{ label }}</label>
       <ng-content />
       @if (errorMessage) {
         <p class="text-red-600 text-sm mt-1">{{ errorMessage }}</p>

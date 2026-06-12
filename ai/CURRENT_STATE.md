@@ -824,6 +824,21 @@
   - `./gradlew :app:assembleDebug` passed.
   - `git diff --check` passed.
 
+- Design themes — 3 new design styles (2026-06-12):
+  - Added `AppStyle` type (`'glass' | 'neobrutalism' | 'neumorphism' | 'claymorphism'`) to `theme.service.ts` with `style` signal, `setStyle()`, `#restoreStyle()`, `#applyStyle()`, persisted via `pf-style` key
+  - Added 4-option Design Style selector UI in Settings → Appearance (Glassmorphism, Neumorphism, Claymorphism, NeoBrutalism) with `Aperture`, `Layers`, `Shapes`, `Box` icons
+  - Added full CSS variable blocks in `styles.css` for all 3 new styles (light + dark): radius, shadows, borders, gradients, cards
+  - Added per-style element overrides in `@layer utilities` for inputs, buttons, modals/dialogs, `<hr>` dividers, backdrops, scrollbars, and text selection
+  - Added `--backdrop` CSS variable per style for modal/dialog overlay opacity
+  - Removed backdrop blur for non-glass styles via `[class*="backdrop-blur"]` selector
+  - Added `::selection` styling using `--primary` at 30% opacity
+  - Added custom scrollbar per style (neo: 12px chunky square, neumorphism: inset rounded, claymorphism: rounded + bottom lip)
+  - Fixed `toast.component.ts`: replaced hardcoded `bg-emerald-600`/`bg-red-600`/`bg-amber-600`/`bg-sky-600` with `bg-success`/`bg-destructive`/`bg-warning`/`bg-primary` + foreground counterparts
+  - Fixed `offline-banner.component.ts`: replaced `bg-yellow-500 text-white` with `bg-warning text-warning-foreground`
+  - Replaced hardcoded Tailwind colors with CSS variable tokens in `privacy.component.ts`, `terms.component.ts`, `bottom-nav.component.ts`, `button.component.ts`, `input.component.ts`
+  - Chart.js (`chart-base.component.ts`): added MutationObserver watching `class`/`data-palette` on `<html>`, reads CSS vars (`--muted-foreground`, `--border`, `--popover`, `--popover-foreground`) via `getComputedStyle` for tick/grid/tooltip colors — charts now respond to theme/style/palette switches without re-creating
+  - Build verified: `npm run build -- --configuration production` passes (existing initial bundle budget warning only)
+  
 ## Immediate Next Steps
 - Human-facing project documentation has been consolidated into `docs/README.md`.
   - Historical feature-completion, phase-status, and duplicate troubleshooting Markdown files were removed.

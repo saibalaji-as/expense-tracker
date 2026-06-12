@@ -2377,3 +2377,30 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
 - Incoming family state merge preserves `local.receipt` when a newer remote copy of the same entry has no receipt, so partner edits don't wipe local attachments.
 - Verified: `tsc -p tsconfig.app.json --noEmit` green; `ngc -p tsconfig.app.json --noEmit` (AOT template check) green; vitest expense-store (37), daily-expense + settings specs (80) all pass. Full ng prod build not run in sandbox (slow) — run in CI.
 - Decision: family receipt image sharing deliberately NOT implemented yet. Agreed direction if demanded: transient base64 relay docs in `families/{id}/receipts/{entryId}` (~160 KB < 1 MiB), partner saves to own appDataFolder then deletes relay doc. Never embed base64 in backup doc or state doc.
+
+## 2026-06-12 — Design themes (NeoBrutalism, Neumorphism, Claymorphism) with element-level theming
+
+### What was changed
+- **`theme.service.ts`**: Added `AppStyle` type (`'glass' | 'neobrutalism' | 'neumorphism' | 'claymorphism'`), `_style` signal, `setStyle()`, `#restoreStyle()`, `#applyStyle()` with `pf-style` persistence in Capacitor Preferences. `data-style` attribute on `<html>` mirrors existing `data-palette` pattern; `'glass'` removes the attribute (default).
+- **`settings.component.ts`**: Added 4-option Design Style selector (Glassmorphism, Neumorphism, Claymorphism, NeoBrutalism) with icon badges and active check indicator.
+- **`styles.css`**: Added ~442 lines of CSS variable overrides and per-style element rules:
+  - Variable blocks for 3 new styles (light + dark) — radius, shadows, borders, gradients, card surfaces
+  - Per-style element overrides: inputs (3px border / inset shadow / bottom lip), buttons (hard shadow / dual extruded / clay lip), dialogs (3px border / dual shadow / 4px bottom lip), `<hr>` dividers (thicker / subtle / rounded)
+  - `--backdrop` variable: neo 0.8, glass 0.5, clay 0.4, neumorphism 0.25
+  - Backdrop blur removed for non-glass styles
+  - `::selection` styling using `--primary` at 30% opacity
+  - Custom scrollbar per style: neo 12px chunky square, neumorphism inset round, clay rounded + bottom lip
+- **`toast.component.ts`**: Hardcoded hex → `bg-success`/`bg-destructive`/`bg-warning`/`bg-primary` with foreground counterparts
+- **`offline-banner.component.ts`**: Hardcoded `bg-yellow-500 text-white` → `bg-warning text-warning-foreground`
+- **`privacy.component.ts`, `terms.component.ts`, `bottom-nav.component.ts`, `button.component.ts`, `input.component.ts`**: Replaced hardcoded Tailwind colors (`bg-gray-50`, `text-gray-900`, `hover:text-blue-600`, `border-gray-200`, `bg-blue-600`, `bg-red-600`, etc.) with CSS variable tokens (`bg-background`, `text-foreground`, `hover:text-primary`, `border-border`, `bg-primary`, `bg-destructive`, etc.)
+- **`chart-base.component.ts`**: Added MutationObserver watching `class` and `data-palette` attributes on `<html>`; reads `--muted-foreground`, `--border`, `--popover`, `--popover-foreground` via `getComputedStyle` for Chart.js tick, grid, and tooltip colors; charts react to theme/style/palette switches without destroying/re-creating.
+
+### Why these decisions were made
+- CSS variables + per-style CSS overrides approach rather than component template changes, keeping all theme styling in `styles.css`
+- Ghost buttons excluded from button shadow/lip overrides via `:not([class*="bg-transparent"])` selector
+- NeoBrutalism light/dark blocks deliberately omit `--primary`, `--primary-foreground`, `--accent`, `--accent-foreground`, `--ring`, and `--cat-*` so palette selections still work
+- Backdrop targets `.fixed.inset-0.z-40` and `.fixed.inset-0.z-50` class selectors rather than adding a new CSS variable to component templates
+- Chart.js theme observation uses MutationObserver rather than Angular effect because Chart.js is a non-Angular library managing its own canvas state
+
+### Build verification
+- `npm run build -- --configuration production` in `personal-finance-pwa/` — passes (existing initial bundle budget warning: 506.70 kB vs 500.00 kB; pre-existing auth-callback budget warning)

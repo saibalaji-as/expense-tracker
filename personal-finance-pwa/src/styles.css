@@ -164,6 +164,13 @@
    PALETTE — Rose  (hue ~10 / 350)
    ============================================ */
 :root[data-palette="rose"] {
+  --background: oklch(0.985 0.010 10);
+  --foreground: oklch(0.18 0.04 10);
+  --card: oklch(0.995 0.006 10);
+  --card-foreground: oklch(0.18 0.04 10);
+  --muted: oklch(0.96 0.012 10);
+  --muted-foreground: oklch(0.50 0.05 10);
+
   --primary: oklch(0.55 0.22 10);
   --primary-foreground: oklch(0.99 0 0);
   --primary-glow: oklch(0.65 0.24 350);
@@ -174,8 +181,20 @@
   --logo-primary-glow: oklch(0.65 0.24 350);
   --logo-accent: oklch(0.60 0.22 5);
   --gradient-primary: linear-gradient(135deg, oklch(0.55 0.22 10), oklch(0.65 0.24 350));
+
+  --gradient-mesh:
+    radial-gradient(at 10% 0%, oklch(0.92 0.08 10 / 0.6) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, oklch(0.92 0.08 350 / 0.5) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, oklch(0.94 0.06 30 / 0.5) 0px, transparent 50%);
 }
 :root[data-palette="rose"].dark {
+  --background: oklch(0.14 0.025 10);
+  --foreground: oklch(0.97 0.008 10);
+  --card: oklch(0.20 0.030 10 / 0.6);
+  --card-foreground: oklch(0.97 0.008 10);
+  --muted: oklch(0.22 0.025 10);
+  --muted-foreground: oklch(0.70 0.04 10);
+
   --primary: oklch(0.72 0.20 10);
   --primary-foreground: oklch(0.12 0.03 265);
   --primary-glow: oklch(0.78 0.22 350);
@@ -186,12 +205,24 @@
   --logo-primary-glow: oklch(0.78 0.22 350);
   --logo-accent: oklch(0.75 0.20 5);
   --gradient-primary: linear-gradient(135deg, oklch(0.72 0.20 10), oklch(0.78 0.22 350));
+
+  --gradient-mesh:
+    radial-gradient(at 12% 8%, oklch(0.50 0.25 10 / 0.45) 0px, transparent 55%),
+    radial-gradient(at 88% 14%, oklch(0.45 0.20 350 / 0.40) 0px, transparent 55%),
+    radial-gradient(at 50% 100%, oklch(0.50 0.20 30 / 0.30) 0px, transparent 55%);
 }
 
 /* ============================================
    PALETTE — Azure  (hue ~230 / 210)
    ============================================ */
 :root[data-palette="azure"] {
+  --background: oklch(0.985 0.010 230);
+  --foreground: oklch(0.18 0.04 230);
+  --card: oklch(0.995 0.006 230);
+  --card-foreground: oklch(0.18 0.04 230);
+  --muted: oklch(0.96 0.012 230);
+  --muted-foreground: oklch(0.50 0.05 230);
+
   --primary: oklch(0.55 0.22 230);
   --primary-foreground: oklch(0.99 0 0);
   --primary-glow: oklch(0.65 0.24 210);
@@ -202,8 +233,20 @@
   --logo-primary-glow: oklch(0.65 0.24 210);
   --logo-accent: oklch(0.60 0.22 220);
   --gradient-primary: linear-gradient(135deg, oklch(0.55 0.22 230), oklch(0.65 0.24 210));
+
+  --gradient-mesh:
+    radial-gradient(at 10% 0%, oklch(0.92 0.08 230 / 0.6) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, oklch(0.92 0.08 210 / 0.5) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, oklch(0.94 0.06 200 / 0.5) 0px, transparent 50%);
 }
 :root[data-palette="azure"].dark {
+  --background: oklch(0.14 0.025 230);
+  --foreground: oklch(0.97 0.008 230);
+  --card: oklch(0.20 0.030 230 / 0.6);
+  --card-foreground: oklch(0.97 0.008 230);
+  --muted: oklch(0.22 0.025 230);
+  --muted-foreground: oklch(0.70 0.04 230);
+
   --primary: oklch(0.72 0.20 230);
   --primary-foreground: oklch(0.12 0.03 265);
   --primary-glow: oklch(0.78 0.22 210);
@@ -214,12 +257,24 @@
   --logo-primary-glow: oklch(0.78 0.22 210);
   --logo-accent: oklch(0.75 0.20 220);
   --gradient-primary: linear-gradient(135deg, oklch(0.72 0.20 230), oklch(0.78 0.22 210));
+
+  --gradient-mesh:
+    radial-gradient(at 12% 8%, oklch(0.50 0.25 230 / 0.45) 0px, transparent 55%),
+    radial-gradient(at 88% 14%, oklch(0.45 0.20 210 / 0.40) 0px, transparent 55%),
+    radial-gradient(at 50% 100%, oklch(0.50 0.20 200 / 0.30) 0px, transparent 55%);
 }
 
 /* ============================================
    PALETTE — Emerald  (hue ~155 / 175)
    ============================================ */
 :root[data-palette="emerald"] {
+  --background: oklch(0.985 0.010 155);
+  --foreground: oklch(0.18 0.04 155);
+  --card: oklch(0.995 0.006 155);
+  --card-foreground: oklch(0.18 0.04 155);
+  --muted: oklch(0.96 0.012 155);
+  --muted-foreground: oklch(0.50 0.05 155);
+
   --primary: oklch(0.55 0.20 155);
   --primary-foreground: oklch(0.99 0 0);
   --primary-glow: oklch(0.65 0.22 175);
@@ -230,8 +285,20 @@
   --logo-primary-glow: oklch(0.65 0.22 175);
   --logo-accent: oklch(0.60 0.20 165);
   --gradient-primary: linear-gradient(135deg, oklch(0.55 0.20 155), oklch(0.65 0.22 175));
+
+  --gradient-mesh:
+    radial-gradient(at 10% 0%, oklch(0.92 0.08 155 / 0.6) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, oklch(0.92 0.08 175 / 0.5) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, oklch(0.94 0.06 170 / 0.5) 0px, transparent 50%);
 }
 :root[data-palette="emerald"].dark {
+  --background: oklch(0.14 0.025 155);
+  --foreground: oklch(0.97 0.008 155);
+  --card: oklch(0.20 0.030 155 / 0.6);
+  --card-foreground: oklch(0.97 0.008 155);
+  --muted: oklch(0.22 0.025 155);
+  --muted-foreground: oklch(0.70 0.04 155);
+
   --primary: oklch(0.72 0.18 155);
   --primary-foreground: oklch(0.12 0.03 265);
   --primary-glow: oklch(0.78 0.20 175);
@@ -242,12 +309,24 @@
   --logo-primary-glow: oklch(0.78 0.20 175);
   --logo-accent: oklch(0.75 0.18 165);
   --gradient-primary: linear-gradient(135deg, oklch(0.72 0.18 155), oklch(0.78 0.20 175));
+
+  --gradient-mesh:
+    radial-gradient(at 12% 8%, oklch(0.50 0.25 155 / 0.45) 0px, transparent 55%),
+    radial-gradient(at 88% 14%, oklch(0.45 0.20 175 / 0.40) 0px, transparent 55%),
+    radial-gradient(at 50% 100%, oklch(0.50 0.20 170 / 0.30) 0px, transparent 55%);
 }
 
 /* ============================================
    PALETTE — Amber  (hue ~65 / 75)
    ============================================ */
 :root[data-palette="amber"] {
+  --background: oklch(0.985 0.010 65);
+  --foreground: oklch(0.18 0.04 65);
+  --card: oklch(0.995 0.006 65);
+  --card-foreground: oklch(0.18 0.04 65);
+  --muted: oklch(0.96 0.012 65);
+  --muted-foreground: oklch(0.50 0.05 65);
+
   --primary: oklch(0.58 0.20 65);
   --primary-foreground: oklch(0.15 0.03 60);
   --primary-glow: oklch(0.70 0.22 50);
@@ -258,8 +337,20 @@
   --logo-primary-glow: oklch(0.70 0.22 50);
   --logo-accent: oklch(0.64 0.20 58);
   --gradient-primary: linear-gradient(135deg, oklch(0.58 0.20 65), oklch(0.70 0.22 50));
+
+  --gradient-mesh:
+    radial-gradient(at 10% 0%, oklch(0.92 0.08 65 / 0.6) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, oklch(0.92 0.08 50 / 0.5) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, oklch(0.94 0.06 75 / 0.5) 0px, transparent 50%);
 }
 :root[data-palette="amber"].dark {
+  --background: oklch(0.14 0.025 65);
+  --foreground: oklch(0.97 0.008 65);
+  --card: oklch(0.20 0.030 65 / 0.6);
+  --card-foreground: oklch(0.97 0.008 65);
+  --muted: oklch(0.22 0.025 65);
+  --muted-foreground: oklch(0.70 0.04 65);
+
   --primary: oklch(0.78 0.18 75);
   --primary-foreground: oklch(0.15 0.04 65);
   --primary-glow: oklch(0.85 0.20 55);
@@ -270,6 +361,167 @@
   --logo-primary-glow: oklch(0.85 0.20 55);
   --logo-accent: oklch(0.82 0.18 65);
   --gradient-primary: linear-gradient(135deg, oklch(0.78 0.18 75), oklch(0.85 0.20 55));
+
+  --gradient-mesh:
+    radial-gradient(at 12% 8%, oklch(0.50 0.25 65 / 0.45) 0px, transparent 55%),
+    radial-gradient(at 88% 14%, oklch(0.45 0.20 50 / 0.40) 0px, transparent 55%),
+    radial-gradient(at 50% 100%, oklch(0.50 0.20 75 / 0.30) 0px, transparent 55%);
+}
+
+/* ============================================
+   DESIGN STYLE — Neumorphism (Soft UI)
+   Subtle, extruded from background, dual shadows
+   ============================================ */
+:root[data-style="neumorphism"] {
+  --shadow-sm: 2px 2px 4px 0px oklch(0.20 0.04 265 / 0.10), -2px -2px 4px 0px oklch(1 0 0 / 0.7);
+  --shadow-md: 5px 5px 10px 0px oklch(0.20 0.04 265 / 0.12), -5px -5px 10px 0px oklch(1 0 0 / 0.7);
+  --shadow-lg: 10px 10px 20px 0px oklch(0.20 0.04 265 / 0.15), -10px -10px 20px 0px oklch(1 0 0 / 0.7);
+  --shadow-glow: 0 0 20px color-mix(in oklab, var(--primary) 25%, transparent);
+
+  --gradient-mesh: none;
+
+  --background: oklch(0.92 0.005 270);
+  --card: oklch(0.96 0.005 270);
+  --card-foreground: oklch(0.25 0.03 265);
+
+  --border: oklch(0.88 0.005 270);
+  --input: oklch(0.88 0.005 270);
+
+  --secondary: oklch(0.90 0.005 270);
+  --secondary-foreground: oklch(0.30 0.03 265);
+
+  --muted: oklch(0.90 0.005 270);
+  --muted-foreground: oklch(0.50 0.02 260);
+
+  --popover: oklch(0.96 0.005 270);
+  --popover-foreground: oklch(0.25 0.03 265);
+}
+
+:root[data-style="neumorphism"].dark {
+  --background: oklch(0.18 0.02 265);
+  --foreground: oklch(0.92 0.005 250);
+
+  --card: oklch(0.22 0.02 265);
+  --card-foreground: oklch(0.92 0.005 250);
+
+  --border: oklch(0.15 0.02 265);
+  --input: oklch(0.15 0.02 265);
+
+  --secondary: oklch(0.25 0.02 265);
+  --secondary-foreground: oklch(0.85 0.005 250);
+
+  --muted: oklch(0.22 0.02 265);
+  --muted-foreground: oklch(0.60 0.01 260);
+
+  --shadow-sm: 2px 2px 4px 0px oklch(0 0 0 / 0.30), -2px -2px 4px 0px oklch(1 0 0 / 0.05);
+  --shadow-md: 5px 5px 10px 0px oklch(0 0 0 / 0.35), -5px -5px 10px 0px oklch(1 0 0 / 0.05);
+  --shadow-lg: 10px 10px 20px 0px oklch(0 0 0 / 0.40), -10px -10px 20px 0px oklch(1 0 0 / 0.05);
+  --shadow-glow: 0 0 20px color-mix(in oklab, var(--primary) 25%, transparent);
+
+  --gradient-mesh: none;
+}
+
+/* ============================================
+   DESIGN STYLE — Claymorphism
+   Soft, rounded, clay-like puffed cards
+   ============================================ */
+:root[data-style="claymorphism"] {
+  --radius: 1.25rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+  --radius-3xl: calc(var(--radius) + 16px);
+
+  --shadow-sm: 0 4px 6px -2px oklch(0.20 0.04 265 / 0.12), 0 8px 12px -4px oklch(0.20 0.04 265 / 0.08);
+  --shadow-md: 0 8px 16px -4px oklch(0.20 0.04 265 / 0.15), 0 16px 24px -8px oklch(0.20 0.04 265 / 0.10);
+  --shadow-lg: 0 16px 32px -8px oklch(0.20 0.04 265 / 0.18), 0 32px 48px -12px oklch(0.20 0.04 265 / 0.12);
+  --shadow-glow: 0 10px 40px -10px color-mix(in oklab, var(--primary) 30%, transparent);
+
+  --gradient-mesh: none;
+
+  --background: oklch(0.96 0.01 270);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.04 265);
+
+  --border: oklch(0.85 0.01 270);
+  --input: oklch(0.85 0.01 270);
+}
+
+:root[data-style="claymorphism"].dark {
+  --background: oklch(0.14 0.02 265);
+  --foreground: oklch(0.97 0.005 250);
+
+  --card: oklch(0.20 0.025 265);
+  --card-foreground: oklch(0.97 0.005 250);
+
+  --border: oklch(1 0 0 / 0.12);
+  --input: oklch(1 0 0 / 0.15);
+
+  --shadow-sm: 0 4px 6px -2px oklch(0 0 0 / 0.25), 0 8px 12px -4px oklch(0 0 0 / 0.15);
+  --shadow-md: 0 8px 16px -4px oklch(0 0 0 / 0.30), 0 16px 24px -8px oklch(0 0 0 / 0.20);
+  --shadow-lg: 0 16px 32px -8px oklch(0 0 0 / 0.35), 0 32px 48px -12px oklch(0 0 0 / 0.25);
+  --shadow-glow: 0 10px 40px -10px color-mix(in oklab, var(--primary) 40%, transparent);
+
+  --gradient-mesh: none;
+}
+
+/* ============================================
+   DESIGN STYLE — NeoBrutalism
+   Bold, chunky, flat, high-contrast
+   ============================================ */
+:root[data-style="neobrutalism"] {
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+
+  --shadow-sm: 3px 3px 0px 0px oklch(0.20 0.04 265);
+  --shadow-md: 5px 5px 0px 0px oklch(0.20 0.04 265);
+  --shadow-lg: 8px 8px 0px 0px oklch(0.20 0.04 265);
+  --shadow-glow: 5px 5px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
+
+  --border: oklch(0.20 0.04 265);
+  --input: oklch(0.20 0.04 265);
+
+  --gradient-mesh: none;
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.04 265);
+
+  --secondary: oklch(0.94 0.01 280);
+  --secondary-foreground: oklch(0.18 0.04 265);
+
+  --muted: oklch(0.92 0.005 270);
+  --muted-foreground: oklch(0.45 0.02 260);
+}
+
+:root[data-style="neobrutalism"].dark {
+  --background: oklch(0.16 0.03 265);
+  --foreground: oklch(0.97 0.005 250);
+
+  --card: oklch(0.22 0.03 265);
+  --card-foreground: oklch(0.97 0.005 250);
+
+  --border: oklch(1 0 0 / 0.85);
+  --input: oklch(1 0 0 / 0.85);
+
+  --secondary: oklch(0.28 0.03 265);
+  --secondary-foreground: oklch(0.97 0.005 250);
+
+  --muted: oklch(0.25 0.02 265);
+  --muted-foreground: oklch(0.65 0.02 260);
+
+  --shadow-sm: 3px 3px 0px 0px oklch(0 0 0 / 0.5);
+  --shadow-md: 5px 5px 0px 0px oklch(0 0 0 / 0.5);
+  --shadow-lg: 8px 8px 0px 0px oklch(0 0 0 / 0.55);
+  --shadow-glow: 5px 5px 0px 0px color-mix(in oklab, var(--primary) 60%, transparent);
+
+  --gradient-mesh: none;
 }
 
 @layer base {
@@ -357,6 +609,59 @@
     box-shadow: var(--shadow-lg), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
   }
 
+  /* ── Neumorphism glass-card overrides ── */
+  :root[data-style="neumorphism"] .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 1px solid transparent;
+    box-shadow: var(--shadow-md);
+  }
+
+  :root[data-style="neumorphism"] .dark .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 1px solid transparent;
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ── Claymorphism glass-card overrides ── */
+  :root[data-style="claymorphism"] .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-bottom-width: 4px;
+    box-shadow: var(--shadow-md);
+  }
+
+  :root[data-style="claymorphism"] .dark .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-bottom-width: 4px;
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ── NeoBrutalism glass-card overrides ── */
+  :root[data-style="neobrutalism"] .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 3px solid var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
+  :root[data-style="neobrutalism"] .dark .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+    border: 3px solid var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
   .gradient-primary {
     background-image: var(--gradient-primary);
   }
@@ -399,4 +704,141 @@
   body {
     transition: none !important;
   }
+}
+
+/* ============================================
+   TEXT SELECTION
+   ============================================ */
+::selection {
+  background-color: color-mix(in oklab, var(--primary) 30%, transparent);
+  color: var(--primary-foreground);
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+[data-style="neobrutalism"] ::-webkit-scrollbar {
+  width: 12px;
+}
+[data-style="neobrutalism"] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  border: 2px solid var(--background);
+}
+[data-style="neumorphism"] ::-webkit-scrollbar-thumb {
+  border-radius: 20px;
+  box-shadow: inset 1px 1px 2px oklch(0 0 0 / 0.08), inset -1px -1px 2px oklch(1 0 0 / 0.6);
+}
+[data-style="claymorphism"] ::-webkit-scrollbar-thumb {
+  border-radius: 20px;
+  border-bottom: 2px solid color-mix(in oklab, var(--border) 80%, black);
+}
+
+/* ============================================
+   MODAL / OVERLAY BACKDROP
+   ============================================ */
+:root {
+  --backdrop: oklch(0 0 0 / 0.5);
+}
+[data-style="neobrutalism"] {
+  --backdrop: oklch(0 0 0 / 0.8);
+}
+[data-style="neumorphism"] {
+  --backdrop: oklch(0 0 0 / 0.25);
+}
+[data-style="claymorphism"] {
+  --backdrop: oklch(0 0 0 / 0.4);
+}
+.fixed.inset-0.z-40,
+.fixed.inset-0.z-50 {
+  background-color: var(--backdrop) !important;
+}
+
+/* ============================================
+   PER-STYLE ELEMENT OVERRIDES
+   ============================================ */
+
+/* ── NeoBrutalism ─────────────────────────── */
+[data-style="neobrutalism"] input,
+[data-style="neobrutalism"] textarea,
+[data-style="neobrutalism"] select {
+  border-width: 3px;
+}
+[data-style="neobrutalism"] app-button button:not([class*="bg-transparent"]),
+[data-style="neobrutalism"] .btn-primary {
+  box-shadow: var(--shadow-md);
+}
+[data-style="neobrutalism"] hr {
+  border-top-width: 3px;
+  opacity: 1;
+}
+[data-style="neobrutalism"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── Neumorphism ──────────────────────────── */
+[data-style="neumorphism"] input,
+[data-style="neumorphism"] textarea,
+[data-style="neumorphism"] select {
+  border: none;
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.08), inset -3px -3px 5px oklch(1 0 0 / 0.7);
+  background-color: var(--background);
+}
+[data-style="neumorphism"] app-button button:not([class*="bg-transparent"]),
+[data-style="neumorphism"] .btn-primary {
+  border: none;
+  box-shadow: 3px 3px 6px oklch(0 0 0 / 0.10), -3px -3px 6px oklch(1 0 0 / 0.7);
+}
+[data-style="neumorphism"] app-button button:not([class*="bg-transparent"]):active,
+[data-style="neumorphism"] .btn-primary:active {
+  box-shadow: inset 2px 2px 5px oklch(0 0 0 / 0.10), inset -2px -2px 5px oklch(1 0 0 / 0.7);
+}
+[data-style="neumorphism"] [role="dialog"] {
+  border: none;
+  box-shadow: 8px 8px 16px oklch(0 0 0 / 0.08), -8px -8px 16px oklch(1 0 0 / 0.6);
+}
+[data-style="neumorphism"] hr {
+  opacity: 0.25;
+}
+[data-style="neumorphism"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── Claymorphism ─────────────────────────── */
+[data-style="claymorphism"] app-button button:not([class*="bg-transparent"]),
+[data-style="claymorphism"] .btn-primary {
+  border-bottom: 4px solid color-mix(in oklab, var(--border) 80%, black);
+}
+[data-style="claymorphism"] input,
+[data-style="claymorphism"] textarea,
+[data-style="claymorphism"] select {
+  border-bottom-width: 3px;
+}
+[data-style="claymorphism"] [role="dialog"] {
+  border-bottom-width: 4px;
+}
+[data-style="claymorphism"] hr {
+  border-top-width: 2px;
+  border-radius: 2px;
+  opacity: 0.4;
+}
+[data-style="claymorphism"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }

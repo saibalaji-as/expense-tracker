@@ -2,14 +2,17 @@ import { Injectable, computed, signal } from '@angular/core';
 import { StorageService } from './storage.service';
 
 export type AppPalette = 'violet' | 'rose' | 'azure' | 'emerald' | 'amber';
+export type AppStyle = 'glass' | 'neobrutalism' | 'neumorphism' | 'claymorphism';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private readonly _theme = signal<'light' | 'dark' | 'system'>('system');
   private readonly _palette = signal<AppPalette>('violet');
+  private readonly _style = signal<AppStyle>('glass');
 
   readonly theme = this._theme.asReadonly();
   readonly palette = this._palette.asReadonly();
+  readonly style = this._style.asReadonly();
 
   readonly effectiveTheme = computed(() => {
     const t = this._theme();
@@ -20,6 +23,7 @@ export class ThemeService {
   constructor(private readonly storageService: StorageService) {
     this.#restoreTheme();
     this.#restorePalette();
+    this.#restoreStyle();
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (this._theme() === 'system') {
@@ -46,6 +50,15 @@ export class ThemeService {
     this.#updateMetaThemeColor();
   }
 
+  async #restoreStyle(): Promise<void> {
+    const saved = await this.storageService.get('pf-style');
+    const valid: AppStyle[] = ['glass', 'neobrutalism', 'neumorphism', 'claymorphism'];
+    if (valid.includes(saved as AppStyle)) {
+      this._style.set(saved as AppStyle);
+    }
+    this.#applyStyle();
+  }
+
   async setTheme(t: 'light' | 'dark' | 'system'): Promise<void> {
     this._theme.set(t);
     await this.storageService.set('pf-theme', t);
@@ -57,6 +70,12 @@ export class ThemeService {
     await this.storageService.set('pf-palette', p);
     this.#applyPalette();
     this.#updateMetaThemeColor();
+  }
+
+  async setStyle(s: AppStyle): Promise<void> {
+    this._style.set(s);
+    await this.storageService.set('pf-style', s);
+    this.#applyStyle();
   }
 
   getCssVar(name: string): string {
@@ -75,6 +94,15 @@ export class ThemeService {
       document.documentElement.removeAttribute('data-palette');
     } else {
       document.documentElement.setAttribute('data-palette', p);
+    }
+  }
+
+  #applyStyle(): void {
+    const s = this._style();
+    if (s === 'glass') {
+      document.documentElement.removeAttribute('data-style');
+    } else {
+      document.documentElement.setAttribute('data-style', s);
     }
   }
 

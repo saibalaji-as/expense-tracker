@@ -24,11 +24,11 @@ export class ButtonComponent {
   get variantClasses(): string {
     switch (this.variant) {
       case 'primary':
-        return 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500';
+        return 'bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-primary';
       case 'danger':
-        return 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500';
+        return 'bg-destructive text-destructive-foreground hover:bg-destructive/90 focus:ring-destructive';
       case 'ghost':
-        return 'bg-transparent text-gray-700 hover:bg-gray-100 border border-gray-300 focus:ring-gray-400';
+        return 'bg-transparent text-foreground hover:bg-muted border border-border focus:ring-muted-foreground';
     }
   }
 }

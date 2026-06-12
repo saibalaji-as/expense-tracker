@@ -25,7 +25,7 @@ import { LocalNotificationService } from '../../core/services/local-notification
 import { FcmService } from '../../core/services/fcm.service';
 import { SyncService } from '../../core/services/sync.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
-import { ThemeService, AppPalette } from '../../core/services/theme.service';
+import { ThemeService, AppPalette, AppStyle } from '../../core/services/theme.service';
 import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
@@ -67,6 +67,10 @@ import {
   Languages,
   Mic,
   XCircle,
+  Aperture,
+  Box,
+  Layers,
+  Shapes,
 } from 'lucide-angular';
 
 // Extend the Window interface to include the beforeinstallprompt event
@@ -83,7 +87,7 @@ interface BeforeInstallPromptEvent extends Event {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic, XCircle }),
+      useValue: new LucideIconProvider({ Check, Download, Trash2, Bell, Sun, Moon, Monitor, ArrowDownToLine, Copy, RefreshCw, ExternalLink, ArrowLeftRight, KeyRound, Sparkles, Pencil, Languages, Mic, XCircle, Aperture, Box, Layers, Shapes }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -239,6 +243,47 @@ interface BeforeInstallPromptEvent extends Event {
                 @if (themeService.palette() === opt.value) {
                   <span class="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-primary text-primary-foreground">
                     <lucide-icon [img]="checkIcon" class="h-2.5 w-2.5" />
+                  </span>
+                }
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Design Style -->
+        <div class="mt-5">
+          <p class="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Design Style</p>
+          <div class="grid gap-3 sm:grid-cols-2">
+            @for (opt of styleOptions; track opt.value) {
+              <button
+                type="button"
+                (click)="onStyleChange(opt.value)"
+                [attr.aria-label]="opt.label"
+                [attr.aria-pressed]="themeService.style() === opt.value"
+                [class]="
+                  'group relative flex items-center gap-3 rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+                  (themeService.style() === opt.value
+                    ? 'border-primary bg-accent shadow-glow'
+                    : 'border-border bg-card/40 hover:border-primary/40')
+                "
+              >
+                <span
+                  [class]="
+                    'grid h-10 w-10 place-items-center rounded-xl transition-all ' +
+                    (themeService.style() === opt.value
+                      ? 'gradient-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground')
+                  "
+                >
+                  <lucide-icon [img]="opt.icon" class="h-5 w-5" />
+                </span>
+                <div>
+                  <p class="text-sm font-semibold">{{ opt.label }}</p>
+                  <p class="text-xs text-muted-foreground">{{ opt.desc }}</p>
+                </div>
+                @if (themeService.style() === opt.value) {
+                  <span class="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+                    <lucide-icon [img]="checkIcon" class="h-3 w-3" />
                   </span>
                 }
               </button>
@@ -1465,6 +1510,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { value: 'system' as const, label: 'System', icon: Monitor, desc: 'Match my device' },
   ];
 
+  readonly styleOptions: { value: AppStyle; label: string; desc: string; icon: any }[] = [
+    { value: 'glass', label: 'Glassmorphism', desc: 'Frosted glass & blur', icon: Aperture },
+    { value: 'neumorphism', label: 'Neumorphism', desc: 'Soft UI & extruded', icon: Layers },
+    { value: 'claymorphism', label: 'Claymorphism', desc: 'Rounded & clay-like', icon: Shapes },
+    { value: 'neobrutalism', label: 'NeoBrutalism', desc: 'Bold, chunky & flat', icon: Box },
+  ];
+
   readonly paletteOptions: { value: AppPalette; label: string; light: string; dark: string }[] = [
     { value: 'violet',  label: 'Violet',  light: 'oklch(0.55 0.22 280)', dark: 'oklch(0.72 0.20 290)' },
     { value: 'rose',    label: 'Rose',    light: 'oklch(0.55 0.22 10)',  dark: 'oklch(0.72 0.20 10)'  },
@@ -1594,6 +1646,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async onPaletteChange(palette: AppPalette): Promise<void> {
     await this.themeService.setPalette(palette);
     this.feedback.success('Palette saved.', 'Your color palette was saved on this device.');
+  }
+
+  async onStyleChange(style: AppStyle): Promise<void> {
+    await this.themeService.setStyle(style);
+    const names: Record<AppStyle, string> = { glass: 'Glassmorphism', neumorphism: 'Neumorphism', claymorphism: 'Claymorphism', neobrutalism: 'NeoBrutalism' };
+    this.feedback.success('Style saved.', `Spenza now uses ${names[style]} styling.`);
   }
 
   async onLanguageChange(language: AppLanguage): Promise<void> {

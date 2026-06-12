@@ -8,7 +8,9 @@ import {
   OnDestroy,
   SimpleChanges,
   ViewChild,
+  inject,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { Chart, ChartData, ChartOptions, ChartType } from 'chart.js/auto';
 
 @Component({
@@ -38,12 +40,17 @@ export class ChartBaseComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
 
+  private readonly document = inject(DOCUMENT);
   private chart?: Chart;
+  private observer?: MutationObserver;
 
   ngAfterViewInit(): void {
-    // Merge default options with provided options
+    this.createChart();
+    this.watchTheme();
+  }
+
+  private createChart(): void {
     const mergedOptions = this.getMergedOptions();
-    
     this.chart = new Chart(this.canvasRef.nativeElement, {
       type: this.type,
       data: this.data,
@@ -51,175 +58,118 @@ export class ChartBaseComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
   }
 
+  private watchTheme(): void {
+    const root = this.document.documentElement;
+    this.observer = new MutationObserver(() => {
+      if (!this.chart) return;
+      this.chart.options = this.getMergedOptions();
+      this.chart.update('none');
+    });
+    this.observer.observe(root, {
+      attributes: true,
+      attributeFilter: ['class', 'data-palette'],
+    });
+  }
+
+  private cssVar(name: string): string {
+    return getComputedStyle(this.document.documentElement).getPropertyValue(name).trim();
+  }
+
   private getMergedOptions(): ChartOptions {
-    // Default elegant options for line charts
+    const tickColor = this.cssVar('--muted-foreground') || 'rgba(148, 163, 184, 0.6)';
+    const gridColor = this.cssVar('--border') || 'rgba(148, 163, 184, 0.08)';
+    const tooltipBg = this.cssVar('--popover') || 'rgba(0, 0, 0, 0.8)';
+    const tooltipFg = this.cssVar('--popover-foreground') || '#fff';
+
+    const makeTickOptions = () => ({
+      color: tickColor,
+      font: { size: 11, weight: 500 as const },
+    });
+
+    const numberFormat = (value: number | string): string => {
+      if (typeof value === 'number') {
+        if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+        return value.toString();
+      }
+      return value;
+    };
+
+    const tooltipDefaults = {
+      backgroundColor: tooltipBg,
+      titleColor: tooltipFg,
+      bodyColor: tooltipFg,
+      padding: 12,
+      cornerRadius: 8,
+      titleFont: { size: 12, weight: 600 as const },
+      bodyFont: { size: 14, weight: 500 as const },
+    };
+
     const defaultLineOptions: ChartOptions = {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: {
-        intersect: false,
-        mode: 'index',
-      },
+      interaction: { intersect: false, mode: 'index' },
       plugins: {
-        legend: {
-          display: false,
-        },
-        tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          padding: 12,
-          cornerRadius: 8,
-          titleFont: {
-            size: 12,
-            weight: 600,
-          },
-          bodyFont: {
-            size: 14,
-            weight: 500,
-          },
-          displayColors: false,
-        },
+        legend: { display: false },
+        tooltip: { ...tooltipDefaults, displayColors: false },
       },
       scales: {
         x: {
-          border: {
-            display: false,
-          },
-          grid: {
-            display: false,
-          },
+          border: { display: false },
+          grid: { display: false },
           ticks: {
-            color: 'rgba(148, 163, 184, 0.6)', // Muted text color
-            font: {
-              size: 11,
-              weight: 500,
-            },
+            ...makeTickOptions(),
             maxRotation: 0,
             autoSkip: true,
             autoSkipPadding: 20,
           },
         },
         y: {
-          border: {
-            display: false,
-          },
-          grid: {
-            color: 'rgba(148, 163, 184, 0.08)', // Very subtle grid lines
-            lineWidth: 1,
-          },
+          border: { display: false },
+          grid: { color: gridColor, lineWidth: 1 },
           ticks: {
-            color: 'rgba(148, 163, 184, 0.6)', // Muted text color
-            font: {
-              size: 11,
-              weight: 500,
-            },
+            ...makeTickOptions(),
             padding: 8,
-            callback: function(value) {
-              // Format large numbers with K suffix
-              if (typeof value === 'number') {
-                if (value >= 1000) {
-                  return (value / 1000).toFixed(1) + 'K';
-                }
-                return value.toString();
-              }
-              return value;
-            },
+            callback: numberFormat,
           },
           beginAtZero: true,
         },
       },
     };
 
-    // Default options for doughnut charts
     const defaultDoughnutOptions: ChartOptions = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          display: false,
-        },
-        tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          padding: 12,
-          cornerRadius: 8,
-          titleFont: {
-            size: 12,
-            weight: 600,
-          },
-          bodyFont: {
-            size: 14,
-            weight: 500,
-          },
-        },
+        legend: { display: false },
+        tooltip: { ...tooltipDefaults },
       },
     };
 
-    // Default options for bar charts
     const defaultBarOptions: ChartOptions = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          display: false,
-        },
-        tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          padding: 12,
-          cornerRadius: 8,
-          titleFont: {
-            size: 12,
-            weight: 600,
-          },
-          bodyFont: {
-            size: 14,
-            weight: 500,
-          },
-        },
+        legend: { display: false },
+        tooltip: { ...tooltipDefaults },
       },
       scales: {
         x: {
-          border: {
-            display: false,
-          },
-          grid: {
-            display: false,
-          },
-          ticks: {
-            color: 'rgba(148, 163, 184, 0.6)',
-            font: {
-              size: 11,
-              weight: 500,
-            },
-          },
+          border: { display: false },
+          grid: { display: false },
+          ticks: { ...makeTickOptions() },
         },
         y: {
-          border: {
-            display: false,
-          },
-          grid: {
-            color: 'rgba(148, 163, 184, 0.08)',
-          },
+          border: { display: false },
+          grid: { color: gridColor },
           ticks: {
-            color: 'rgba(148, 163, 184, 0.6)',
-            font: {
-              size: 11,
-              weight: 500,
-            },
-            callback: function(value) {
-              if (typeof value === 'number') {
-                if (value >= 1000) {
-                  return (value / 1000).toFixed(1) + 'K';
-                }
-                return value.toString();
-              }
-              return value;
-            },
+            ...makeTickOptions(),
+            callback: numberFormat,
           },
           beginAtZero: true,
         },
       },
     };
 
-    // Select default options based on chart type
     let defaultOptions: ChartOptions = {};
     if (this.type === 'line') {
       defaultOptions = defaultLineOptions;
@@ -229,7 +179,6 @@ export class ChartBaseComponent implements AfterViewInit, OnChanges, OnDestroy {
       defaultOptions = defaultBarOptions;
     }
 
-    // Deep merge provided options with defaults (provided options take precedence)
     return this.deepMerge(defaultOptions, this.options);
   }
 
@@ -270,6 +219,7 @@ export class ChartBaseComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.observer?.disconnect();
     this.chart?.destroy();
   }
 }
