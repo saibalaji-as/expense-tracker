@@ -5,19 +5,47 @@ import {
   isDevMode,
   APP_INITIALIZER,
 } from '@angular/core';
-import { provideRouter, withComponentInputBinding, withHashLocation, withViewTransitions } from '@angular/router';
+import {
+  provideRouter,
+  withComponentInputBinding,
+  withHashLocation,
+  withViewTransitions,
+  withPreloading,
+  PreloadAllModules,
+} from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { Capacitor } from '@capacitor/core';
+import type { RouterFeatures } from '@angular/router';
 
 import { routes } from './app.routes';
 import { provideServiceWorker } from '@angular/service-worker';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { LocalNotificationService } from './core/services/local-notification.service';
 
+// PERF: the View Transitions API snapshots the ENTIRE page (including the
+// frosted-glass blur layers) and freezes that snapshot until the next route's
+// component has fully resolved its async guards AND rendered. On Android WebView
+// that capture-and-hold is expensive and, worse, it visually freezes the UI for
+// the whole navigation — which is exactly the "screen takes 2s to change" feel.
+// Native gets NO view transitions (instant swap); the web keeps the crossfade,
+// where the snapshot is cheap and desirable.
+const routerFeatures: RouterFeatures[] = [
+  withComponentInputBinding(),
+  withHashLocation(),
+  // PreloadAllModules: after first paint, lazy route chunks are fetched/parsed
+  // in the background (idle) instead of on first tap. Removes the JS-parse stall
+  // on first navigation to each screen.
+  withPreloading(PreloadAllModules),
+];
+if (!Capacitor.isNativePlatform()) {
+  routerFeatures.push(withViewTransitions());
+}
+
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
-    provideRouter(routes, withComponentInputBinding(), withHashLocation(), withViewTransitions()),
+    provideRouter(routes, ...routerFeatures),
     provideHttpClient(withInterceptors([authInterceptor])),
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),

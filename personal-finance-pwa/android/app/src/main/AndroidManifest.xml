@@ -50,6 +50,29 @@
                 android:resource="@xml/expense_widget_info" />
         </receiver>
 
+        <!-- Standalone home screen daily streak widget. Remove this receiver + the streak
+             reminder receiver and the StreakWidget*/Streak* classes to hide the feature. -->
+        <receiver
+            android:name=".StreakWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/streak_widget_info" />
+        </receiver>
+
+        <!-- Fires the daily 8 PM "keep your streak alive" reminder. -->
+        <receiver
+            android:name=".StreakReminderReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.spenza.app.STREAK_REMINDER" />
+            </intent-filter>
+        </receiver>
+
         <!-- Firebase Cloud Messaging Service -->
         <service
             android:name=".MyFirebaseMessagingService"

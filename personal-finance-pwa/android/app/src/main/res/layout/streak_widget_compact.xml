@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/expense_widget_background">
+
+    <ImageView
+        android:id="@+id/widget_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY" />
+
+    <LinearLayout
+        android:id="@+id/streak_widget_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+    <ImageView
+        android:id="@+id/streak_flame_badge"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/streak_flame_badge"
+        android:padding="11dp"
+        android:src="@drawable/ic_widget_flame" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/streak_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:singleLine="true"
+            android:text="0"
+            android:textColor="@color/spenza_flame_end"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/streak_count_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:singleLine="true"
+            android:text="day streak"
+            android:textColor="@color/spenza_widget_muted"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/streak_status"
+        android:layout_width="wrap_content"
+        android:layout_height="30dp"
+        android:background="@drawable/streak_status_pill"
+        android:gravity="center"
+        android:minWidth="74dp"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp"
+        android:singleLine="true"
+        android:text="On track"
+        android:textColor="@color/spenza_food"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>

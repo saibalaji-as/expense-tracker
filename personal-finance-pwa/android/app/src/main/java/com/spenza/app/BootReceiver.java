@@ -25,6 +25,11 @@ public class BootReceiver extends BroadcastReceiver {
     
     private void rescheduleNotifications(Context context) {
         try {
+            // Re-arm the daily streak reminder if the streak widget is on the home screen.
+            if (StreakReminderScheduler.hasStreakWidget(context)) {
+                StreakReminderScheduler.scheduleDailyStreakReminder(context);
+            }
+
             // Read notification preferences from Capacitor Storage
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String notificationPrefsJson = prefs.getString(NOTIFICATION_PREFS_KEY, null);

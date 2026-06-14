@@ -10,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   LucideAngularModule,
@@ -316,17 +317,28 @@ export class ReminderFormComponent implements OnInit {
     return now.toISOString().slice(0, 16);
   });
 
-  readonly canSave = computed(() => {
-    const type = this.form.get('type')?.value;
-    if (type === 'datetime') return !!this.form.get('remindAt')?.value;
-    if (type === 'location') return this.confirmedLocation() !== null;
-    return false;
-  });
-
   form = this.fb.group({
     title: ['', [Validators.required, Validators.maxLength(200)]],
     type: ['datetime' as 'datetime' | 'location'],
     remindAt: [''],
+  });
+
+  // Mirror reactive-form state into a signal so computed()s recompute on input.
+  // (Reactive form `.value` is NOT a signal — reading it inside computed() does
+  // not register a dependency, so canSave() would stay stuck at its first value.)
+  private readonly formValue = toSignal(this.form.valueChanges, {
+    initialValue: this.form.getRawValue(),
+  });
+  private readonly formStatus = toSignal(this.form.statusChanges, {
+    initialValue: this.form.status,
+  });
+
+  readonly canSave = computed(() => {
+    const v = this.formValue();
+    if (this.formStatus() === 'INVALID') return false;
+    if (v.type === 'datetime') return !!v.remindAt;
+    if (v.type === 'location') return this.confirmedLocation() !== null;
+    return false;
   });
 
   private recognition: any = null;

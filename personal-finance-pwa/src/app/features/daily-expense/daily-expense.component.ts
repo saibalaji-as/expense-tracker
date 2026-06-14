@@ -2443,6 +2443,28 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Best-effort receipt upload that NEVER throws. A failed bill upload (offline,
+   * Drive hiccup, expired token) must not abort or lose the expense itself — the
+   * expense is the user's critical data. On failure we return failed:true so the
+   * caller can still save the expense and warn the user that the bill will need
+   * re-attaching, instead of discarding everything.
+   */
+  private async tryUploadSelectedReceipt(
+    entryId: string,
+    date: string,
+  ): Promise<{ receipt?: ExpenseReceipt; failed: boolean }> {
+    if (!this.selectedReceiptFile()) return { receipt: undefined, failed: false };
+    try {
+      const receipt = await this.uploadSelectedReceipt(entryId, date);
+      return { receipt, failed: false };
+    } catch (error) {
+      console.error('[DailyExpense] Receipt upload failed; saving expense without it:', error);
+      this.receiptError.set(this.i18n.t('daily.receipt.uploadFailed'));
+      return { receipt: undefined, failed: true };
+    }
+  }
+
   private async uploadSelectedReceipt(entryId: string, date: string): Promise<ExpenseReceipt | undefined> {
     const file = this.selectedReceiptFile();
     if (!file) return undefined;
@@ -2850,7 +2872,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
     const accountId = this.selectedPaymentAccountId();
-    const receipt = await this.uploadSelectedReceipt(id, date);
+    const { receipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(id, date);
     const actor = this.activityActor();
 
     const entry: ExpenseEntry = {
@@ -2869,10 +2891,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.addEntry(entry);
-    this.feedback.success(
-      'Expense saved.',
-      `${this.getCatName(entry.type)} for ${this.currencyService.format(entry.amount, this.i18n.locale())} was saved to your Drive backup.`
-    );
+    if (receiptFailed) {
+      this.feedback.warning(
+        'Expense saved — bill not attached.',
+        'Your expense is safe. The bill couldn\'t upload right now; edit this expense to re-attach it when you\'re back online.'
+      );
+    } else {
+      this.feedback.success(
+        'Expense saved.',
+        `${this.getCatName(entry.type)} for ${this.currencyService.format(entry.amount, this.i18n.locale())} was saved to your Drive backup.`
+      );
+    }
     if (!this.syncService.isOnline()) {
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {
@@ -2911,7 +2940,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const baseComment = this.form.get('comment')?.value || this.receiptExtraction()?.comment || undefined;
     const rows = this.splitRows();
     const firstId = crypto.randomUUID();
-    const receipt = await this.uploadSelectedReceipt(firstId, date);
+    const { receipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(firstId, date);
     const actor = this.activityActor();
     const accountId = this.selectedPaymentAccountId();
 
@@ -2943,10 +2972,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     });
 
     await this.expenseStore.addEntries(entries);
-    this.feedback.success(
-      'Split bill saved.',
-      `${entries.length} expense entries were saved to your Drive backup.`
-    );
+    if (receiptFailed) {
+      this.feedback.warning(
+        'Split bill saved — bill not attached.',
+        `${entries.length} expense entries are safe. The bill couldn\'t upload right now; edit an entry to re-attach it when you\'re back online.`
+      );
+    } else {
+      this.feedback.success(
+        'Split bill saved.',
+        `${entries.length} expense entries were saved to your Drive backup.`
+      );
+    }
     this.clearDraftAndReset({
       expenseType: '',
       amount: null,
@@ -2970,7 +3006,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const comment = this.form.get('comment')?.value || undefined;
     const date = this.form.get('date')?.value ?? originalEntry.date;
     const accountId = this.selectedPaymentAccountId();
-    const uploadedReceipt = await this.uploadSelectedReceipt(originalEntry.id, date);
+    const { receipt: uploadedReceipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(originalEntry.id, date);
     const actor = this.activityActor();
 
     const updatedEntry: ExpenseEntry = {
@@ -2989,10 +3025,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.updateEntry(updatedEntry);
-    this.feedback.success(
-      'Expense updated.',
-      `${this.getCatName(updatedEntry.type)} was saved to your Drive backup.`
-    );
+    if (receiptFailed) {
+      this.feedback.warning(
+        'Expense updated — new bill not attached.',
+        'Your changes are safe. The new bill couldn\'t upload right now; re-attach it when you\'re back online.'
+      );
+    } else {
+      this.feedback.success(
+        'Expense updated.',
+        `${this.getCatName(updatedEntry.type)} was saved to your Drive backup.`
+      );
+    }
     if (!this.syncService.isOnline()) {
       this.offlineToast.set(true);
       if (this.offlineToastTimer) {

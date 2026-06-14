@@ -68,15 +68,16 @@ export class FcmService {
   async registerForNotifications(
     userId: string,
     timezone: string,
-    reminderPreferences?: PushReminderPreferences
+    reminderPreferences?: PushReminderPreferences,
+    options?: { tokenOnly?: boolean }
   ): Promise<boolean> {
     try {
       if (Capacitor.isNativePlatform()) {
         const token = await this.registerNativeAndGetToken();
-        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences);
+        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences, options);
       } else {
         const token = await this.registerWebAndGetToken();
-        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences);
+        return await this.registerTokenWithBackend(userId, token, timezone, reminderPreferences, options);
       }
     } catch (error) {
       console.error('[FCM] Failed to register for notifications:', error);
@@ -96,7 +97,8 @@ export class FcmService {
     userId: string,
     fcmToken: string,
     timezone: string,
-    reminderPreferences?: PushReminderPreferences
+    reminderPreferences?: PushReminderPreferences,
+    options?: { tokenOnly?: boolean }
   ): Promise<boolean> {
     try {
       const endpoint = this.functionsEndpoint('registerToken');
@@ -105,6 +107,8 @@ export class FcmService {
           userId,
           fcmToken,
           timezone,
+          platform: Capacitor.isNativePlatform() ? 'native' : 'web',
+          ...(options?.tokenOnly ? { tokenOnly: true } : {}),
           ...reminderPreferences,
           timestamp: Date.now()
         }, { headers: await this.authHeaders() })

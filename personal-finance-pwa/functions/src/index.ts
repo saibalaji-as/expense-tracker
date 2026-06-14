@@ -3,6 +3,7 @@ import { createRazorpaySubscription, verifyRazorpayPayment, restoreRazorpaySubsc
 import { razorpayWebhook, webhookHealthCheck } from './razorpay-webhook';
 import { createSubscriptionHandoff, redeemSubscriptionHandoff } from './subscription-handoff';
 import { sendReminders } from './send-reminders';
+import { sendDueReminders } from './send-due-reminders';
 import { registerToken, unregisterToken } from './fcm';
 import { extractReceipt } from './ai-receipt';
 import { generateInsights } from './ai-insights';
@@ -25,6 +26,7 @@ export {
   createSubscriptionHandoff,
   redeemSubscriptionHandoff,
   sendReminders,
+  sendDueReminders,
   registerToken,
   unregisterToken,
   extractReceipt,

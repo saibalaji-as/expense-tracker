@@ -94,6 +94,29 @@ export class NotificationService {
     return true;
   }
 
+  /**
+   * Ensure this web device has an FCM token registered with the backend so the
+   * server-side reminder scheduler (`sendDueReminders`) can deliver date/time
+   * reminders even when no tab is open — WITHOUT opting the device into the
+   * recurring daily/hourly nudge scheduler (`tokenOnly`).
+   *
+   * No-op on native (native uses local OS notifications for datetime reminders).
+   * Returns false if web push isn't available or permission isn't granted.
+   */
+  async ensurePushRegistered(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) return true;
+    if (typeof Notification === 'undefined') return false;
+
+    if (Notification.permission !== 'granted') {
+      await this.requestPermission();
+      if (this._permissionState() !== 'granted') return false;
+    }
+
+    const userId = await this.#getUserId();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return this.fcmService.registerForNotifications(userId, timezone, undefined, { tokenOnly: true });
+  }
+
   async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<boolean> {
     if (!enabled) {
       if (this._isEnabled()) {

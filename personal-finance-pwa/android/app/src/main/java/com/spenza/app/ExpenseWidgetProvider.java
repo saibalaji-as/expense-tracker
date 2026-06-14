@@ -28,6 +28,8 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         if (ids.length > 0) {
             new ExpenseWidgetProvider().onUpdate(context, manager, ids);
         }
+        // A new expense/snapshot also changes today's streak — keep the streak widget in sync.
+        StreakWidgetProvider.updateAll(context);
     }
 
     @Override
@@ -56,8 +58,12 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         boolean showShopping = minWidth >= FIVE_COLUMN_MIN_WIDTH_DP;
         int layoutId = quickOnly ? R.layout.expense_widget_quick : R.layout.expense_widget;
         RemoteViews views = new RemoteViews(context.getPackageName(), layoutId);
+        WidgetTheme theme = WidgetTheme.from(context);
+        theme.applySurface(context, views, R.id.widget_surface, options);
         if (!quickOnly) {
             bindDailyInsight(context, views, false);
+            views.setTextColor(R.id.expense_widget_title, theme.primaryColor());
+            views.setInt(R.id.expense_widget_brand, "setBackgroundResource", theme.ctaDrawable());
         }
         views.setViewVisibility(R.id.widget_shopping, showShopping ? View.VISIBLE : View.GONE);
         bindButton(context, views, R.id.widget_food, WidgetExpenseConstants.TYPE_FOOD, 101);

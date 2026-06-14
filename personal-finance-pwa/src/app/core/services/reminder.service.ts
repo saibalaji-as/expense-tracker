@@ -4,6 +4,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { App } from '@capacitor/app';
 import { firebaseConfig } from '../config/firebase.config';
 import { AuthService } from './auth.service';
+import { NotificationService } from './notification.service';
 import type { Firestore, Unsubscribe } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -43,6 +44,11 @@ interface FirestoreReminder {
 @Injectable({ providedIn: 'root' })
 export class ReminderService {
   private readonly authService = inject(AuthService);
+  private readonly notificationService = inject(NotificationService);
+
+  /** Grace window before a fired-but-unconfirmed datetime reminder is locally expired.
+   *  Gives the server scheduler (runs every minute) time to claim + deliver it. */
+  static readonly EXPIRY_GRACE_MS = 3 * 60 * 1000;
 
   readonly reminders = signal<Reminder[]>([]);
   readonly activeReminders = computed(() => this.reminders().filter((r) => r.status === 'active'));
@@ -112,6 +118,7 @@ export class ReminderService {
 
     if (data.type === 'datetime' && data.remindAt) {
       await this.scheduleNotification(ref.id, uid, data.title, data.remindAt);
+      await this.#ensureWebPushForDatetime();
     }
 
     return ref.id;
@@ -139,6 +146,21 @@ export class ReminderService {
     const newTitle = data.title ?? existing?.title ?? '';
     if ((data.type ?? existing?.type) === 'datetime' && data.remindAt) {
       await this.scheduleNotification(id, uid, newTitle, data.remindAt);
+      await this.#ensureWebPushForDatetime();
+    }
+  }
+
+  /**
+   * On web, make sure this device has an FCM token registered so the server
+   * scheduler can deliver the datetime reminder cross-device. Best-effort:
+   * never blocks or fails the save (no-op on native, which uses local OS alarms).
+   */
+  async #ensureWebPushForDatetime(): Promise<void> {
+    if (Capacitor.isNativePlatform()) return;
+    try {
+      await this.notificationService.ensurePushRegistered();
+    } catch (e) {
+      if (isDevMode()) console.warn('[ReminderService] Could not register web push token', e);
     }
   }
 
@@ -265,9 +287,9 @@ export class ReminderService {
 
   /** Mark datetime reminders as expired if remindAt is past and was never notified (web case). */
   async markExpiredDatetimeReminders(uid: string, items: Reminder[]): Promise<void> {
-    const now = new Date();
+    const cutoff = new Date(Date.now() - ReminderService.EXPIRY_GRACE_MS);
     const expired = items.filter(
-      (r) => r.type === 'datetime' && r.status === 'active' && r.remindAt && r.remindAt < now && r.notifiedAt === null
+      (r) => r.type === 'datetime' && r.status === 'active' && r.remindAt && r.remindAt < cutoff && r.notifiedAt === null
     );
     if (!expired.length) return;
     const { doc, writeBatch } = await import('firebase/firestore');

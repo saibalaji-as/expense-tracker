@@ -215,6 +215,32 @@
   - Disable/remove `ExpenseWidgetProvider` receiver and `ExpenseWidgetActivity` from `AndroidManifest.xml`.
   - Remove the `expense_widget*` resources and `WidgetExpense*` Java classes if deleting fully.
 
+## Native Android Daily Streak Widget
+- Android-only standalone home screen streak widget, modeled on Duolingo daily streaks; isolated to `Streak*` Java classes and `streak_widget*` resources and removable like the expense widget.
+- Entry points:
+  - `StreakWidgetProvider`: `AppWidgetProvider` rendering the flame/count/state UI; full layout `streak_widget` and short-height `streak_widget_compact` (launcher height <= 130dp). Tapping the widget opens `MainActivity`.
+  - `StreakCalculator`: read-only local streak logic.
+  - `StreakReminderScheduler` + `StreakReminderReceiver`: daily 20:00 streak-maintenance reminder.
+  - `StreakWidgetPlugin` (Capacitor, name `StreakWidget`): `refresh/isAdded/isSupported/requestPin`.
+- Streak rule: a local date "counts" when at least one expense is logged that day (not budget-based).
+- `StreakCalculator.from()` builds the set of logged dates from `spenza_drive_backup_snapshot_v1` (`doc.expenses[].date`) plus current-email `spenza_widget_expense_queue_v1` entries, then derives:
+  - `currentStreak`: consecutive logged days, counting back from today if logged else yesterday, so the streak stays alive until midnight.
+  - `longestStreak`: longest historical run, also persisted/maxed into `spenza_streak_best_v1`.
+  - `last7[]` and a 3-way `state`: ACTIVE (today logged), AT_RISK (alive but today not logged), BROKEN (no live streak).
+- Reminder behavior:
+  - `StreakReminderScheduler.scheduleDailyStreakReminder()` arms an AlarmManager exact alarm for 20:00 (falls back to inexact on Android 12+ `SecurityException`).
+  - `StreakReminderReceiver` posts a "keep your streak alive" notification on the new `streak-reminders` channel only when `!todayComplete`, varies copy by streak>0 vs 0, repaints the widget, and re-arms for the next day.
+  - Reminder is tied to widget presence: scheduled from `StreakWidgetProvider.onEnabled/onUpdate`, `MainActivity.onCreate`, and `BootReceiver` (all guarded by `hasStreakWidget()`), and cancelled in `StreakWidgetProvider.onDisabled`.
+- Refresh: `ExpenseWidgetProvider.updateAll()` also calls `StreakWidgetProvider.updateAll()`, so existing app snapshot writes (via `ExpenseWidgetPlugin.refresh()`) and widget expense saves keep the streak widget current without an Angular change.
+- Styling shares Spenza widget tokens (light + `values-night`) and reuses `expense_widget_background`; both widgets share a brand-badge header lockup (`widget_brand_badge`/`streak_brand_badge`).
+
+## Native Android Widget Theming (palette + surface style)
+- Both home-screen widgets reflect the app's selected `pf-palette` (violet/rose/azure/emerald/amber) and `pf-style` (glass/neumorphism/claymorphism/neobrutalism) from `ThemeService`, in light/dark — not just device dark/light.
+- `WidgetTheme.from()` reads `pf-palette`/`pf-style` from `CapacitorStorage`, resolves palette primary/glow via `widget_pal_*` color resources (light/dark via qualifiers), and determines dark via `Configuration.uiMode`.
+- `WidgetSurface.render()` draws the widget body as a software-Canvas Bitmap for each style (glass / neumorphism / claymorphism / neobrutalism) in the chosen palette, because RemoteViews XML drawables cannot do blur or per-palette gradients. `WidgetTheme.applySurface()` sizes it from the widget options (capped to 400px longest side for the Binder limit) and pushes it via `setImageViewBitmap` onto the `@id/widget_surface` ImageView.
+- Each widget layout is a `FrameLayout` with a full-bleed `widget_surface` ImageView behind transparent content; the FrameLayout keeps `expense_widget_background` as a static fallback if bitmap rendering fails.
+- Accents recolor at runtime: title → palette primary; CTA / expense brand badge → per-palette gradient drawable `widget_primary_grad_<palette>`. The streak flame and semantic state colors intentionally stay fixed.
+
 ## Native Android Spend Notification Prompts
 - Android-only spend prompt detection is implemented with `SpendNotificationListenerService`.
 - User access model:

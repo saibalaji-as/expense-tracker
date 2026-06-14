@@ -62,13 +62,30 @@ export class CurrencyService {
     return this.currencyOptions.find((option) => option.code === currency) ?? this.currencyOptions[0];
   }
 
+  // PERF: constructing Intl.NumberFormat is one of the most expensive common JS
+  // operations. format() is called heavily (every currency binding, every
+  // change-detection pass via the impure currencyFormat pipe), so we build each
+  // (locale, currency) formatter once and reuse it. This turns thousands of
+  // constructions per second into cheap cached .format() calls.
+  private readonly numberFormatCache = new Map<string, Intl.NumberFormat>();
+
+  private formatter(locale: string, currency: AppCurrency): Intl.NumberFormat {
+    const cacheKey = `${locale}|${currency}`;
+    let fmt = this.numberFormatCache.get(cacheKey);
+    if (!fmt) {
+      fmt = new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'symbol',
+        maximumFractionDigits: 2,
+      });
+      this.numberFormatCache.set(cacheKey, fmt);
+    }
+    return fmt;
+  }
+
   format(value: number | null | undefined, locale = 'en-IN', currency = this.currency()): string {
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency,
-      currencyDisplay: 'symbol',
-      maximumFractionDigits: 2,
-    }).format(Number(value ?? 0));
+    return this.formatter(locale, currency).format(Number(value ?? 0));
   }
 
   private async load(): Promise<void> {

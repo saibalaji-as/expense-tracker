@@ -122,6 +122,37 @@ function escapeDriveQueryValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+// ─── Transient-error retry ──────────────────────────────────────────────────────
+
+/**
+ * HTTP statuses that are worth retrying automatically — request timeout, rate
+ * limiting, and the 5xx family (Google Drive occasionally 500s/503s on writes).
+ * 401/403/404 are NOT here: they are auth/permission/not-found and need a
+ * different remedy than blind retry.
+ */
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+/** status 0 = network-layer failure (offline, DNS, connection reset, CORS abort). */
+function isRetryableDriveError(err: unknown): boolean {
+  const status = (err as DriveApiError | undefined)?.status;
+  return status === 0 || (typeof status === 'number' && RETRYABLE_STATUSES.has(status));
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Optional sink so the app can record sync failures for diagnostics. */
+export interface SyncDiagnosticEvent {
+  operation: string;
+  status: number;
+  attempt: number;
+  willRetry: boolean;
+  message: string;
+  at: string;
+}
+let diagnosticSink: ((e: SyncDiagnosticEvent) => void) | null = null;
+export function setDriveDiagnosticSink(sink: ((e: SyncDiagnosticEvent) => void) | null): void {
+  diagnosticSink = sink;
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -134,6 +165,103 @@ export class GoogleDriveService {
     'Spenza Family',
     'Spenza Receipts',
   ];
+
+  /** Max attempts for a single Drive request (1 initial + retries). */
+  private readonly maxAttempts = 4;
+  private readonly baseRetryDelayMs = 600;
+
+  /**
+   * Centralized Drive fetch with built-in resilience:
+   *  - acquires a token (interactive-capable via ensureToken) for the first try;
+   *  - on 401, attempts ONE silent token refresh and retries with the new token;
+   *  - retries transient failures (network drop, 408/429/5xx) with exponential
+   *    backoff + jitter, up to maxAttempts;
+   *  - converts network-layer throws into a status-0 DriveApiError so callers see
+   *    a consistent error shape.
+   * `buildInit(token)` is re-invoked per attempt so bodies (incl. File blobs) are
+   * freshly built each time.
+   */
+  async #driveFetch(
+    url: string,
+    buildInit: (token: string) => RequestInit,
+    operation: string,
+    interactive = true,
+  ): Promise<Response> {
+    let lastError: DriveApiError | null = null;
+
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      let token: string | null = null;
+      try {
+        // interactive=false is used by background sync (saves/receipts) so a stale
+        // token never pops a sign-in dialog mid-save — it just retries later.
+        token = interactive
+          ? await this.#authService.ensureToken()
+          : await this.#authService.getTokenSilent();
+      } catch (tokenErr) {
+        lastError = { status: 0, message: `token unavailable: ${String(tokenErr)}`, operation };
+      }
+      if (!token) {
+        // No token available (offline, expired, or no silent session). Retryable:
+        // background sync tries again once a valid token exists.
+        lastError = lastError ?? { status: 0, message: 'no valid token available', operation };
+        diagnosticSink?.({ operation, status: 0, attempt, willRetry: attempt < this.maxAttempts, message: lastError.message, at: new Date().toISOString() });
+        if (attempt < this.maxAttempts) { await sleep(this.#backoff(attempt)); continue; }
+        throw lastError;
+      }
+
+      let response: Response | null = null;
+      try {
+        response = await fetch(url, buildInit(token));
+      } catch (networkErr) {
+        lastError = { status: 0, message: String(networkErr), operation };
+      }
+
+      if (response) {
+        // One-shot silent refresh on auth failure, then retry immediately with the new token.
+        if (response.status === 401) {
+          const refreshed = await this.#authService.refreshTokenSilently();
+          if (refreshed) {
+            try {
+              const retried = await fetch(url, buildInit(refreshed));
+              if (retried.ok) return retried;
+              response = retried;
+            } catch (networkErr) {
+              lastError = { status: 0, message: String(networkErr), operation };
+              response = null;
+            }
+          }
+        }
+
+        if (response && response.ok) return response;
+        if (response) {
+          const message = await response.text().catch(() => '');
+          lastError = { status: response.status, message, operation };
+        }
+      }
+
+      const retryable = lastError !== null && isRetryableDriveError(lastError);
+      diagnosticSink?.({
+        operation,
+        status: lastError?.status ?? -1,
+        attempt,
+        willRetry: retryable && attempt < this.maxAttempts,
+        message: lastError?.message ?? '',
+        at: new Date().toISOString(),
+      });
+
+      if (!retryable || attempt === this.maxAttempts) {
+        throw lastError ?? ({ status: -1, message: 'Unknown Drive error', operation } as DriveApiError);
+      }
+      await sleep(this.#backoff(attempt));
+    }
+
+    throw lastError ?? ({ status: -1, message: 'Unknown Drive error', operation } as DriveApiError);
+  }
+
+  #backoff(attempt: number): number {
+    const exp = this.baseRetryDelayMs * Math.pow(2, attempt - 1);
+    return exp + Math.floor(Math.random() * 250);
+  }
 
   private buildMultipartBody(metadata: object, content: string, boundary: string): string {
     return (
@@ -154,19 +282,11 @@ export class GoogleDriveService {
    * Returns the file's Drive resource ID, or null if not found.
    */
   async findBackupFile(): Promise<string | null> {
-    const token = await this.#authService.ensureToken();
-
-    const response = await fetch(
+    const response = await this.#driveFetch(
       `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'spenza-backup.json'&fields=files(id)&_=${Date.now()}`,
-      {
-        headers: noCacheHeaders(token),
-      }
+      (token) => ({ headers: noCacheHeaders(token) }),
+      'findBackupFile',
     );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw { status: response.status, message, operation: 'findBackupFile' } as DriveApiError;
-    }
 
     const data = await response.json();
     const files: Array<{ id: string }> = data.files ?? [];
@@ -224,19 +344,11 @@ export class GoogleDriveService {
    * BackupDocument structural validation.
    */
   async readBackupFile(fileId: string): Promise<BackupDocument> {
-    const token = await this.#authService.ensureToken();
-
-    const response = await fetch(
+    const response = await this.#driveFetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&_=${Date.now()}`,
-      {
-        headers: noCacheHeaders(token),
-      }
+      (token) => ({ headers: noCacheHeaders(token) }),
+      'readBackupFile',
     );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw { status: response.status, message, operation: 'readBackupFile' } as DriveApiError;
-    }
 
     const rawText = await response.text();
 
@@ -262,19 +374,11 @@ export class GoogleDriveService {
   }
 
   async getFileModifiedTime(fileId: string): Promise<string> {
-    const token = await this.#authService.ensureToken();
-
-    const response = await fetch(
+    const response = await this.#driveFetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime&_=${Date.now()}`,
-      {
-        headers: noCacheHeaders(token),
-      }
+      (token) => ({ headers: noCacheHeaders(token) }),
+      'getFileModifiedTime',
     );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw { status: response.status, message, operation: 'getFileModifiedTime' } as DriveApiError;
-    }
 
     const data = await response.json() as DriveFileMetadata;
     return data.modifiedTime;
@@ -581,9 +685,7 @@ export class GoogleDriveService {
   async writeBackupFile(fileId: string, document: BackupDocument): Promise<string | null> {
     document.lastUpdated = new Date().toISOString();
 
-    const token = await this.#authService.ensureToken();
     const boundary = 'spenza_boundary_001';
-
     const metadata = JSON.stringify({});
     const content = JSON.stringify(document);
 
@@ -598,22 +700,19 @@ export class GoogleDriveService {
       `${content}\r\n` +
       `--${boundary}--`;
 
-    const response = await fetch(
+    const response = await this.#driveFetch(
       `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart&fields=modifiedTime`,
-      {
+      (token) => ({
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': `multipart/related; boundary=${boundary}`,
         },
         body,
-      }
+      }),
+      'writeBackupFile',
+      false, // background sync: never pop sign-in mid-save
     );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw { status: response.status, message, operation: 'writeBackupFile' } as DriveApiError;
-    }
 
     const data = await response.json().catch(() => null) as DriveFileMetadata | null;
     return data?.modifiedTime ?? null;
@@ -763,7 +862,6 @@ export class GoogleDriveService {
     entryId: string,
     expenseDate: string,
   ): Promise<ExpenseReceipt> {
-    const token = await this.#authService.ensureToken();
     const safeName = file.name.replace(/[^\w.\- ()]/g, '_');
     const timestamp = new Date().toISOString();
     const fileName = `${expenseDate}_${entryId}_${safeName}`;
@@ -774,7 +872,7 @@ export class GoogleDriveService {
       description: `Spenza receipt for expense ${entryId}`,
     });
 
-    const body = new Blob([
+    const buildBody = () => new Blob([
       `--${boundary}\r\n`,
       'Content-Type: application/json; charset=UTF-8\r\n\r\n',
       metadata,
@@ -786,22 +884,19 @@ export class GoogleDriveService {
       `--${boundary}--`,
     ], { type: `multipart/related; boundary=${boundary}` });
 
-    const response = await fetch(
+    const response = await this.#driveFetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size',
-      {
+      (token) => ({
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': `multipart/related; boundary=${boundary}`,
         },
-        body,
-      }
+        body: buildBody(),
+      }),
+      'uploadReceiptFile',
+      false, // never pop sign-in mid-save; receipt is best-effort, expense already safe
     );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw { status: response.status, message, operation: 'uploadReceiptFile' } as DriveApiError;
-    }
 
     const data = await response.json() as {
       id: string;

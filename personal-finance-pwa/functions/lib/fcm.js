@@ -52,7 +52,7 @@ exports.registerToken = functions.onRequest({ cors: true, invoker: 'public' }, a
         res.status(401).json({ error: 'Unauthorized' });
         return;
     }
-    const { userId, fcmToken, timezone, timestamp, dailyReminderEnabled, reminderHour, reminderMinute } = req.body;
+    const { userId, fcmToken, timezone, timestamp, platform, tokenOnly, dailyReminderEnabled, reminderHour, reminderMinute, } = req.body;
     if (!userId || !fcmToken) {
         res.status(400).json({ error: 'Missing required fields', required: ['userId', 'fcmToken'] });
         return;
@@ -67,17 +67,28 @@ exports.registerToken = functions.onRequest({ cors: true, invoker: 'public' }, a
         res.status(403).json({ error: 'Forbidden: registration belongs to another account' });
         return;
     }
-    await ref.set({
+    // Always-present device-token fields. `platform` lets the reminder scheduler
+    // target web devices only (native uses local notifications).
+    const payload = {
         fcmToken,
         ownerUid: authUid,
         timezone: (0, scheduler_utils_1.resolveTimezone)(timezone),
-        enabled: true,
-        dailyReminderEnabled: dailyReminderEnabled === true,
-        reminderHour: Number.isInteger(reminderHour) ? reminderHour : null,
-        reminderMinute: Number.isInteger(reminderMinute) ? reminderMinute : null,
         registeredAt: timestamp || Date.now(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+    };
+    if (platform === 'web' || platform === 'native') {
+        payload.platform = platform;
+    }
+    // `tokenOnly` registrations (e.g. ensuring a web datetime-reminder can be
+    // delivered) must NOT opt the device into the recurring daily/hourly nudge
+    // scheduler — so we leave `enabled` and the daily-reminder fields untouched.
+    if (tokenOnly !== true) {
+        payload.enabled = true;
+        payload.dailyReminderEnabled = dailyReminderEnabled === true;
+        payload.reminderHour = Number.isInteger(reminderHour) ? reminderHour : null;
+        payload.reminderMinute = Number.isInteger(reminderMinute) ? reminderMinute : null;
+    }
+    await ref.set(payload, { merge: true });
     res.json({ success: true, message: 'Token registered successfully', userId });
 });
 exports.unregisterToken = functions.onRequest({ cors: true, invoker: 'public' }, async (req, res) => {

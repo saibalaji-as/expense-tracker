@@ -20,16 +20,19 @@ public class NotificationChannelManager {
     public static final String CHANNEL_ID_REMINDERS = "expense-reminders";
     public static final String CHANNEL_ID_BUDGET_ALERTS = "budget-alerts";
     public static final String CHANNEL_ID_SPEND_PROMPTS = "spend-prompts";
-    
+    public static final String CHANNEL_ID_STREAK = "streak-reminders";
+
     // Channel Names
     private static final String CHANNEL_NAME_REMINDERS = "Expense Reminders";
     private static final String CHANNEL_NAME_BUDGET_ALERTS = "Budget Alerts";
     private static final String CHANNEL_NAME_SPEND_PROMPTS = "Spend Prompts";
-    
+    private static final String CHANNEL_NAME_STREAK = "Daily Streak";
+
     // Channel Descriptions
     private static final String CHANNEL_DESC_REMINDERS = "Daily reminders to log your expenses";
     private static final String CHANNEL_DESC_BUDGET_ALERTS = "Alerts when you exceed budget limits";
     private static final String CHANNEL_DESC_SPEND_PROMPTS = "Prompts to log expenses detected from device notifications";
+    private static final String CHANNEL_DESC_STREAK = "Reminders to keep your daily expense-logging streak alive";
     
     /**
      * Create all notification channels
@@ -48,7 +51,9 @@ public class NotificationChannelManager {
                 createBudgetAlertsChannel(notificationManager);
 
                 createSpendPromptsChannel(notificationManager);
-                
+
+                createStreakChannel(notificationManager);
+
                 android.util.Log.d("NotificationChannelManager", "Notification channels created");
             }
         }
@@ -153,6 +158,30 @@ public class NotificationChannelManager {
         }
     }
     
+    /**
+     * Create the Daily Streak notification channel.
+     * High importance so the "keep your streak alive" reminder is visible on the lock screen.
+     */
+    private static void createStreakChannel(NotificationManager notificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID_STREAK,
+                CHANNEL_NAME_STREAK,
+                NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription(CHANNEL_DESC_STREAK);
+            channel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[]{0, 250, 200, 250});
+            channel.enableLights(true);
+            channel.setLightColor(0xFFFF7A3D); // Streak flame orange
+            channel.setShowBadge(true);
+            channel.setBypassDnd(false);
+            notificationManager.createNotificationChannel(channel);
+            android.util.Log.d("NotificationChannelManager", "Streak channel created with HIGH importance");
+        }
+    }
+
     /**
      * Get the default notification channel ID
      * Used for notifications that don't specify a channel

@@ -1649,7 +1649,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.feedback.success('Palette saved.', 'Your color palette was saved on this device.');
   }
 
-  async onStyleChange(style: AppStyle): Promise<void> {
+  async onStyleChange(style: AppStyle, event?: MouseEvent): Promise<void> {
+    // Origin the cross-fade ripple from the tapped style card.
+    if (event) {
+      document.documentElement.style.setProperty('--nav-tap-x', `${event.clientX}px`);
+      document.documentElement.style.setProperty('--nav-tap-y', `${event.clientY}px`);
+    }
     await this.themeService.setStyle(style);
     const names: Record<AppStyle, string> = { glass: 'Glassmorphism', neumorphism: 'Neumorphism', claymorphism: 'Claymorphism', neobrutalism: 'NeoBrutalism' };
     this.feedback.success('Style saved.', `Spenza now uses ${names[style]} styling.`);

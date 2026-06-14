@@ -669,17 +669,21 @@
 
   /* Light glass — translucent frosted surface over the mesh */
   :root:not([data-style]):not(.dark) .glass-card {
-    background-color: color-mix(in oklab, var(--card) 72%, transparent);
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    /* PERF: blur radius reduced (12→7) and saturate() dropped. backdrop-filter
+       re-samples everything behind the card every frame; smaller radius + one
+       function instead of two roughly halves that cost while keeping the frost. */
+    background-color: color-mix(in oklab, var(--card) 80%, transparent);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
     border: 1px solid oklch(1 0 0 / 0.55);
     box-shadow: var(--shadow-md), inset 0 1px 0 0 oklch(1 0 0 / 0.65);
   }
 
   .dark .glass-card {
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    background-color: oklch(1 0 0 / 0.04);
+    /* PERF: blur radius reduced (20→9) and saturate() dropped — see light note. */
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+    background-color: oklch(1 0 0 / 0.055);
     border: 1px solid oklch(1 0 0 / 0.10);
     box-shadow: var(--shadow-lg), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
   }
@@ -1128,40 +1132,39 @@
   --nav-tap-y: 100vh;
 }
 
-/* Outgoing page: scale down + fade */
+/* PERF: The old screen-change transition used a full-page clip-path ripple
+   (circle 0%→150%) plus filter: blur() on the captured snapshot. Both force a
+   large, un-accelerated repaint of the entire page on every navigation — on
+   Android WebView that serialized into a multi-hundred-ms stall before the new
+   screen appeared. Replaced with an opacity-only crossfade, which the
+   compositor handles on the GPU in a single layer. ~130ms reads as "instant"
+   while still feeling smooth. Tap-origin vars (--nav-tap-*) are kept harmless
+   for any code still setting them, but no longer drive a layout-bound clip. */
+
+/* Outgoing page: quick fade */
 @keyframes vt-fade-scale-out {
-  to {
-    opacity: 0;
-    transform: scale(0.97) translateY(-6px);
-    filter: blur(2px);
-  }
+  to { opacity: 0; }
 }
 
-/* Incoming page: circular ripple expand from tap origin */
+/* Incoming page: quick fade in */
 @keyframes vt-wave-in {
-  from {
-    clip-path: circle(0% at var(--nav-tap-x) var(--nav-tap-y));
-    opacity: 0.6;
-  }
-  to {
-    clip-path: circle(150% at var(--nav-tap-x) var(--nav-tap-y));
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-/* Fallback for browsers without View Transitions — plain slide-up */
+/* Fallback for browsers without View Transitions — plain fade */
 @keyframes vt-slide-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   ::view-transition-old(root) {
-    animation: 280ms cubic-bezier(0.4, 0, 1, 1) both vt-fade-scale-out;
+    animation: 110ms ease both vt-fade-scale-out;
   }
 
   ::view-transition-new(root) {
-    animation: 520ms cubic-bezier(0.16, 1, 0.3, 1) both vt-wave-in;
+    animation: 130ms ease both vt-wave-in;
   }
 }
 
@@ -1200,29 +1203,25 @@ body {
   isolation: isolate;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  body::before {
-    content: '';
-    position: fixed;
-    inset: -22%;
-    z-index: -1;
-    pointer-events: none;
-    background-image: var(--gradient-mesh);
-    background-size: cover;
-    animation: aurora-drift 48s ease-in-out infinite alternate;
-    will-change: transform;
-  }
-
-  /* Mesh now lives on the animated layer */
-  body {
-    background-image: none;
-  }
+/* PERF: The aurora mesh previously ran an infinite `aurora-drift` animation on
+   an oversized (inset: -22%, scale up to 1.06) fixed layer with
+   `will-change: transform`. That permanently pinned a large GPU compositor
+   layer that re-rasterized every frame, forever — starving the compositor so
+   that taps, dialogs, and screen changes couldn't hit their frame budget. The
+   mesh is now a static background: the exact same look, zero ongoing GPU cost. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--gradient-mesh);
+  background-size: cover;
 }
 
-@keyframes aurora-drift {
-  0%   { transform: translate3d(-2.5%, -1.5%, 0) scale(1) rotate(0.001deg); }
-  50%  { transform: translate3d(2%, 2.5%, 0) scale(1.06) rotate(0.001deg); }
-  100% { transform: translate3d(-1.5%, 1%, 0) scale(1.03) rotate(0.001deg); }
+/* Mesh lives on the static ::before layer */
+body {
+  background-image: none;
 }
 
 /* Glass cards lift gently on pointer hover */
@@ -1326,4 +1325,231 @@ body {
   app-button button {
     transform: none !important;
   }
+}
+
+/* ============================================
+   SETTINGS — Design Style live mini-previews
+   Each .sp-* variant renders a self-contained
+   approximation of that style so users can see
+   it before switching, using the *current*
+   palette (--primary / --primary-glow) so the
+   preview always matches the active colors.
+   ============================================ */
+.style-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  padding: 0.625rem;
+  min-height: 5.5rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.sp-mini-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.625rem;
+}
+
+.sp-dot {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background-image: linear-gradient(135deg, var(--primary), var(--primary-glow));
+}
+
+.sp-bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sp-bar {
+  height: 0.3rem;
+  border-radius: 999px;
+  background-color: color-mix(in oklab, var(--card-foreground) 18%, transparent);
+}
+
+.sp-bar--short {
+  width: 60%;
+}
+
+.sp-chip {
+  align-self: flex-start;
+  width: 2.25rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background-image: linear-gradient(135deg, var(--primary), var(--primary-glow));
+}
+
+/* ── Glassmorphism preview — frosted card over aurora mesh ── */
+.sp-glass {
+  background-image:
+    radial-gradient(at 15% 10%, color-mix(in oklab, var(--primary) 35%, transparent) 0%, transparent 55%),
+    radial-gradient(at 85% 85%, color-mix(in oklab, var(--primary-glow) 30%, transparent) 0%, transparent 55%),
+    linear-gradient(135deg, color-mix(in oklab, var(--primary) 10%, oklch(0.9 0 0)), color-mix(in oklab, var(--primary-glow) 8%, oklch(0.96 0 0)));
+}
+.sp-glass .sp-mini-card {
+  background-color: oklch(1 0 0 / 0.35);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  border: 1px solid oklch(1 0 0 / 0.6);
+  box-shadow: 0 6px 16px -6px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+.sp-glass .sp-bar {
+  background-color: oklch(0.25 0.04 265 / 0.30);
+}
+
+/* ── Neumorphism preview — soft extruded pillow ── */
+.sp-neumorphism {
+  background-color: color-mix(in oklab, var(--primary) 6%, oklch(0.93 0 0));
+}
+.sp-neumorphism .sp-mini-card {
+  background-color: color-mix(in oklab, var(--primary) 4%, oklch(0.96 0 0));
+  box-shadow:
+    3px 3px 6px color-mix(in oklab, var(--primary) 16%, oklch(0.35 0.02 270) / 0.18),
+    -3px -3px 6px oklch(1 0 0 / 0.8);
+}
+.sp-neumorphism .sp-chip {
+  border-radius: 999px;
+  box-shadow: inset 1px 1px 2px oklch(0 0 0 / 0.12), inset -1px -1px 2px oklch(1 0 0 / 0.6);
+}
+
+/* ── Claymorphism preview — puffy candy card ── */
+.sp-claymorphism {
+  background-image: linear-gradient(135deg, color-mix(in oklab, var(--primary) 14%, oklch(0.97 0 0)), color-mix(in oklab, var(--primary-glow) 10%, oklch(0.99 0 0)));
+}
+.sp-claymorphism .sp-mini-card {
+  background-color: oklch(1 0 0);
+  border-bottom: 3px solid color-mix(in oklab, var(--primary) 35%, oklch(0.82 0.01 270));
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 10px -3px color-mix(in oklab, var(--primary) 30%, transparent);
+}
+.sp-claymorphism .sp-chip {
+  border-radius: 999px;
+  border-bottom: 2px solid color-mix(in oklab, var(--primary) 45%, oklch(0.3 0.02 270));
+}
+
+/* ── NeoBrutalism preview — flat poster with hard shadow ── */
+.sp-neobrutalism {
+  background-color: color-mix(in oklab, var(--primary) 5%, oklch(0.955 0.012 90));
+  border-radius: 0.75rem;
+}
+.sp-neobrutalism .sp-mini-card {
+  background-color: oklch(1 0 0);
+  border: 2px solid color-mix(in oklab, var(--primary) 70%, oklch(0.17 0.03 265));
+  border-radius: 0.25rem;
+  box-shadow: 3px 3px 0 0 color-mix(in oklab, var(--primary) 70%, oklch(0.17 0.03 265));
+}
+.sp-neobrutalism .sp-dot {
+  border-radius: 0.2rem;
+  background-image: none;
+  background-color: var(--primary);
+}
+.sp-neobrutalism .sp-chip {
+  border-radius: 0.2rem;
+  background-image: none;
+  background-color: var(--primary);
+  border: 2px solid color-mix(in oklab, var(--primary) 70%, oklch(0.17 0.03 265));
+}
+
+/* Dark mode: keep previews legible — lift card surfaces off dark bases */
+.dark .sp-glass .sp-mini-card {
+  background-color: oklch(1 0 0 / 0.08);
+  border-color: oklch(1 0 0 / 0.16);
+}
+.dark .sp-glass .sp-bar,
+.dark .sp-neumorphism .sp-bar,
+.dark .sp-claymorphism .sp-bar,
+.dark .sp-neobrutalism .sp-bar {
+  background-color: color-mix(in oklab, var(--card-foreground) 24%, transparent);
+}
+.dark .sp-neumorphism {
+  background-color: color-mix(in oklab, var(--primary) 7%, oklch(0.20 0 0));
+}
+.dark .sp-neumorphism .sp-mini-card {
+  background-color: color-mix(in oklab, var(--primary) 6%, oklch(0.24 0 0));
+  box-shadow: 3px 3px 6px oklch(0 0 0 / 0.35), -3px -3px 6px oklch(1 0 0 / 0.05);
+}
+.dark .sp-neumorphism .sp-chip {
+  box-shadow: inset 1px 1px 2px oklch(0 0 0 / 0.3), inset -1px -1px 2px oklch(1 0 0 / 0.06);
+}
+.dark .sp-claymorphism {
+  background-image: linear-gradient(135deg, color-mix(in oklab, var(--primary) 16%, oklch(0.18 0 0)), color-mix(in oklab, var(--primary-glow) 10%, oklch(0.22 0 0)));
+}
+.dark .sp-claymorphism .sp-mini-card {
+  background-color: oklch(0.24 0 0);
+}
+.dark .sp-neobrutalism {
+  background-color: color-mix(in oklab, var(--primary) 6%, oklch(0.16 0.01 265));
+}
+.dark .sp-neobrutalism .sp-mini-card {
+  background-color: oklch(0.22 0.01 265);
+  border-color: color-mix(in oklab, var(--primary) 70%, oklch(1 0 0));
+  box-shadow: 3px 3px 0 0 color-mix(in oklab, var(--primary) 70%, oklch(1 0 0));
+}
+.dark .sp-neobrutalism .sp-chip,
+.dark .sp-neobrutalism .sp-dot {
+  border-color: color-mix(in oklab, var(--primary) 70%, oklch(1 0 0));
+}
+
+/* ── Responsive: tighter previews on very small phones ── */
+@media (max-width: 380px) {
+  .style-preview {
+    min-height: 4.75rem;
+    padding: 0.5rem;
+  }
+  .sp-mini-card {
+    padding: 0.4rem 0.5rem;
+  }
+}
+
+/* ============================================================================
+   NATIVE (Android WebView) PERFORMANCE OVERRIDES
+   Set via `html.platform-native` from main.ts before bootstrap.
+
+   backdrop-filter is the single most expensive operation in the Android
+   WebView: every blurred element copies and re-blurs the pixels behind it
+   before the screen can paint, and the cost multiplies per element. With a
+   blurred header + several glass cards per screen, this dominated the
+   "screen takes ~2s to change" stall. On native we drop blur entirely and
+   make translucent surfaces opaque so text stays legible. The web build is
+   untouched and keeps the full frosted-glass look.
+   ============================================================================ */
+
+html.platform-native *,
+html.platform-native *::before,
+html.platform-native *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Cards/surfaces were translucent because blur supplied the legibility.
+   With blur gone, make them solid so nothing washes out over the mesh. */
+html.platform-native .glass-card,
+html.platform-native .dark .glass-card,
+html.platform-native :root:not([data-style]):not(.dark) .glass-card {
+  background-color: var(--card) !important;
+}
+
+/* Sticky top/bottom chrome: opaque instead of translucent-blurred. */
+html.platform-native .bg-background\/70,
+html.platform-native .bg-background\/75 {
+  background-color: var(--background) !important;
+}
+html.platform-native .bg-card\/60,
+html.platform-native .bg-card\/70,
+html.platform-native .bg-card\/80 {
+  background-color: var(--card) !important;
+}
+
+/* The mesh gradient still paints fine as a static layer, but keep it cheap:
+   no fixed attachment work and no oversized layer. */
+html.platform-native body::before {
+  background-attachment: scroll;
 }

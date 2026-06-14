@@ -79,6 +79,8 @@ export class AuthService {
   readonly displayName = computed(() => this.userEmail()?.split('@')[0] ?? null);
 
   #accessToken: string | null = null;
+  /** Absolute epoch-ms expiry of #accessToken, so we can refresh silently *before* a 401. */
+  #accessTokenExpiresAt: number | null = null;
   #firebaseAuth: Auth | null = null;
 
   /**
@@ -181,14 +183,23 @@ export class AuthService {
       const expiresAt = parseInt(expiresAtStr, 10);
       if (Number.isFinite(expiresAt) && Date.now() < expiresAt - TOKEN_EXPIRY_BUFFER_MS) {
         this.#accessToken = storedToken;
+        this.#accessTokenExpiresAt = expiresAt;
       }
     }
+  }
+
+  /** True when we hold an access token that is still comfortably within its lifetime. */
+  #hasValidCachedToken(): boolean {
+    if (!this.#accessToken) return false;
+    if (this.#accessTokenExpiresAt === null) return true; // expiry unknown — assume valid, 401 path will catch it
+    return Date.now() < this.#accessTokenExpiresAt - TOKEN_EXPIRY_BUFFER_MS;
   }
 
   /** Persists the short-lived access token + absolute expiry for session restore. */
   async #persistAccessToken(token: string, expiresInSeconds?: number | string): Promise<void> {
     const seconds = Number(expiresInSeconds);
     const expiresAt = Date.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 3300) * 1000;
+    this.#accessTokenExpiresAt = expiresAt;
     await Promise.all([
       this.storageService.set(ACCESS_TOKEN_KEY, token),
       this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, String(expiresAt)),
@@ -269,9 +280,79 @@ export class AuthService {
   /** Discards the in-memory + persisted access token so the next ensureToken() call fetches a fresh one. */
   clearToken(): void {
     this.#accessToken = null;
+    this.#accessTokenExpiresAt = null;
     this.#tokenRequestPromise = null;
     void this.storageService.remove(ACCESS_TOKEN_KEY);
     void this.storageService.remove(ACCESS_TOKEN_EXPIRES_AT_KEY);
+  }
+
+  /**
+   * Returns a valid access token WITHOUT ever showing interactive UI, or null.
+   * Used by background sync so a slow/expired token never pops a sign-in dialog
+   * mid-save. Web: attempts a silent GSI token request when the cached token is
+   * stale. Native: returns the cached token only (the plugin cannot refresh
+   * without UI) — callers keep the data dirty locally and retry later.
+   */
+  async getTokenSilent(): Promise<string | null> {
+    if (this.#hasValidCachedToken()) return this.#accessToken;
+    if (this.#isNative) return null;
+    return this.#webSilentToken();
+  }
+
+  /**
+   * Forces a fresh silent token (web only), bypassing the in-memory cache.
+   * Returns the new token or null on any failure. Never shows UI.
+   */
+  async refreshTokenSilently(): Promise<string | null> {
+    if (this.#isNative) return this.#hasValidCachedToken() ? this.#accessToken : null;
+    return this.#webSilentToken();
+  }
+
+  /**
+   * Performs a silent web token request (no account chooser). Resolves to a
+   * token on success or null on any error — never rejects, so background retry
+   * loops can treat null as "try again later".
+   */
+  #webSilentToken(): Promise<string | null> {
+    return waitForGsiScript()
+      .then(
+        () =>
+          new Promise<string | null>((resolve) => {
+            let settled = false;
+            const finish = (value: string | null) => {
+              if (settled) return;
+              settled = true;
+              resolve(value);
+            };
+            try {
+              const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: ALL_SCOPES,
+                prompt: '',
+                callback: (response: any) => {
+                  if (response.error || !grantedScopesIncludeDrive(response.scope) || !response.access_token) {
+                    finish(null);
+                    return;
+                  }
+                  this.#accessToken = response.access_token;
+                  this.isAuthenticated.set(true);
+                  void this.storageService.set('gapi_auth_state', '1');
+                  void this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+                  void this.#persistAccessToken(response.access_token, response.expires_in);
+                  finish(response.access_token);
+                },
+                error_callback: () => finish(null),
+              });
+              tokenClient.requestAccessToken({ prompt: '' });
+              // Safety net: if GSI never calls back (e.g., no Google session in the
+              // webview), don't hang the sync queue forever.
+              setTimeout(() => finish(null), 8000);
+            } catch {
+              finish(null);
+            }
+          })
+      )
+      .catch(() => null);
   }
 
   getAccessToken(): string | null {
@@ -465,12 +546,14 @@ export class AuthService {
     // a token without drive.appdata 403s on every Drive call and re-triggers sign-in forever.
     await this.#assertDriveScopeGranted(token);
 
+    const nativeExpiresAt = this.#nativeTokenExpiresAt(googleResult.accessToken);
     this.#accessToken = token;
+    this.#accessTokenExpiresAt = Number(nativeExpiresAt);
     this.isAuthenticated.set(true);
     await this.storageService.set('gapi_auth_state', '1');
     await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
     await this.storageService.set(ACCESS_TOKEN_KEY, token);
-    await this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, this.#nativeTokenExpiresAt(googleResult.accessToken));
+    await this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, nativeExpiresAt);
 
     const email = googleResult.profile?.email ?? null;
     if (email) {

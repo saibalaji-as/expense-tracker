@@ -284,6 +284,13 @@ export const ExpenseStore = signalStore(
     let persistedRevision = 0;
     let persistQueue = Promise.resolve();
     let syncDriveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    // Background retry for a dirty local snapshot that could not reach Drive yet
+    // (offline / token not ready / Drive 5xx). The local copy is already safe;
+    // this only keeps trying to sync it up. Backoff grows with consecutive failures.
+    let backgroundFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let backgroundFlushAttempts = 0;
+    const BG_FLUSH_BASE_MS = 5000;
+    const BG_FLUSH_MAX_MS = 5 * 60 * 1000;
     let applyingRemote = false;
     let lastAppliedRemoteAt = '';
     // Tracks entry IDs deleted in this session so tombstones propagate to the partner via Firestore.
@@ -808,12 +815,43 @@ export const ExpenseStore = signalStore(
       })();
     };
 
+    /**
+     * Records a local change and pushes it toward Drive. The in-memory store and
+     * the dirty local snapshot are the source of truth and are written FIRST
+     * (inside persistToDrive, before the network call), so the user's data is
+     * already durable here. A Drive failure is NOT thrown — it is retried in the
+     * background. We never tell the user "not saved" for data we have kept.
+     */
     const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
       await methods.persistToDrive();
       pushFamilyState();
-      if (store.syncStatus() === 'error') {
-        throw new Error('Your changes could not be saved to Google Drive. Check your connection and Drive access, then try again.');
+    };
+
+    /**
+     * Schedules a background attempt to flush the dirty local snapshot to Drive.
+     * Used after a transient/offline failure so locally-saved data eventually
+     * syncs without any user action. Exponential backoff, capped.
+     */
+    const scheduleBackgroundFlush = (): void => {
+      if (backgroundFlushTimer !== null) return; // one timer at a time
+      const delay = Math.min(BG_FLUSH_BASE_MS * Math.pow(2, backgroundFlushAttempts), BG_FLUSH_MAX_MS);
+      backgroundFlushTimer = setTimeout(() => {
+        backgroundFlushTimer = null;
+        // Only retry if there is still unsynced local work.
+        if (localRevision !== persistedRevision || store.syncStatus() !== 'idle') {
+          backgroundFlushAttempts += 1;
+          void methods.persistToDrive();
+        }
+      }, delay);
+    };
+
+    /** Cancels any pending background flush and resets backoff (a sync succeeded). */
+    const onSyncSucceeded = (): void => {
+      backgroundFlushAttempts = 0;
+      if (backgroundFlushTimer !== null) {
+        clearTimeout(backgroundFlushTimer);
+        backgroundFlushTimer = null;
       }
     };
 
@@ -956,6 +994,12 @@ export const ExpenseStore = signalStore(
         void flushPendingWidgetExpenses().catch((err) => {
           if (isDevMode()) { console.warn('[ExpenseStore] Background widget queue flush failed:', err); }
         });
+        // If the snapshot has unsynced local changes (saved while offline / token
+        // expired on a previous run), push them to Drive now in the background.
+        // Uses the silent token path, so it never pops a sign-in dialog at startup.
+        if (snapshot.dirty) {
+          void methods.persistToDrive();
+        }
         return true;
       },
 
@@ -1739,17 +1783,35 @@ export const ExpenseStore = signalStore(
           try {
             const revisionBeingPersisted = localRevision;
             const doc = buildBackupDocument();
+            // Durable-first: write the local snapshot (dirty) BEFORE the network
+            // call. If everything below fails, the user's data still survives here.
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), true);
             const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
             persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
             patchState(store, {
               lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
               syncStatus: 'idle',
+              isOffline: false,
             });
+            // Snapshot is now in sync with Drive — clear the dirty flag.
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), false);
+            onSyncSucceeded();
           } catch (err) {
-            patchState(store, { syncStatus: 'error' });
-            driveError$.next(err as DriveApiError | DriveParseError);
+            const status = (err as DriveApiError)?.status;
+            const transient = status === 0 || status === 408 || status === 429 ||
+              (typeof status === 'number' && status >= 500);
+            if (transient) {
+              // Offline / Drive hiccup: the dirty snapshot is safe on disk. Keep
+              // showing "syncing", do NOT raise a destructive error, and retry in
+              // the background until the system is ready.
+              patchState(store, { syncStatus: 'syncing', isOffline: status === 0 });
+              scheduleBackgroundFlush();
+            } else {
+              // Auth / permission / not-found: a retry won't help — surface it so
+              // the user can re-authenticate or fix sharing. Data stays dirty locally.
+              patchState(store, { syncStatus: 'error' });
+              driveError$.next(err as DriveApiError | DriveParseError);
+            }
           }
         });
 
@@ -1785,6 +1847,27 @@ export const ExpenseStore = signalStore(
 
       pushFamilyStateNow(): void {
         pushFamilyState();
+      },
+
+      /**
+       * Immediately attempts to flush any unsynced local changes to Drive.
+       * Call this when the system becomes ready again (network back online, app
+       * regains focus). Resets the background backoff so the retry is prompt.
+       * No-op when everything is already in sync.
+       */
+      flushPendingChanges(): void {
+        if (localRevision === persistedRevision && store.syncStatus() === 'idle') return;
+        backgroundFlushAttempts = 0;
+        if (backgroundFlushTimer !== null) {
+          clearTimeout(backgroundFlushTimer);
+          backgroundFlushTimer = null;
+        }
+        void methods.persistToDrive();
+      },
+
+      /** True when there are local changes not yet confirmed saved to Drive. */
+      hasUnsyncedChanges(): boolean {
+        return localRevision !== persistedRevision;
       },
 
     };

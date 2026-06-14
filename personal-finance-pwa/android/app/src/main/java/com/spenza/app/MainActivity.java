@@ -16,10 +16,16 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SpendNotificationAccessPlugin.class);
         registerPlugin(ExpenseWidgetPlugin.class);
+        registerPlugin(StreakWidgetPlugin.class);
         super.onCreate(savedInstanceState);
-        
+
         // Initialize notification channels for reliable delivery
         NotificationChannelManager.createNotificationChannels(this);
+
+        // Keep the daily streak reminder armed while the streak widget is in use.
+        if (StreakReminderScheduler.hasStreakWidget(this)) {
+            StreakReminderScheduler.scheduleDailyStreakReminder(this);
+        }
         
         // Optimize WebView performance
         optimizeWebView();

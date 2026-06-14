@@ -1,5 +1,40 @@
 # Task History
 
+## 2026-06-13 - Widget palette + surface-style theming (glass/neu/clay/neobrutal)
+
+### What was changed
+- Widgets previously only adapted light/dark and used hardcoded violet tokens — they ignored the app's `pf-palette` (violet/rose/azure/emerald/amber) and `pf-style` (glass/neobrutalism/neumorphism/claymorphism) from `ThemeService`. Now both widgets read those keys from `CapacitorStorage` and render a matching body.
+- **NEW `WidgetSurface.java`**: software-Canvas renderer that draws the widget body as a Bitmap for each of the 4 styles in the chosen palette + light/dark — glass (translucent gradient + hairline highlight + soft palette glow), neumorphism (rounded surface fill + dual blurred light/dark shadows), claymorphism (pastel radial wash + soft drop shadow + top lip), neobrutalism (flat card + thick ink border + hard offset shadow + palette top bar). Needed because RemoteViews XML drawables can't do blur or per-palette gradients.
+- **NEW `WidgetTheme.java`**: reads `pf-palette`/`pf-style`, resolves palette primary/glow via new color resources (so light/dark is handled by resource qualifiers), determines dark via `Configuration.uiMode`, sizes the bitmap from widget options (capped to 400px longest side for the Binder limit), and pushes it via `setImageViewBitmap`. Exposes `primaryColor()` + `ctaDrawable()` for accents.
+- **Layouts**: all 4 widget layouts (`streak_widget`, `streak_widget_compact`, `expense_widget`, `expense_widget_quick`) wrapped in a `FrameLayout` with a full-bleed `@id/widget_surface` ImageView (scaleType fitXY) behind transparent content; the FrameLayout keeps `expense_widget_background` as a static fallback. Added ids `streak_title`, `expense_widget_brand`.
+- **Providers**: both `StreakWidgetProvider` and `ExpenseWidgetProvider` call `WidgetTheme.applySurface()` + recolor the title (palette primary) and CTA/brand badge (per-palette gradient drawable `widget_primary_grad_<palette>`).
+- **Resources**: 10 palette color entries in light + `values-night/colors.xml`; 5 `widget_primary_grad_*` gradient drawables.
+
+### Why these decisions were made
+- Bitmap rendering over static drawables: 5 palettes × 4 styles × light/dark would be ~40 drawables, and neu/clay REQUIRE blurred shadows that shape XML cannot produce. One Canvas renderer covers all combinations and reads the exact app palette.
+- Glass keeps the opaque fallback background behind it (frosted panel over the app gradient) rather than true wallpaper bleed — widgets can't do real backdrop blur, and this keeps text legible on any wallpaper.
+
+### Verification
+- Manual sweep: 4 layouts balance (FrameLayout/ImageView/content), palette colors present in both colors files, all R refs resolve, `pf-palette`/`pf-style` confirmed stored raw in `CapacitorStorage` by `StorageService`. **Gradle build NOT run** (no Android SDK in sandbox) — build locally; check `setImageViewBitmap` size on a real device.
+
+## 2026-06-13 - Native Android Daily Streak Widget (Duolingo-style) + Expense Widget Restyle
+
+### What was changed
+- **NEW `StreakCalculator.java`**: Pure local logic. Streak rule = a day counts if ≥1 expense is logged on that local date (chosen over "stay under daily budget" / "log-or-open"). Reads logged dates from `spenza_drive_backup_snapshot_v1` (`doc.expenses[].date`) + current-account `spenza_widget_expense_queue_v1` entries (email-scoped, same filter as `DailyInsight`). Computes `currentStreak` (walks back from today if logged, else yesterday — so streak stays "alive" until midnight), `longestStreak` (max run; also persisted as `spenza_streak_best_v1`), `last7[]`, and a 3-way `state` (ACTIVE / AT_RISK / BROKEN).
+- **NEW `StreakWidgetProvider.java`** + layouts `streak_widget.xml` (full: brand header, flame badge + count, reaction message, last-7-day dots, CTA) and `streak_widget_compact.xml` (short height, < 130dp). State drives flame icon (`ic_widget_flame` vs `ic_widget_flame_off`), badge bg, count/status colors, and message copy. Tapping opens `MainActivity` (per user choice). `xml/streak_widget_info.xml` registers it (4x3 target, resizable).
+- **NEW `StreakReminderScheduler.java` + `StreakReminderReceiver.java`**: AlarmManager fires daily at **20:00**; if `!todayComplete` posts a "keep your streak alive 🔥" notification on a new `streak-reminders` channel (`NotificationChannelManager`). Message varies by streak>0 (at-risk) vs 0 (start). Re-arms next day + repaints widget. Scheduled from provider `onEnabled`/`onUpdate`, `MainActivity.onCreate`, and `BootReceiver` — all guarded on `hasStreakWidget()`; cancelled in provider `onDisabled`. Falls back to inexact alarm on `SecurityException` (Android 12+ exact-alarm).
+- **NEW `StreakWidgetPlugin.java`** (registered in `MainActivity`): `refresh/isAdded/isSupported/requestPin`, mirrors `ExpenseWidgetPlugin`. Refresh is also automatic: `ExpenseWidgetProvider.updateAll()` now also calls `StreakWidgetProvider.updateAll()`, so existing `ExpenseWidgetPlugin.refresh()` on snapshot writes keeps the streak widget current with no Angular change.
+- **Expense widget restyle**: `expense_widget.xml` header gained the shared brand-badge lockup (`widget_brand_badge` + `ic_widget_spark`) and matched subtitle type, so both widgets read as one family.
+- **Resources**: 10 new flame/streak color tokens in light + `values-night/colors.xml`; vector icons `ic_widget_flame` (aapt gradient, OK since minSdk=24), `ic_widget_flame_off`, `ic_widget_spark`; badge/dot/pill/CTA drawables; streak widget strings. Manifest: `StreakWidgetProvider` + `StreakReminderReceiver`.
+
+### Why these decisions were made
+- Feature kept standalone/removable like the expense widget (own provider + manifest receiver; reminder cancels on `onDisabled`) per Native Android Widget Rules.
+- Streak reminder posts the notification directly in the receiver (NotificationCompat) rather than relying on Capacitor LocalNotifications, since it must fire when the app process is closed.
+- Reminder tied to widget presence so users who never add the widget aren't notified.
+
+### Verification
+- Manual reference sweep: all `R.id/drawable/layout/color/string/mipmap/xml` refs in new Java resolve to created resources; both colors files carry all 10 tokens; widget ids match layouts. **Gradle build NOT run** (no Android SDK in agent sandbox) — run `./gradlew :app:assembleDebug` locally before shipping.
+
 ## 2026-06-12 - Reminders Fix (Missing Firestore Rules) + Google Maps Location Picker
 
 ### What was changed
@@ -2472,3 +2507,18 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
 - Verification: `npx tsc --noEmit` clean; `ng build --configuration development` succeeds (built to /tmp due to sandbox EPERM on dist/).
 - Follow-up (same day): fixed invisible header logo — `SpenzaLogoComponent` SVG defs used static ids while the logo renders twice (desktop + mobile headers); url(#id) resolved to the copy inside the display:none header, so gradients/filters didn't paint. Ids are now per-instance (`uid` counter + `ref()` helper, [attr.*] bindings).
 - Follow-up: removed `<app-theme-toggle />` from both headers per user request — theme is changed in Settings (theme/palette/style pickers already exist there). ThemeToggleComponent no longer imported by app-shell; component file itself left in place.
+
+## 2026-06-14 — Reminder flow loophole fixes (save button + map picker)
+- Issue 1 (Save button never enabled): `canSave` in `reminder-form.component.ts` was a `computed()` that read reactive-form `.value` (not a signal). For the `datetime` branch it had ZERO signal dependencies, so it memoized `false` at construction and never recomputed when title/remindAt changed → submit stayed disabled forever. Fix: mirror the form via `toSignal(form.valueChanges)` + `toSignal(form.statusChanges)` and drive `canSave` off those signals.
+- Issue 2 (Map not rendering despite GOOGLE_MAPS_API_KEY secret): the real prod blocker was CSP. `firebase.json` `script-src` did not allow `maps.googleapis.com`/`maps.gstatic.com`, so the Maps JS loader script was blocked → `GoogleMapsLoaderService.load()` onerror → `mapsAvailable=false` → map hidden. Fix: added `maps.googleapis.com maps.gstatic.com` to `script-src`. (img/connect already allowed via `*.googleapis.com`/`*.gstatic.com`.)
+- Remaining non-code prerequisites for the map: (a) Maps JavaScript API must be enabled on the GCP key; (b) HTTP-referrer allowlist must include actual origins — prod `https://spenza-finance.web.app/*`, capacitor `https://localhost/*`, AND web dev `http://localhost:4200/*`; (c) localhost dev still shows placeholder (key injected only at deploy) so map is hidden locally by design.
+- Known broader loophole (not fixed, flagged): web datetime reminders never fire a notification — `scheduleNotification` only schedules when `Capacitor.isNativePlatform()`; on web the reminder just gets marked `expired`. Location reminders are foreground-only and native-only (resume-based geofence check), fire once (`notifiedAt`), no recurrence.
+- Verified: `npx tsc --noEmit -p tsconfig.app.json` exit 0; firebase.json valid JSON. Build/deploy of CSP rule pending (hosting redeploy).
+
+## 2026-06-14 — Server-side delivery for datetime reminders (cross-device, no open tab)
+- New scheduled fn `sendDueReminders` (`functions/src/send-due-reminders.ts`, every 1 min): collectionGroup('reminders') where type=datetime, status=active, notifiedAt=null, remindAt<=now → for each, resolves the owner's WEB fcm tokens (`users` where ownerUid==uid && platform=='web'), claims delivery atomically via a transaction stamping `notifiedAt`, then `sendEachForMulticast`. Prunes dead tokens. Pushes to WEB tokens only so native (which uses local OS notifications) isn't double-notified. Exported in `index.ts`.
+- Token registry decoupling: `fcm.ts registerToken` now stores `platform` ('web'|'native') and supports `tokenOnly:true` — a tokenOnly registration updates fcmToken/ownerUid/platform/timezone only and does NOT write `enabled`/daily fields, so registering a device for datetime push never opts it into the legacy hourly nudge (`sendReminders` else-branch fires hourly 08–22 for any enabled doc without dailyReminderEnabled). Existing settings `enable()`/`syncDailyReminder()` paths unchanged (tokenOnly omitted ⇒ old behavior).
+- Client: `fcm.service.registerForNotifications(..., options?)` now sends `platform` always + `tokenOnly` when set. `NotificationService.ensurePushRegistered()` (web-only, tokenOnly) registers the device token. `ReminderService` injects NotificationService and calls it on datetime create/update (web, best-effort). Added `EXPIRY_GRACE_MS = 3min`: `markExpiredDatetimeReminders` now expires only reminders older than now−grace so the 1-min server scheduler can claim+deliver before the client marks expired.
+- Firestore: new `firestore.indexes.json` (collectionGroup reminders [type,status,notifiedAt,remindAt]; users [ownerUid,platform]) referenced from firebase.json.
+- Verified: functions `tsc` exit 0; app `tsc --noEmit -p tsconfig.app.json` exit 0; notification.service spec green. Pre-existing unrelated red: fcm.service.spec inline-mirror asserts stale `/.netlify/functions/registerToken` URL (migration leftover, not my code).
+- PENDING DEPLOY: `firebase deploy --only functions:sendDueReminders,functions:registerToken,firestore:indexes,firestore:rules` (indexes must build before the fn query works; rules still pending from prior session). Web users must have granted notification permission for a token to exist.

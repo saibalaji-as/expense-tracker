@@ -11,6 +11,7 @@ import { BackupModeService } from './core/services/backup-mode.service';
 import { SubscriptionService } from './core/services/subscription.service';
 import { FamilySyncService } from './core/services/family-sync.service';
 import { DriveApiError, DriveParseError } from './core/services/google-drive.service';
+import { SyncDiagnosticsService } from './core/services/sync-diagnostics.service';
 import { shouldRedirectToIncomeSetup } from './core/guards/setup-income-gate';
 import { Capacitor } from '@capacitor/core';
 
@@ -32,6 +33,7 @@ export class App implements OnInit, OnDestroy {
   private readonly backupModeService = inject(BackupModeService);
   private readonly subscriptionService = inject(SubscriptionService);
   private readonly familySyncService = inject(FamilySyncService);
+  private readonly syncDiagnostics = inject(SyncDiagnosticsService);
   private readonly router = inject(Router);
 
   readonly isLoading = signal(true);
@@ -363,19 +365,28 @@ export class App implements OnInit, OnDestroy {
 
   private readonly visibilityHandler = () => {
     if (document.visibilityState === 'visible') {
+      this.expenseStore.flushPendingChanges();
       void this.refreshBackupIfChanged();
       this.tryStartFamilySync();
     }
   };
 
   private readonly focusHandler = () => {
+    this.expenseStore.flushPendingChanges();
     void this.refreshBackupIfChanged();
     this.tryStartFamilySync();
   };
 
   private readonly resumeHandler = () => {
+    this.expenseStore.flushPendingChanges();
     void this.refreshBackupIfChanged();
     this.tryStartFamilySync();
+  };
+
+  /** Network came back — immediately push any locally-saved-but-unsynced changes. */
+  private readonly onlineHandler = () => {
+    this.expenseStore.flushPendingChanges();
+    void this.refreshBackupIfChanged();
   };
 
   async #setupReminderNotificationTap(): Promise<void> {
@@ -425,6 +436,9 @@ export class App implements OnInit, OnDestroy {
     // Start timeout timer
     this.startLoadingTimeout();
 
+    // Record Drive sync failures for diagnosis (fire-and-forget; never blocks startup).
+    void this.syncDiagnostics.init();
+
     // Forward Drive errors to the toast notification mechanism
     this.driveErrorSubscription = driveError$.subscribe((err) => {
       const driveErr = err as DriveApiError;
@@ -469,6 +483,7 @@ export class App implements OnInit, OnDestroy {
 
     document.addEventListener('visibilitychange', this.visibilityHandler);
     window.addEventListener('focus', this.focusHandler);
+    window.addEventListener('online', this.onlineHandler);
     // Capacitor fires 'resume' on the document when the native app returns to foreground.
     // This is more reliable than visibilitychange on Android/iOS after long background sessions.
     document.addEventListener('resume', this.resumeHandler);
@@ -498,6 +513,7 @@ export class App implements OnInit, OnDestroy {
     this.routeScrollSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.visibilityHandler);
     window.removeEventListener('focus', this.focusHandler);
+    window.removeEventListener('online', this.onlineHandler);
     document.removeEventListener('resume', this.resumeHandler);
   }
 

@@ -32,4 +32,28 @@
     <color name="spenza_credit_soft">#D6F7F0</color>
     <color name="spenza_trend_bg">#DDF7EE</color>
     <color name="spenza_progress_track">#D8E4EA</color>
+
+    <!-- Spenza streak widget colors (Duolingo-style flame), matched to PWA light tokens -->
+    <color name="spenza_flame_start">#FFB23E</color>
+    <color name="spenza_flame_mid">#FF7A3D</color>
+    <color name="spenza_flame_end">#F5454E</color>
+    <color name="spenza_flame_soft">#FFEAD6</color>
+    <color name="spenza_flame_ring">#FFD8B0</color>
+    <color name="spenza_streak_atrisk">#F59E0B</color>
+    <color name="spenza_streak_atrisk_soft">#FFF1D6</color>
+    <color name="spenza_streak_broken">#94A3B8</color>
+    <color name="spenza_streak_broken_soft">#E9EDF2</color>
+    <color name="spenza_streak_dot_off">#E0DAF1</color>
+
+    <!-- App palette primary/glow pairs (light), mirroring ThemeService pf-palette -->
+    <color name="widget_pal_violet_primary">#7C3AED</color>
+    <color name="widget_pal_violet_glow">#A855F7</color>
+    <color name="widget_pal_rose_primary">#E11D63</color>
+    <color name="widget_pal_rose_glow">#F472B6</color>
+    <color name="widget_pal_azure_primary">#2563EB</color>
+    <color name="widget_pal_azure_glow">#38BDF8</color>
+    <color name="widget_pal_emerald_primary">#059669</color>
+    <color name="widget_pal_emerald_glow">#34D399</color>
+    <color name="widget_pal_amber_primary">#D97706</color>
+    <color name="widget_pal_amber_glow">#F59E0B</color>
 </resources>

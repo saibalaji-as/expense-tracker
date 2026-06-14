@@ -8,5 +8,8 @@
     <string name="local_notification_channel_name">Expense Reminders</string>
     <string name="local_notification_channel_description">Daily reminders and budget alerts</string>
     <string name="expense_widget_name">Spenza Quick Expense</string>
+    <string name="streak_widget_name">Spenza Daily Streak</string>
+    <string name="streak_notification_channel_name">Daily Streak</string>
+    <string name="streak_notification_channel_description">Reminders to keep your daily expense-logging streak alive</string>
     <string name="spend_notification_listener_label">Spenza spend prompts</string>
 </resources>

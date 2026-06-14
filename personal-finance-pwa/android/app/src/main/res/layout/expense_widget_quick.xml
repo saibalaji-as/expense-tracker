@@ -1,15 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/expense_widget_root"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/expense_widget_background"
-    android:gravity="center"
-    android:orientation="horizontal"
-    android:paddingLeft="10dp"
-    android:paddingTop="8dp"
-    android:paddingRight="10dp"
-    android:paddingBottom="8dp">
+    android:background="@drawable/expense_widget_background">
+
+    <ImageView
+        android:id="@+id/widget_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY" />
+
+    <LinearLayout
+        android:id="@+id/expense_widget_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingLeft="10dp"
+        android:paddingTop="8dp"
+        android:paddingRight="10dp"
+        android:paddingBottom="8dp">
 
     <LinearLayout
         android:id="@+id/widget_food"
@@ -173,4 +185,5 @@
             android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
-</LinearLayout>
+    </LinearLayout>
+</FrameLayout>
