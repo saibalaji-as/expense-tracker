@@ -1,5 +1,6 @@
 import { Injectable, signal, isDevMode } from '@angular/core';
 import { StorageService } from './storage.service';
+import enTranslations from '../../../assets/i18n/en.json';
 
 export type AppLanguage = 'en' | 'ta' | 'hi';
 
@@ -152,7 +153,7 @@ export class I18nService {
   ];
 
   readonly language = signal<AppLanguage>('en');
-  readonly translations = signal<Record<string, string>>(FALLBACK_TRANSLATIONS);
+  readonly translations = signal<Record<string, string>>({ ...FALLBACK_TRANSLATIONS, ...enTranslations as Record<string, string> });
 
   readonly initialized: Promise<void>;
 
@@ -196,14 +197,18 @@ export class I18nService {
   }
 
   private async loadTranslations(language: AppLanguage): Promise<void> {
+    if (language === 'en') {
+      this.translations.set({ ...FALLBACK_TRANSLATIONS, ...enTranslations as Record<string, string> });
+      return;
+    }
     try {
       const response = await fetch(`/assets/i18n/${language}.json`, { cache: 'no-cache' });
       if (!response.ok) throw new Error(`Failed to load ${language} translations`);
       const loaded = await response.json() as Record<string, string>;
-      this.translations.set({ ...FALLBACK_TRANSLATIONS, ...loaded });
+      this.translations.set({ ...FALLBACK_TRANSLATIONS, ...enTranslations as Record<string, string>, ...loaded });
     } catch (error) {
       if (isDevMode()) { console.warn('[I18nService] Falling back to built-in English translations:', error); }
-      this.translations.set(FALLBACK_TRANSLATIONS);
+      this.translations.set({ ...FALLBACK_TRANSLATIONS, ...enTranslations as Record<string, string> });
     }
   }
 

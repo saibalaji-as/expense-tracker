@@ -46,6 +46,7 @@ export class App implements OnInit, OnDestroy {
   private routeScrollSubscription: Subscription | null = null;
   private isRefreshingFromDrive = false;
   private hasRenderedCachedData = false;
+  private resumeDebounceId: number | null = null;
 
   private startLoadingTimeout(): void {
     // Clear any existing timeout
@@ -363,24 +364,19 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private readonly visibilityHandler = () => {
-    if (document.visibilityState === 'visible') {
+  // visibilitychange, focus, and Capacitor's resume all fire within milliseconds
+  // of each other when a native app foregrounds. Coalescing them into one 200 ms
+  // debounce prevents three concurrent ensureToken() calls on Android/iOS, which
+  // would each spawn a separate Google account picker.
+  private readonly resumeHandler = () => {
+    if (document.visibilityState !== 'visible' && !Capacitor.isNativePlatform()) return;
+    if (this.resumeDebounceId !== null) return;
+    this.resumeDebounceId = window.setTimeout(() => {
+      this.resumeDebounceId = null;
       this.expenseStore.flushPendingChanges();
       void this.refreshBackupIfChanged();
       this.tryStartFamilySync();
-    }
-  };
-
-  private readonly focusHandler = () => {
-    this.expenseStore.flushPendingChanges();
-    void this.refreshBackupIfChanged();
-    this.tryStartFamilySync();
-  };
-
-  private readonly resumeHandler = () => {
-    this.expenseStore.flushPendingChanges();
-    void this.refreshBackupIfChanged();
-    this.tryStartFamilySync();
+    }, 200);
   };
 
   /** Network came back — immediately push any locally-saved-but-unsynced changes. */
@@ -481,11 +477,12 @@ export class App implements OnInit, OnDestroy {
       console.error('[App] Drive error:', err);
     });
 
-    document.addEventListener('visibilitychange', this.visibilityHandler);
-    window.addEventListener('focus', this.focusHandler);
+    document.addEventListener('visibilitychange', this.resumeHandler);
+    window.addEventListener('focus', this.resumeHandler);
     window.addEventListener('online', this.onlineHandler);
     // Capacitor fires 'resume' on the document when the native app returns to foreground.
-    // This is more reliable than visibilitychange on Android/iOS after long background sessions.
+    // All three events (visibilitychange, focus, resume) are routed to the same debounced
+    // handler so they collapse into a single execution on Android/iOS.
     document.addEventListener('resume', this.resumeHandler);
     if (Capacitor.isNativePlatform()) {
       void this.#setupReminderNotificationTap();
@@ -511,10 +508,14 @@ export class App implements OnInit, OnDestroy {
     this.familySyncService.stopListening();
     this.driveErrorSubscription?.unsubscribe();
     this.routeScrollSubscription?.unsubscribe();
-    document.removeEventListener('visibilitychange', this.visibilityHandler);
-    window.removeEventListener('focus', this.focusHandler);
+    document.removeEventListener('visibilitychange', this.resumeHandler);
+    window.removeEventListener('focus', this.resumeHandler);
     window.removeEventListener('online', this.onlineHandler);
     document.removeEventListener('resume', this.resumeHandler);
+    if (this.resumeDebounceId !== null) {
+      clearTimeout(this.resumeDebounceId);
+      this.resumeDebounceId = null;
+    }
   }
 
   dismissMigrationBanner(): void {

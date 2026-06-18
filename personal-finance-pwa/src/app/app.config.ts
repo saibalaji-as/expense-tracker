@@ -21,6 +21,7 @@ import { routes } from './app.routes';
 import { provideServiceWorker } from '@angular/service-worker';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { LocalNotificationService } from './core/services/local-notification.service';
+import { ThemeService } from './core/services/theme.service';
 
 // PERF: the View Transitions API snapshots the ENTIRE page (including the
 // frosted-glass blur layers) and freezes that snapshot until the next route's
@@ -61,6 +62,18 @@ export const appConfig: ApplicationConfig = {
         };
       },
       deps: [LocalNotificationService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: (_themeService: ThemeService) => {
+        // Eagerly instantiate ThemeService so it reads palette/style/theme from
+        // storage and applies them to the DOM before first paint. Without this,
+        // the service is lazily created only when the Settings route is visited,
+        // leaving the app on default colours until then.
+        return () => {};
+      },
+      deps: [ThemeService],
       multi: true,
     },
   ],

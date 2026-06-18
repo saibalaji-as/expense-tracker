@@ -2891,15 +2891,21 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.addEntry(entry);
+    const addSynced = this.expenseStore.syncStatus() === 'idle';
     if (receiptFailed) {
       this.feedback.warning(
         'Expense saved — bill not attached.',
         'Your expense is safe. The bill couldn\'t upload right now; edit this expense to re-attach it when you\'re back online.'
       );
-    } else {
+    } else if (addSynced) {
       this.feedback.success(
         'Expense saved.',
         `${this.getCatName(entry.type)} for ${this.currencyService.format(entry.amount, this.i18n.locale())} was saved to your Drive backup.`
+      );
+    } else {
+      this.feedback.warning(
+        'Expense saved locally.',
+        `${this.getCatName(entry.type)} is stored on this device and will sync to Drive when you\'re back online.`
       );
     }
     if (!this.syncService.isOnline()) {
@@ -2972,15 +2978,21 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     });
 
     await this.expenseStore.addEntries(entries);
+    const splitSynced = this.expenseStore.syncStatus() === 'idle';
     if (receiptFailed) {
       this.feedback.warning(
         'Split bill saved — bill not attached.',
         `${entries.length} expense entries are safe. The bill couldn\'t upload right now; edit an entry to re-attach it when you\'re back online.`
       );
-    } else {
+    } else if (splitSynced) {
       this.feedback.success(
         'Split bill saved.',
         `${entries.length} expense entries were saved to your Drive backup.`
+      );
+    } else {
+      this.feedback.warning(
+        'Split bill saved locally.',
+        `${entries.length} entries are stored on this device and will sync to Drive when you\'re back online.`
       );
     }
     this.clearDraftAndReset({
@@ -3025,15 +3037,21 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.updateEntry(updatedEntry);
+    const updateSynced = this.expenseStore.syncStatus() === 'idle';
     if (receiptFailed) {
       this.feedback.warning(
         'Expense updated — new bill not attached.',
         'Your changes are safe. The new bill couldn\'t upload right now; re-attach it when you\'re back online.'
       );
-    } else {
+    } else if (updateSynced) {
       this.feedback.success(
         'Expense updated.',
         `${this.getCatName(updatedEntry.type)} was saved to your Drive backup.`
+      );
+    } else {
+      this.feedback.warning(
+        'Expense updated locally.',
+        `Changes to ${this.getCatName(updatedEntry.type)} are stored on this device and will sync to Drive when you\'re back online.`
       );
     }
     if (!this.syncService.isOnline()) {
@@ -3333,10 +3351,18 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     try {
       await this.expenseStore.deleteEntry(entry.id);
-      this.feedback.success(
-        'Expense deleted.',
-        `${this.getCatName(entry.type)} was removed from your Drive backup.`
-      );
+      const deleteSynced = this.expenseStore.syncStatus() === 'idle';
+      if (deleteSynced) {
+        this.feedback.success(
+          'Expense deleted.',
+          `${this.getCatName(entry.type)} was removed from your Drive backup.`
+        );
+      } else {
+        this.feedback.warning(
+          'Expense deleted locally.',
+          `${this.getCatName(entry.type)} is removed on this device and will sync to Drive when you\'re back online.`
+        );
+      }
     } catch (error) {
       console.error('[DailyExpense] Failed to delete entry:', error);
       this.feedback.error(

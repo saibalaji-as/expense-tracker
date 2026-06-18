@@ -97,6 +97,9 @@ export class AuthService {
    */
   #tokenRequestPromise: Promise<string> | null = null;
 
+  /** Shared promise for an in-flight native sign-in (Android/iOS only). */
+  #nativeSignInPromise: Promise<SignInResult> | null = null;
+
   /** Whether we are running inside a Capacitor native shell (Android/iOS). */
   readonly #isNative = Capacitor.isNativePlatform();
 
@@ -211,7 +214,15 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   signIn(): Promise<SignInResult> {
-    return this.#isNative ? this.#nativeSignIn() : this.#webSignIn();
+    if (this.#isNative) {
+      if (!this.#nativeSignInPromise) {
+        this.#nativeSignInPromise = this.#nativeSignIn().finally(() => {
+          this.#nativeSignInPromise = null;
+        });
+      }
+      return this.#nativeSignInPromise;
+    }
+    return this.#webSignIn();
   }
 
   /**
@@ -226,7 +237,12 @@ export class AuthService {
     if (this.#accessToken) return Promise.resolve(this.#accessToken);
 
     if (this.#isNative) {
-      return this.#nativeSignIn().then(() => {
+      if (!this.#nativeSignInPromise) {
+        this.#nativeSignInPromise = this.#nativeSignIn().finally(() => {
+          this.#nativeSignInPromise = null;
+        });
+      }
+      return this.#nativeSignInPromise.then(() => {
         if (!this.#accessToken) throw new Error('Native sign-in did not return a token.');
         return this.#accessToken;
       });
@@ -290,12 +306,20 @@ export class AuthService {
    * Returns a valid access token WITHOUT ever showing interactive UI, or null.
    * Used by background sync so a slow/expired token never pops a sign-in dialog
    * mid-save. Web: attempts a silent GSI token request when the cached token is
-   * stale. Native: returns the cached token only (the plugin cannot refresh
-   * without UI) — callers keep the data dirty locally and retry later.
+   * stale. Native: attempts a silent SocialLogin.login() — Android Credential
+   * Manager reuses cached credentials without UI when available; returns null if
+   * no credential is cached so the caller can prompt interactively instead.
    */
   async getTokenSilent(): Promise<string | null> {
     if (this.#hasValidCachedToken()) return this.#accessToken;
-    if (this.#isNative) return null;
+    if (this.#isNative) {
+      try {
+        await this.#nativeSignIn();
+        return this.#accessToken;
+      } catch {
+        return null;
+      }
+    }
     return this.#webSilentToken();
   }
 
@@ -331,6 +355,7 @@ export class AuthService {
                 prompt: '',
                 callback: (response: any) => {
                   if (response.error || !grantedScopesIncludeDrive(response.scope) || !response.access_token) {
+                    console.warn('[AuthService] Silent GSI token failed:', response.error ?? 'missing scope or token');
                     finish(null);
                     return;
                   }
@@ -346,7 +371,7 @@ export class AuthService {
               tokenClient.requestAccessToken({ prompt: '' });
               // Safety net: if GSI never calls back (e.g., no Google session in the
               // webview), don't hang the sync queue forever.
-              setTimeout(() => finish(null), 8000);
+              setTimeout(() => finish(null), 15000);
             } catch {
               finish(null);
             }

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   BadgeIndianRupee,
+  CloudOff,
   CreditCard,
   Landmark,
   LucideAngularModule,
@@ -47,7 +48,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ BadgeIndianRupee, CreditCard, Landmark, Pencil, Plus, Star, Trash2, WalletCards }),
+      useValue: new LucideIconProvider({ BadgeIndianRupee, CloudOff, CreditCard, Landmark, Pencil, Plus, Star, Trash2, WalletCards }),
     },
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -327,9 +328,17 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                             <p class="text-muted-foreground">{{ adjustment.createdAt | dateFormat }}</p>
                             <p class="mt-1 break-words text-foreground">{{ adjustment.reason || ('finances.adjust.noReason' | translate) }}</p>
                           </div>
-                          <span class="rounded-full border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            {{ adjustmentKindLabel(adjustment.kind) }}
-                          </span>
+                          <div class="flex flex-wrap items-center gap-1.5">
+                            @if (expenseStore.pendingSyncIds().includes(adjustment.id)) {
+                              <span class="flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
+                                <lucide-icon name="cloud-off" class="h-3 w-3" />
+                                {{ 'finances.adjust.localOnly' | translate }}
+                              </span>
+                            }
+                            <span class="rounded-full border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {{ adjustmentKindLabel(adjustment.kind) }}
+                            </span>
+                          </div>
                         </div>
                       }
                     </div>
@@ -848,12 +857,18 @@ export class FinancesComponent {
         kind: value.kind,
         reason: value.reason,
       });
-      this.feedback.success(
-        this.i18n.t('finances.feedback.balanceAdjusted'),
-        this.i18n.t('finances.feedback.balanceAdjustedDetail', {
-          amount: this.currencyService.format(value.amount, this.i18n.locale()),
-        })
-      );
+      const formattedAmount = this.currencyService.format(value.amount, this.i18n.locale());
+      if (this.expenseStore.syncStatus() === 'idle') {
+        this.feedback.success(
+          this.i18n.t('finances.feedback.balanceAdjusted'),
+          this.i18n.t('finances.feedback.balanceAdjustedDetail', { amount: formattedAmount })
+        );
+      } else {
+        this.feedback.warning(
+          this.i18n.t('finances.feedback.balanceAdjustedSyncing'),
+          this.i18n.t('finances.feedback.balanceAdjustedSyncingDetail', { amount: formattedAmount })
+        );
+      }
       this.cancelAdjustment();
     } catch (error) {
       this.feedback.error(

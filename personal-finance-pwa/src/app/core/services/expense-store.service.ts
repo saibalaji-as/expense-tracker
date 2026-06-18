@@ -88,6 +88,8 @@ interface ExpenseState {
   driveFileId: string | null;
   receiptFolderId: string | null;
   lastKnownDriveModifiedTime: string | null;
+  /** IDs of items written locally but not yet confirmed in Drive. Cleared only after writeBackupFile() succeeds. */
+  pendingSyncIds: string[];
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -110,6 +112,7 @@ export const ExpenseStore = signalStore(
     driveFileId: null,
     receiptFolderId: null,
     lastKnownDriveModifiedTime: null,
+    pendingSyncIds: [],
   }),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
@@ -765,6 +768,7 @@ export const ExpenseStore = signalStore(
         driveFileId: fileId,
         lastKnownDriveModifiedTime: modifiedTime,
         syncStatus: 'idle',
+        pendingSyncIds: [],
       });
       localRevision = 0;
       persistedRevision = 0;
@@ -1216,6 +1220,7 @@ export const ExpenseStore = signalStore(
               : candidate
           ),
           accountAdjustments: [adjustment, ...store.accountAdjustments()],
+          pendingSyncIds: [adjustment.id, ...store.pendingSyncIds()],
         });
         await markLocalChangeAndPersist();
       },
@@ -1788,26 +1793,44 @@ export const ExpenseStore = signalStore(
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), true);
             const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
             persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
+            // Drive write confirmed — all locally pending items are now in Drive.
             patchState(store, {
               lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
               syncStatus: 'idle',
               isOffline: false,
+              pendingSyncIds: [],
             });
             // Snapshot is now in sync with Drive — clear the dirty flag.
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), false);
             onSyncSucceeded();
           } catch (err) {
             const status = (err as DriveApiError)?.status;
+            const isAuthError = status === 401;
             const transient = status === 0 || status === 408 || status === 429 ||
               (typeof status === 'number' && status >= 500);
-            if (transient) {
+            if (isAuthError) {
+              // Token expired mid-write: the dirty snapshot is safe on disk.
+              // Clear the stale token and attempt a silent refresh. If the refresh
+              // succeeds, schedule a background retry — the user never sees a prompt.
+              // If it fails (native with no cached credential, or web with no session),
+              // surface the error so the user knows to re-authenticate.
+              authService.clearToken();
+              const freshToken = await authService.getTokenSilent();
+              if (freshToken) {
+                patchState(store, { syncStatus: 'syncing' });
+                scheduleBackgroundFlush();
+              } else {
+                patchState(store, { syncStatus: 'error' });
+                driveError$.next(err as DriveApiError | DriveParseError);
+              }
+            } else if (transient) {
               // Offline / Drive hiccup: the dirty snapshot is safe on disk. Keep
               // showing "syncing", do NOT raise a destructive error, and retry in
               // the background until the system is ready.
               patchState(store, { syncStatus: 'syncing', isOffline: status === 0 });
               scheduleBackgroundFlush();
             } else {
-              // Auth / permission / not-found: a retry won't help — surface it so
+              // Permission / not-found: a retry won't help — surface it so
               // the user can re-authenticate or fix sharing. Data stays dirty locally.
               patchState(store, { syncStatus: 'error' });
               driveError$.next(err as DriveApiError | DriveParseError);
