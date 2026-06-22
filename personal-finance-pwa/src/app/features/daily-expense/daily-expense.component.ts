@@ -2891,7 +2891,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.addEntry(entry);
-    const addSynced = this.expenseStore.syncStatus() === 'idle';
+    const addSynced = this.syncService.isOnline() && this.expenseStore.syncStatus() === 'idle';
     if (receiptFailed) {
       this.feedback.warning(
         'Expense saved — bill not attached.',
@@ -3037,7 +3037,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     };
 
     await this.expenseStore.updateEntry(updatedEntry);
-    const updateSynced = this.expenseStore.syncStatus() === 'idle';
+    const updateSynced = this.syncService.isOnline() && this.expenseStore.syncStatus() === 'idle';
     if (receiptFailed) {
       this.feedback.warning(
         'Expense updated — new bill not attached.',
@@ -3351,7 +3351,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     try {
       await this.expenseStore.deleteEntry(entry.id);
-      const deleteSynced = this.expenseStore.syncStatus() === 'idle';
+      const deleteSynced = this.syncService.isOnline() && this.expenseStore.syncStatus() === 'idle';
       if (deleteSynced) {
         this.feedback.success(
           'Expense deleted.',
