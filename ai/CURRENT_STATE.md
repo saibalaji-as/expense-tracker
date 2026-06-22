@@ -30,6 +30,7 @@
 - Account balances and Debt/EMI tracking implementation has started. Phase 1 asset accounts, Phase 2 expense-account linking, Phase 3 debts/EMIs, and Phase 4 dashboard net-worth summary are Drive-backed and implemented. The phased plan remains in `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`.
 
 ## Recently Completed / Present Features
+- Public landing/home page (2026-06-22): root route `''` now serves `features/welcome/welcome.component.ts` (no auth guard) so logged-out visitors and the Google OAuth reviewer see the app's purpose + Google data-scope explanations + Privacy/Terms links without signing in. Signed-in users are redirected to `/daily` by the component. `app.ts`/`app.html` render `/`, `/privacy`, `/terms` shell-less and without the loading screen via `isPublicPage`. App remains pure CSR (no prerender).
 - Widget palette + surface-style theming (2026-06-13):
   - Both home-screen widgets now match the app's selected `pf-palette` (violet/rose/azure/emerald/amber) and `pf-style` (glass/neumorphism/claymorphism/neobrutalism) in light/dark, not just device dark/light.
   - `WidgetSurface` renders the body as a Canvas bitmap per style+palette (blur shadows, gradients, highlights) since RemoteViews XML can't; `WidgetTheme` reads the prefs, resolves palette colors (day/night via resources), sizes/pushes the bitmap via `setImageViewBitmap`, and recolors title + CTA/brand badge. Layouts wrapped in FrameLayout with a `widget_surface` ImageView behind transparent content (static `expense_widget_background` fallback kept).

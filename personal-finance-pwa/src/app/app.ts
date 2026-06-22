@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, isDevMode, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, isDevMode, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { OfflineBannerComponent } from './shared/components/offline-banner/offline-banner.component';
@@ -38,6 +38,24 @@ export class App implements OnInit, OnDestroy {
 
   readonly isLoading = signal(true);
   readonly loadingError = signal<string | null>(null);
+
+  // Tracks the current URL so the template can render public pages (landing,
+  // privacy, terms) shell-less and without the data-loading screen. The app uses
+  // hash-based routing, so before the router's initial navigation completes
+  // router.url is empty — read the hash directly to pick the right branch on the
+  // very first paint (e.g. a hard reload of /#/daily must show the loading
+  // screen, not the blank public branch). Kept in sync via NavigationEnd below.
+  private readonly currentUrl = signal(this.readInitialUrl());
+  readonly isPublicPage = computed(() => {
+    const url = this.currentUrl().split('?')[0].split('#')[0];
+    return url === '/' || url === '' || url === '/privacy' || url === '/terms';
+  });
+
+  private readInitialUrl(): string {
+    const hash = window.location.hash;
+    if (hash.length > 1) return hash.slice(1); // strip leading '#'
+    return '/';
+  }
   readonly needsFamilyMigration = signal(false);
   readonly migrationBannerDismissed = signal(false);
   private loadingTimeoutId: number | null = null;
@@ -489,7 +507,10 @@ export class App implements OnInit, OnDestroy {
     }
     this.routeScrollSubscription = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
-      .subscribe(() => this.scrollToPageTop());
+      .subscribe((event) => {
+        this.currentUrl.set(event.urlAfterRedirects);
+        this.scrollToPageTop();
+      });
 
     try {
       await this.bootstrapData();

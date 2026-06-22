@@ -2,7 +2,12 @@
 <app-toast />
 <app-widget-promo-dialog />
 
-@if (isLoading() || loadingError()) {
+@if (isPublicPage()) {
+  <!-- Public, unauthenticated pages (landing, privacy, terms): render the route
+       directly with no app-shell chrome and no data-loading gate so the content
+       is in the DOM immediately for logged-out visitors and OAuth reviewers. -->
+  <router-outlet />
+} @else if (isLoading() || loadingError()) {
   <div class="loading-screen" [class.fade-out]="!isLoading() && !loadingError()">
     <div class="loading-content">
       <!-- Logo -->

@@ -126,6 +126,16 @@ export const routes: Routes = [
       ),
     canActivate: [authGuard, setupGuard],
   },
-  { path: '', redirectTo: '/daily', pathMatch: 'full' },
+  {
+    // Public landing/home page — no AuthGuard. This is what a logged-out
+    // visitor (or a Google OAuth reviewer/crawler) sees at the root URL.
+    // Signed-in users are redirected to /daily by the component itself.
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./features/welcome/welcome.component').then(
+        (m) => m.WelcomeComponent
+      ),
+  },
   { path: '**', redirectTo: '/daily' },
 ];
