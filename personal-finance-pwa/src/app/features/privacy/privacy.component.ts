@@ -79,7 +79,7 @@ import { RouterLink } from '@angular/router';
           <p class="text-muted-foreground leading-relaxed">
             You have the right to access, correct, or delete your personal data. To exercise these
             rights, contact us at
-            <a href="mailto:support@spenza.app" class="text-primary hover:underline">support&#64;spenza.app</a>.
+            <a href="mailto:saibalaji315@gmail.com" class="text-primary hover:underline">support&#64;spenza.app</a>.
           </p>
         </section>
 
@@ -104,7 +104,7 @@ import { RouterLink } from '@angular/router';
           <h2 class="text-lg font-semibold text-foreground mb-2">10. Contact</h2>
           <p class="text-muted-foreground leading-relaxed">
             Questions? Email us at
-            <a href="mailto:support@spenza.app" class="text-primary hover:underline">support&#64;spenza.app</a>.
+            <a href="mailto:saibalaji315@gmail.com" class="text-primary hover:underline">support&#64;spenza.app</a>.
           </p>
         </section>
       </div>

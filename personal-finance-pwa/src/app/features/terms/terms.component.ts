@@ -102,7 +102,7 @@ import { RouterLink } from '@angular/router';
           <h2 class="text-lg font-semibold text-foreground mb-2">11. Contact</h2>
           <p class="text-muted-foreground leading-relaxed">
             For questions about these Terms, email
-            <a href="mailto:support@spenza.app" class="text-primary hover:underline">support&#64;spenza.app</a>.
+            <a href="mailto:saibalaji315@gmail.com" class="text-primary hover:underline">support&#64;spenza.app</a>.
           </p>
         </section>
       </div>
