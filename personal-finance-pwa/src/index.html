@@ -3,7 +3,7 @@
 <head>
   <meta name="google-site-verification" content="eD77wio_RqxXxGLFwFVtvcnJwOSxNCwyt_Pa18pfs8o" />
   <meta charset="utf-8">
-  <title>Spenza</title>
+  <title>Spenza – Personal &amp; Family Finance Tracker</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Spenza - Your smart expense tracking companion">
@@ -13,7 +13,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="privacy-policy" href="https://saibalaji-as.github.io/spenza-legal/">
+  <link rel="privacy-policy" href="https://spenza-finance.web.app/#/privacy">
   <!-- Static landing styles. Scoped to #prerender-home, which only ever exists
        before Angular boots (Angular clears <app-root> on bootstrap). These keep
        the no-JS / crawler view readable; real users never see this rendered. -->
@@ -40,6 +40,27 @@
     // Injected at build time via CI — Google Maps JS API key (referrer-restricted)
     window.__GOOGLE_MAPS_API_KEY__ = 'GOOGLE_MAPS_API_KEY_PLACEHOLDER';
   </script>
+  <div id="spenza-landing-info" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;">
+    <h1>Spenza</h1>
+    <p>Spenza is a personal and family finance tracking app. Track daily expenses, accounts and net worth, debts and EMIs, budgets, and view dashboard insights. Designed for individuals and families.</p>
+    <h2>How Spenza uses your Google account</h2>
+    <p>Google Drive (App Data) – Used only to store a private backup of your own financial data in a hidden, app-specific folder (appDataFolder). This data is never shared and is not accessible to anyone else.</p>
+    <p>Google Sheets – Used to export your financial data to a Google Spreadsheet that you own, on demand.</p>
+    <a href="/#/privacy">Privacy Policy</a>
+    <a href="/#/terms">Terms of Service</a>
+  </div>
+  <div id="spenza-seo-content" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+    <h1>Spenza – Personal and Family Finance Tracker</h1>
+    <p>Spenza is a personal and family finance tracking application available on Android and web. It helps you track daily expenses, manage accounts and net worth, monitor debts and EMIs, set budgets and spending limits, and view dashboard insights. Designed for individuals and families.</p>
+    <h2>How Spenza uses your Google account data</h2>
+    <p>Spenza requests the following Google permissions:</p>
+    <ul>
+      <li>Google Drive App Data (drive.appdata): Used exclusively to store a private, encrypted backup of your own financial data in a hidden, app-specific folder called appDataFolder. This folder is not visible to you or anyone else in Google Drive. Your data is never shared or transmitted to any third party.</li>
+      <li>Google Sheets (spreadsheets): Used to export your financial data to a Google Spreadsheet in your own Google Drive account, on demand, when you choose to export. You retain full ownership and control of the exported spreadsheet.</li>
+    </ul>
+    <p>Privacy Policy: <a href="https://spenza-finance.web.app/#/privacy">https://spenza-finance.web.app/#/privacy</a></p>
+    <p>Terms of Service: <a href="https://spenza-finance.web.app/#/terms">https://spenza-finance.web.app/#/terms</a></p>
+  </div>
   <app-root>
     <!-- Static, server-served branding for Google's OAuth branding crawler and
          any no-JS visitor. Angular clears <app-root>'s children on bootstrap, so
