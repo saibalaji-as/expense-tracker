@@ -105,11 +105,8 @@ jobs:
             echo "Google Maps key injection OK."
           fi
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-
       - name: Deploy Firebase Hosting and subscription Functions
         working-directory: personal-finance-pwa
-        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription --project spenza-notifications --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription --project spenza-notifications --non-interactive --token "$FIREBASE_TOKEN"
