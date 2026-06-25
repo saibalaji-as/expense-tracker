@@ -1564,7 +1564,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   // ─── Entries for selected date ───────────────────────────────────────────
   readonly selectedDateEntries = computed(() => {
     const date = this.selectedDate();
-    return this.expenseStore.entries().filter((e) => e.date === date);
+    const ccDebtIds = new Set(
+      this.expenseStore.debts()
+        .filter((d) => d.type === 'credit-card')
+        .map((d) => d.id)
+    );
+    return this.expenseStore.entries().filter((e) => {
+      if (e.date !== date) return false;
+      // Hide CC repayments — they are tracked in the Finance screen only
+      if (e.source === 'debt-payment' && e.debtId && ccDebtIds.has(e.debtId)) return false;
+      return true;
+    });
   });
 
   // ─── Grouped entries by expense type ─────────────────────────────────────

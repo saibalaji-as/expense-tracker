@@ -15,8 +15,11 @@ import {
   Bell,
 } from 'lucide-angular';
 import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
+import { CreditCardPickerComponent } from '../credit-card-picker/credit-card-picker.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
+import { ExpenseStore, noCcAccountForExpense$ } from '../../../core/services/expense-store.service';
+import { UserFeedbackService } from '../../../core/services/user-feedback.service';
 import { TranslatePipe } from '../../pipes';
 
 interface NavItem {
@@ -30,7 +33,7 @@ interface NavItem {
   selector: 'app-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule, TranslatePipe, SpenzaLogoComponent],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, TranslatePipe, SpenzaLogoComponent, CreditCardPickerComponent],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -211,7 +214,6 @@ interface NavItem {
           <div class="mx-auto flex h-16 max-w-7xl items-center gap-6 px-6">
 
             <a routerLink="/daily" class="flex items-center gap-1">
-              <app-spenza-logo [size]="40" />
               <span class="text-lg font-semibold tracking-tight">
                 Spen<span class="gradient-text">za</span>
               </span>
@@ -243,7 +245,6 @@ interface NavItem {
       <header class="sticky top-0 z-40 min-[887px]:hidden">
         <div class="flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl">
           <a routerLink="/daily" class="flex items-center gap-2">
-            <app-spenza-logo [size]="32" />
             <span class="text-base font-semibold tracking-tight">
               Spen<span class="gradient-text">za</span>
             </span>
@@ -354,15 +355,24 @@ interface NavItem {
       }
 
     </div>
+
+    <!-- ── Multi-CC picker: shown globally when a CC expense needs assignment ── -->
+    @if (expenseStore.pendingCcExpenses().length > 0) {
+      <app-credit-card-picker />
+    }
   `,
 })
 export class AppShellComponent {
   readonly authService = inject(AuthService);
+  readonly expenseStore = inject(ExpenseStore);
   private readonly backupModeService = inject(BackupModeService);
   private readonly router = inject(Router);
+  private readonly feedback = inject(UserFeedbackService);
 
   readonly bellIcon = Bell;
   readonly settingsIcon = Settings;
+
+
 
   /** Full set — desktop top nav. */
   readonly navItems: NavItem[] = [
@@ -394,6 +404,13 @@ export class AppShellComponent {
       if (event instanceof NavigationEnd) {
         this.activeMobileIndex.set(this.indexForUrl(event.urlAfterRedirects));
       }
+    });
+
+    noCcAccountForExpense$.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.feedback.info(
+        'Credit card expense saved from default account',
+        'Add a credit card in the Finance tab to track it separately.',
+      );
     });
   }
 

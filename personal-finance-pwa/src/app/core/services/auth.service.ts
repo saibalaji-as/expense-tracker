@@ -314,7 +314,7 @@ export class AuthService {
     if (this.#hasValidCachedToken()) return this.#accessToken;
     if (this.#isNative) {
       try {
-        await this.#nativeSignIn();
+        await this.#nativeSignIn({ silent: true });
         return this.#accessToken;
       } catch {
         return null;
@@ -536,23 +536,33 @@ export class AuthService {
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
 
-  async #nativeSignIn(): Promise<SignInResult> {
+  async #nativeSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
     await this.#nativeInitPromise;
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
     const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE];
 
+    // Silent mode (cold-start / foreground token refresh for a returning user):
+    // ask Android Credential Manager to auto-select the previously authorized
+    // account with NO account-picker UI, so an expired token is renewed invisibly.
+    // `forceRefreshToken` avoids handing back an OS-cached invalid token.
+    const options: Record<string, unknown> = opts.silent
+      ? { scopes, style: 'bottom', filterByAuthorizedAccounts: true, autoSelectEnabled: true, forceRefreshToken: true }
+      : { scopes };
+
     // First attempt may throw "No credentials found" on Android Credential Manager
     // when there is no cached credential (e.g., cold first-time launch). A second
-    // call reliably surfaces the interactive account-picker, so retry once.
+    // call reliably surfaces the interactive account-picker, so retry once — but
+    // only for interactive sign-in. Silent mode must never fall back to showing UI;
+    // it rejects so the caller can decide when to prompt.
     let result;
     try {
-      result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+      result = await SocialLogin.login({ provider: 'google', options });
     } catch (err: any) {
       const msg: string = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
-      if (msg.includes('no credentials') || msg.includes('no account')) {
-        result = await SocialLogin.login({ provider: 'google', options: { scopes } });
+      if (!opts.silent && (msg.includes('no credentials') || msg.includes('no account'))) {
+        result = await SocialLogin.login({ provider: 'google', options });
       } else {
         throw err;
       }

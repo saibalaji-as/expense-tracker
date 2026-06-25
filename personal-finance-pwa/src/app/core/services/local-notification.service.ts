@@ -5,6 +5,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
 import { budgetThresholdExceeded$ } from './budget-events';
 import { getDailyReminderContent } from '../utils/reminder-message';
+import { DebtAccount } from '../models';
 
 /**
  * LocalNotificationService
@@ -810,5 +811,68 @@ export class LocalNotificationService {
       console.error('[LocalNotificationService] Initialization failed:', error);
       // Don't throw - allow app to continue even if notification initialization fails
     }
+  }
+
+  /**
+   * Schedule monthly payment due reminders for all active credit card accounts.
+   * Fires 3 days before the paymentDueDay each month.
+   * Call this on app init, after creating/updating a credit card, and after recording a payment.
+   */
+  async scheduleCreditCardDueReminders(debts: DebtAccount[]): Promise<void> {
+    if (!this.isNativePlatform || this.permissionStatus() !== 'granted') return;
+
+    const activeCards = debts.filter((d) => d.type === 'credit-card' && d.status === 'active' && d.paymentDueDay);
+
+    for (const card of activeCards) {
+      const notificationId = this.creditCardNotificationId(card.id);
+      try {
+        const reminderDate = this.nextCreditCardReminderDate(card.paymentDueDay!);
+        const dueLabel = `${card.paymentDueDay}th`;
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: notificationId,
+              title: 'Credit Card Bill Due in 3 Days',
+              body: `${card.name}: ₹${card.remainingBalance.toLocaleString('en-IN')} outstanding. Due on ${dueLabel}.`,
+              schedule: { at: reminderDate, repeats: true, every: 'month' },
+              extra: { route: '/finances', debtId: card.id },
+            },
+          ],
+        });
+        if (isDevMode()) { console.log(`[LocalNotificationService] CC reminder scheduled for ${card.name} on ${reminderDate.toLocaleString()}`); }
+      } catch (error) {
+        console.error(`[LocalNotificationService] Failed to schedule CC reminder for ${card.name}:`, error);
+      }
+    }
+  }
+
+  /** Cancel the due-date reminder for a specific credit card (e.g. when archived/deleted). */
+  async cancelCreditCardDueReminder(debtId: string): Promise<void> {
+    if (!this.isNativePlatform) return;
+    try {
+      await LocalNotifications.cancel({ notifications: [{ id: this.creditCardNotificationId(debtId) }] });
+    } catch (error) {
+      console.error('[LocalNotificationService] Failed to cancel CC reminder:', error);
+    }
+  }
+
+  /** Deterministic numeric ID in range 10000–19999 derived from a debt UUID. */
+  private creditCardNotificationId(debtId: string): number {
+    let hash = 0;
+    for (let i = 0; i < debtId.length; i++) {
+      hash = (Math.imul(31, hash) + debtId.charCodeAt(i)) | 0;
+    }
+    return 10000 + (Math.abs(hash) % 10000);
+  }
+
+  /** Compute the next reminder date = 3 days before paymentDueDay, always in the future. */
+  private nextCreditCardReminderDate(paymentDueDay: number): Date {
+    const now = new Date();
+    const reminderDay = paymentDueDay - 3;
+    const candidate = new Date(now.getFullYear(), now.getMonth(), reminderDay, 9, 0, 0, 0);
+    if (candidate <= now) {
+      candidate.setMonth(candidate.getMonth() + 1);
+    }
+    return candidate;
   }
 }

@@ -21,18 +21,29 @@ final class SpendNotificationClassifier {
         final double confidence;
         final double amount;
         final String normalizedText;
+        final boolean isCreditCard;
 
-        private Classification(Type type, double confidence, double amount, String normalizedText) {
+        private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard) {
             this.type = type;
             this.confidence = confidence;
             this.amount = amount;
             this.normalizedText = normalizedText;
+            this.isCreditCard = isCreditCard;
         }
 
         boolean shouldPrompt() {
             return (type == Type.EXPENSE_TRANSACTION || type == Type.INCOME_OR_REFUND) && confidence >= 0.68 && amount > 0;
         }
     }
+
+    private static final String[] CREDIT_CARD_TERMS = {
+        "credit card",
+        "creditcard",
+        "credit a/c",
+        "cc txn",
+        "cc transaction",
+        " cc "
+    };
 
     private static final String[] IGNORED_SOURCE_PACKAGES = {
         "com.android.vending",
@@ -206,33 +217,34 @@ final class SpendNotificationClassifier {
 
     static Classification classify(String rawText, String sourcePackage, String appCurrency) {
         if (rawText == null || rawText.trim().isEmpty()) {
-            return new Classification(Type.UNKNOWN, 0, 0, "");
+            return new Classification(Type.UNKNOWN, 0, 0, "", false);
         }
 
         String normalized = rawText.replace('\n', ' ').replaceAll("\\s+", " ").trim();
         String lower = normalized.toLowerCase(Locale.US);
         String packageName = sourcePackage == null ? "" : sourcePackage.toLowerCase(Locale.US);
         String currency = normalizeCurrency(appCurrency);
+        boolean isCreditCard = containsAny(lower, CREDIT_CARD_TERMS);
 
         if (containsExactPackage(packageName, IGNORED_SOURCE_PACKAGES) || looksLikeAppUpdateOrSystem(lower)) {
-            return new Classification(Type.APP_UPDATE_OR_SYSTEM, 0.98, 0, normalized);
+            return new Classification(Type.APP_UPDATE_OR_SYSTEM, 0.98, 0, normalized, false);
         }
         if (!isSmsSource(packageName)) {
-            return new Classification(Type.UNKNOWN, 0, 0, normalized);
+            return new Classification(Type.UNKNOWN, 0, 0, normalized, false);
         }
         if (containsAny(lower, SECURITY_TERMS)) {
-            return new Classification(Type.SECURITY_OR_OTP, 0.98, 0, normalized);
+            return new Classification(Type.SECURITY_OR_OTP, 0.98, 0, normalized, false);
         }
         if (containsAny(lower, PAYMENT_REQUEST_TERMS)) {
-            return new Classification(Type.PAYMENT_REQUEST, 0.92, 0, normalized);
+            return new Classification(Type.PAYMENT_REQUEST, 0.92, 0, normalized, false);
         }
         if (containsAny(lower, FAILED_OR_PENDING_TERMS)) {
-            return new Classification(Type.FAILED_OR_PENDING, 0.9, 0, normalized);
+            return new Classification(Type.FAILED_OR_PENDING, 0.9, 0, normalized, false);
         }
         AmountResult amount = parseBestAmount(normalized, lower, currency);
         if (containsAny(lower, INCOME_TERMS)) {
             double confidence = amount.amount > 0 ? Math.min(0.98, amount.score + 0.5) : 0.9;
-            return new Classification(Type.INCOME_OR_REFUND, confidence, amount.amount, normalized);
+            return new Classification(Type.INCOME_OR_REFUND, confidence, amount.amount, normalized, false);
         }
 
         boolean hasExpenseAction = containsAny(lower, EXPENSE_ACTION_TERMS);
@@ -240,7 +252,7 @@ final class SpendNotificationClassifier {
         boolean balanceOnly = containsAny(lower, BALANCE_TERMS) && !hasExpenseAction;
 
         if (balanceOnly) {
-            return new Classification(Type.BALANCE_OR_STATEMENT, 0.82, 0, normalized);
+            return new Classification(Type.BALANCE_OR_STATEMENT, 0.82, 0, normalized, false);
         }
 
         double score = 0;
@@ -250,10 +262,10 @@ final class SpendNotificationClassifier {
         if (containsAny(lower, BALANCE_TERMS)) score -= 0.16;
 
         if (amount.amount > 0 && score >= 0.68) {
-            return new Classification(Type.EXPENSE_TRANSACTION, Math.min(0.98, score), amount.amount, normalized);
+            return new Classification(Type.EXPENSE_TRANSACTION, Math.min(0.98, score), amount.amount, normalized, isCreditCard);
         }
 
-        return new Classification(Type.UNKNOWN, Math.max(0, Math.min(0.5, score)), 0, normalized);
+        return new Classification(Type.UNKNOWN, Math.max(0, Math.min(0.5, score)), 0, normalized, false);
     }
 
     private static boolean looksLikeAppUpdateOrSystem(String lower) {

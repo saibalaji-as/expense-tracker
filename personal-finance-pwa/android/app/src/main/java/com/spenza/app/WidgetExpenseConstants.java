@@ -23,6 +23,7 @@ final class WidgetExpenseConstants {
     static final String WIDGET_AMOUNT_KIND_EXTRA = "com.spenza.app.WIDGET_AMOUNT_KIND";
     static final String WIDGET_AMOUNT_KIND_EXPENSE = "expense";
     static final String WIDGET_AMOUNT_KIND_CREDIT = "credit";
+    static final String WIDGET_IS_CREDIT_CARD_EXTRA = "com.spenza.app.WIDGET_IS_CREDIT_CARD";
     static final String WIDGET_SOURCE_NOTIFICATION_PROMPT = "notification-prompt";
     static final String TYPE_MORE = "__spenza_more__";
     static final String SYNC_WORK_NAME = "spenza-widget-expense-sync";

@@ -2551,3 +2551,13 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
 - `ngsw-config.json`: added `navigationUrls` negating `!/privacy` `!/terms` so installed SW clients fetch the real static pages instead of the cached app shell.
 - No auth/app-route logic changed; no new deps. The in-app hash-routed welcome/privacy/terms components are untouched and still serve JS users.
 - Verified LIVE after `npm run build --configuration production` + `firebase deploy --only hosting`: `curl https://spenza-finance.web.app` returns "Spenza", the google-site-verification meta, the purpose paragraph, drive.appdata + "scope: spreadsheets", and /privacy /terms links; `curl .../privacy` and `.../terms` return "Privacy Policy"/"Terms of Service" + meta with HTTP 200, no auth.
+
+## 2026-06-22 — Silent token refresh to stop recurring Google sign-in prompts
+- Problem: users were re-prompted to sign in with Google frequently. Root cause: the app's *session* is the Google OAuth access token (~1h, no refresh token); Firebase Auth is only used for subscriptions/Firestore and is NOT the gate. When the access token expired, web cold-start bounced to `/auth/callback` and native `#nativeSignIn` always used the interactive Credential Manager account-picker. OAuth consent screen was also in GCP "Testing" status (7-day grant expiry) — user has now published it.
+- Decision: keep the access-token-as-session architecture (Drive/Sheets need that exact token; full Firebase-session rearchitecture rejected as high-risk for now) and instead make re-acquisition silent.
+- Changes:
+  - `auth.service.ts` `#nativeSignIn(opts:{silent?})`: silent mode passes `style:'bottom', filterByAuthorizedAccounts:true, autoSelectEnabled:true, forceRefreshToken:true` so Android auto-selects the previously authorized account with NO picker UI; silent mode never falls back to the interactive retry (rejects so caller decides). `getTokenSilent()` native path now calls it with `{silent:true}`.
+  - `app.ts` resumeHandler: proactively calls `authService.getTokenSilent()` on foreground when authenticated (no-op if token still valid) so the token rarely expires mid-session.
+  - `app.ts` bootstrap: attempts `getTokenSilent()` before the `needsInteractiveWebToken()` → `/auth/callback` routing, so a returning web user with a live Google session enters uninterrupted.
+- Not done (optional follow-ups): make Firebase Auth the session of record; soften the auth interceptor 401 path to try silent before interactive. Left to limit blast radius.
+- Verified: `npx tsc --noEmit -p tsconfig.app.json` clean; `npx vitest run auth.service` 11/11 pass. Production build NOT run; native autoSelect behavior needs a real Android device test before shipping.

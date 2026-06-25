@@ -74,6 +74,7 @@ public class ExpenseWidgetActivity extends Activity {
     private double prefillAmount;
     private String prefillComment;
     private boolean openedFromSpendPrompt;
+    private boolean isCreditCardExpense;
     private EditText amountInput;
     private EditText commentInput;
     private TextView titleText;
@@ -121,6 +122,7 @@ public class ExpenseWidgetActivity extends Activity {
         openedFromSpendPrompt = WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT.equals(
             getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA)
         );
+        isCreditCardExpense = getIntent().getBooleanExtra(WidgetExpenseConstants.WIDGET_IS_CREDIT_CARD_EXTRA, false);
         selectedType = WidgetExpenseConstants.TYPE_MORE.equals(requestedType)
             ? WidgetExpenseConstants.TYPE_MISC
             : WidgetExpenseUtils.normalizeWidgetType(requestedType);
@@ -929,6 +931,7 @@ public class ExpenseWidgetActivity extends Activity {
                 parsedDate,
                 selectedAccountId
             );
+            if (isCreditCardExpense) entry.put("isCreditCard", true);
             WidgetExpenseQueue.enqueue(this, entry);
             ExpenseWidgetProvider.updateAll(this);
             toast("Expense queued for Drive sync.");

@@ -120,6 +120,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         intent.putExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA, candidate.comment);
         intent.putExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA, WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT);
         intent.putExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA, candidate.amountKind);
+        intent.putExtra(WidgetExpenseConstants.WIDGET_IS_CREDIT_CARD_EXTRA, candidate.isCreditCard);
 
         int requestCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -181,8 +182,9 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         final String sourcePackage;
         final String currency;
         final String amountKind;
+        final boolean isCreditCard;
 
-        private SpendCandidate(double amount, String comment, String sourcePackage, String currency, String amountKind) {
+        private SpendCandidate(double amount, String comment, String sourcePackage, String currency, String amountKind, boolean isCreditCard) {
             this.amount = amount;
             this.comment = comment;
             this.sourcePackage = sourcePackage == null ? "" : sourcePackage;
@@ -190,6 +192,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
             this.amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(amountKind)
                 ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
                 : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+            this.isCreditCard = isCreditCard;
         }
 
         static SpendCandidate from(String rawText, String sourcePackage, String currency) {
@@ -203,7 +206,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
             String amountKind = classification.type == SpendNotificationClassifier.Type.INCOME_OR_REFUND
                 ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
                 : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
-            return new SpendCandidate(classification.amount, comment, sourcePackage, currency, amountKind);
+            return new SpendCandidate(classification.amount, comment, sourcePackage, currency, amountKind, classification.isCreditCard);
         }
 
         boolean isCredit() {

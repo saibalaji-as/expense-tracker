@@ -12,6 +12,11 @@ export interface DebtAccount {
   startDate: string;
   nextDueDate?: string;
   status: DebtAccountStatus;
+  // Credit card specific fields
+  billGenerationDay?: number;
+  paymentDueDay?: number;
+  minimumPaymentAmount?: number;
+  cardNetworkOrBank?: string;
   createdAt: string;
   updatedAt: string;
   createdByEmail?: string;
@@ -41,6 +46,10 @@ export interface CreateDebtAccountInput {
   monthlyEmi?: number;
   startDate: string;
   nextDueDate?: string;
+  billGenerationDay?: number;
+  paymentDueDay?: number;
+  minimumPaymentAmount?: number;
+  cardNetworkOrBank?: string;
 }
 
 export interface UpdateDebtAccountInput {
@@ -53,6 +62,10 @@ export interface UpdateDebtAccountInput {
   startDate?: string;
   nextDueDate?: string;
   status?: DebtAccountStatus;
+  billGenerationDay?: number;
+  paymentDueDay?: number;
+  minimumPaymentAmount?: number;
+  cardNetworkOrBank?: string;
 }
 
 export interface RecordDebtPaymentInput {

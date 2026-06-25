@@ -143,6 +143,14 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    // Returning web user whose short-lived access token expired still has the
+    // signed-in flag but no token. Attempt a silent GSI refresh before showing any
+    // sign-in screen — when a Google session exists this succeeds with no UI, so the
+    // user enters the app uninterrupted instead of being bounced to /auth/callback.
+    if (this.authService.needsInteractiveWebToken()) {
+      await this.authService.getTokenSilent();
+    }
+
     if (this.router.url.startsWith('/auth/callback') && this.authService.needsInteractiveWebToken()) {
       this.clearLoadingTimeout();
       this.loadingError.set(null);
@@ -154,7 +162,12 @@ export class App implements OnInit, OnDestroy {
       this.clearLoadingTimeout();
       this.loadingError.set(null);
       this.isLoading.set(false);
-      await this.router.navigate(['/auth/callback']);
+      // Public pages (homepage, privacy, terms) must never redirect to the
+      // sign-in screen — they are intentionally accessible without auth.
+      // Only redirect to /auth/callback when trying to reach a protected route.
+      if (!this.isPublicPage()) {
+        await this.router.navigate(['/auth/callback']);
+      }
       return;
     }
 
@@ -394,6 +407,13 @@ export class App implements OnInit, OnDestroy {
       this.expenseStore.flushPendingChanges();
       void this.refreshBackupIfChanged();
       this.tryStartFamilySync();
+      // Proactively renew a stale Google access token with no UI while the app is
+      // foregrounded, so it does not expire mid-session and force a sign-in prompt
+      // on the next Drive action. getTokenSilent() is a no-op when the cached token
+      // is still valid, and never shows interactive UI on web or native.
+      if (this.authService.isAuthenticated()) {
+        void this.authService.getTokenSilent();
+      }
     }, 200);
   };
 

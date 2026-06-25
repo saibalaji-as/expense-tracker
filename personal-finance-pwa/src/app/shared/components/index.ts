@@ -16,3 +16,4 @@ export { ThemedSelectComponent, type ThemedSelectOption } from './themed-select/
 export { ClearableInputDirective } from '../directives/clearable-input.directive';
 export { NotificationDisclosureComponent } from './notification-disclosure/notification-disclosure.component';
 export { SpenzaLogoComponent } from './spenza-logo/spenza-logo.component';
+export { CreditCardPickerComponent } from './credit-card-picker/credit-card-picker.component';

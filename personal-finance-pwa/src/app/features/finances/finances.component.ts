@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   BadgeIndianRupee,
@@ -25,6 +25,7 @@ import {
 import { CurrencyService } from '../../core/services/currency.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { I18nService } from '../../core/services/i18n.service';
+import { LocalNotificationService } from '../../core/services/local-notification.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { toLocalDateString } from '../../core/utils/local-date';
 import { ClearableInputDirective, ModalComponent, SectionCardComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
@@ -216,15 +217,55 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
             <input appClearable type="number" min="0" step="0.01" formControlName="monthlyEmi" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
           </label>
 
-          <label class="col-span-2 space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.startDate' | translate }}</span>
-            <input appClearable type="date" formControlName="startDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
-          </label>
+          @if (debtForm.controls.type.value !== 'credit-card') {
+            <label class="col-span-2 space-y-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.startDate' | translate }}</span>
+              <input appClearable type="date" formControlName="startDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+            </label>
+            <label class="col-span-2 space-y-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.nextDueDate' | translate }}</span>
+              <input appClearable type="date" formControlName="nextDueDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+            </label>
+          }
 
-          <label class="col-span-2 space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.nextDueDate' | translate }}</span>
-            <input appClearable type="date" formControlName="nextDueDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
-          </label>
+          @if (debtForm.controls.type.value === 'credit-card') {
+            <div class="col-span-2">
+              <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Credit Card Details</p>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="space-y-1.5">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill Generation Date</span>
+                  <select formControlName="billGenerationDay" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    <option [value]="0">Select day</option>
+                    @for (d of dayOptions; track d) {
+                      <option [value]="d">{{ d }}{{ daySuffix(d) }} of every month</option>
+                    }
+                  </select>
+                  <span class="text-[10px] text-muted-foreground">Day statement is generated</span>
+                </label>
+                <label class="space-y-1.5">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment Due Date</span>
+                  <select formControlName="paymentDueDay" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    <option [value]="0">Select day</option>
+                    @for (d of dayOptions; track d) {
+                      <option [value]="d">{{ d }}{{ daySuffix(d) }} of every month</option>
+                    }
+                  </select>
+                  <span class="text-[10px] text-muted-foreground">Reminder fires 3 days before this</span>
+                </label>
+                <label class="space-y-1.5">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Minimum Payment Amount</span>
+                  <input appClearable type="number" min="0" step="0.01" formControlName="minimumPaymentAmount"
+                    class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                </label>
+                <label class="space-y-1.5">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bank / Card Network</span>
+                  <input appClearable type="text" formControlName="cardNetworkOrBank"
+                    class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder="e.g. HDFC Visa" />
+                </label>
+              </div>
+            </div>
+          }
 
           <div class="col-span-2 flex flex-wrap justify-end gap-3 pt-1">
             <button type="button" class="rounded-2xl border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-accent" (click)="cancelDebtForm()">
@@ -385,11 +426,26 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
 
                     <div class="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
                       <span>{{ 'finances.debts.principalAmount' | translate }}: {{ debt.principalAmount | currencyFormat }}</span>
-                      @if (debt.monthlyEmi !== undefined) {
-                        <span>{{ 'finances.debts.monthlyEmi' | translate }}: {{ debt.monthlyEmi | currencyFormat }}</span>
-                      }
-                      @if (debt.nextDueDate) {
-                        <span>{{ 'finances.debts.nextDueDate' | translate }}: {{ debt.nextDueDate }}</span>
+                      @if (debt.type === 'credit-card') {
+                        @if (debt.cardNetworkOrBank) {
+                          <span>Network: {{ debt.cardNetworkOrBank }}</span>
+                        }
+                        @if (debt.paymentDueDay) {
+                          <span class="font-medium text-amber-600 dark:text-amber-400">Due: {{ debt.paymentDueDay }}th every month</span>
+                        }
+                        @if (debt.minimumPaymentAmount) {
+                          <span>Min. Payment: {{ debt.minimumPaymentAmount | currencyFormat }}</span>
+                        }
+                        @if (debt.billGenerationDay) {
+                          <span>Bill Date: {{ debt.billGenerationDay }}th every month</span>
+                        }
+                      } @else {
+                        @if (debt.monthlyEmi !== undefined) {
+                          <span>{{ 'finances.debts.monthlyEmi' | translate }}: {{ debt.monthlyEmi | currencyFormat }}</span>
+                        }
+                        @if (debt.nextDueDate) {
+                          <span>{{ 'finances.debts.nextDueDate' | translate }}: {{ debt.nextDueDate }}</span>
+                        }
                       }
                     </div>
                   </div>
@@ -537,9 +593,29 @@ export class FinancesComponent {
   readonly i18n = inject(I18nService);
   private readonly feedback = inject(UserFeedbackService);
   private readonly currencyService = inject(CurrencyService);
+  private readonly localNotifications = inject(LocalNotificationService);
+
+  constructor() {
+    // Re-schedule CC due reminders whenever the debt list changes (catches app init and external updates).
+    effect(() => {
+      const debts = this.expenseStore.debts();
+      void this.localNotifications.scheduleCreditCardDueReminders(debts);
+    });
+  }
 
   readonly accountTypes: AssetAccountType[] = ['bank', 'wallet', 'cash', 'other'];
   readonly debtTypes: DebtAccountType[] = ['credit-card', 'personal-loan', 'vehicle-loan', 'home-loan', 'other'];
+  readonly dayOptions = Array.from({ length: 28 }, (_, i) => i + 1);
+
+  daySuffix(d: number): string {
+    if (d >= 11 && d <= 13) return 'th';
+    switch (d % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  }
   readonly activeAccounts = computed(() => this.expenseStore.activeAccounts());
   readonly activeDebts = computed(() => this.expenseStore.activeDebts());
   readonly visibleDebts = computed(() => [
@@ -582,6 +658,10 @@ export class FinancesComponent {
     monthlyEmi: [0],
     startDate: [toLocalDateString(), Validators.required],
     nextDueDate: [''],
+    billGenerationDay: [0],
+    paymentDueDay: [0],
+    minimumPaymentAmount: [0],
+    cardNetworkOrBank: [''],
   });
 
   readonly paymentForm = new FormBuilder().nonNullable.group({
@@ -631,6 +711,10 @@ export class FinancesComponent {
       monthlyEmi: 0,
       startDate: toLocalDateString(),
       nextDueDate: '',
+      billGenerationDay: 0,
+      paymentDueDay: 0,
+      minimumPaymentAmount: 0,
+      cardNetworkOrBank: '',
     });
     this.showDebtForm.set(true);
   }
@@ -646,6 +730,10 @@ export class FinancesComponent {
       monthlyEmi: debt.monthlyEmi ?? 0,
       startDate: debt.startDate,
       nextDueDate: debt.nextDueDate ?? '',
+      billGenerationDay: debt.billGenerationDay ?? 0,
+      paymentDueDay: debt.paymentDueDay ?? 0,
+      minimumPaymentAmount: debt.minimumPaymentAmount ?? 0,
+      cardNetworkOrBank: debt.cardNetworkOrBank ?? '',
     });
     this.showDebtForm.set(true);
   }
@@ -668,6 +756,7 @@ export class FinancesComponent {
     this.saving.set(true);
     try {
       const value = this.debtForm.getRawValue();
+      const isCreditCard = value.type === 'credit-card';
       const input = {
         name: value.name,
         type: value.type,
@@ -675,8 +764,12 @@ export class FinancesComponent {
         remainingBalance: value.remainingBalance,
         interestRate: value.interestRate > 0 ? value.interestRate : undefined,
         monthlyEmi: value.monthlyEmi > 0 ? value.monthlyEmi : undefined,
-        startDate: value.startDate,
-        nextDueDate: value.nextDueDate || undefined,
+        startDate: isCreditCard ? toLocalDateString() : value.startDate,
+        nextDueDate: isCreditCard ? undefined : (value.nextDueDate || undefined),
+        billGenerationDay: isCreditCard && value.billGenerationDay > 0 ? value.billGenerationDay : undefined,
+        paymentDueDay: isCreditCard && value.paymentDueDay > 0 ? value.paymentDueDay : undefined,
+        minimumPaymentAmount: isCreditCard && value.minimumPaymentAmount > 0 ? value.minimumPaymentAmount : undefined,
+        cardNetworkOrBank: isCreditCard && value.cardNetworkOrBank ? value.cardNetworkOrBank : undefined,
       };
       const editing = this.editingDebt();
       if (editing) {
@@ -691,6 +784,9 @@ export class FinancesComponent {
           this.i18n.t('finances.feedback.debtCreated'),
           this.i18n.t('finances.feedback.savedToDrive')
         );
+      }
+      if (isCreditCard) {
+        void this.localNotifications.scheduleCreditCardDueReminders(this.expenseStore.debts());
       }
       this.cancelDebtForm();
     } catch (error) {
@@ -825,6 +921,9 @@ export class FinancesComponent {
         this.i18n.t(editingPayment ? 'finances.feedback.debtPaymentUpdated' : 'finances.feedback.debtPaymentSaved'),
         this.i18n.t('finances.feedback.savedToDrive')
       );
+      if (debt.type === 'credit-card') {
+        void this.localNotifications.scheduleCreditCardDueReminders(this.expenseStore.debts());
+      }
       this.cancelDebtPayment();
     } catch (error) {
       this.feedback.error(
@@ -924,6 +1023,9 @@ export class FinancesComponent {
     this.saving.set(true);
     try {
       await this.expenseStore.deleteDebt(debt.id);
+      if (debt.type === 'credit-card') {
+        void this.localNotifications.cancelCreditCardDueReminder(debt.id);
+      }
       this.feedback.success(
         this.i18n.t('finances.feedback.debtDeleted'),
         this.i18n.t('finances.feedback.savedToDrive')

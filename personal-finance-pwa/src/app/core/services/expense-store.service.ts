@@ -16,6 +16,7 @@ import {
   DEBT_PAYMENT_EXPENSE_TYPE,
   ExpenseEntry,
   ExpenseLimit,
+  PendingCcExpense,
   RecordDebtPaymentInput,
   UpdateAssetAccountInput,
   UpdateDebtAccountInput,
@@ -30,6 +31,7 @@ import { toLocalDateString } from '../utils/local-date';
 
 const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
 const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
+const PENDING_CC_SELECTION_KEY = 'spenza_pending_cc_expense_queue_v1';
 
 interface ExpenseWidgetPlugin {
   refresh(): Promise<void>;
@@ -57,6 +59,7 @@ interface WidgetExpenseQueueItemBase {
 interface WidgetExpenseEntryQueueItem extends WidgetExpenseQueueItemBase {
   kind: 'expense';
   entry: ExpenseEntry;
+  isCreditCard: boolean;
 }
 
 interface WidgetAdjustmentQueueItem extends WidgetExpenseQueueItemBase {
@@ -71,6 +74,9 @@ type AccountBalanceDelta = Map<string, number>;
 // ─── Drive Error Subject ──────────────────────────────────────────────────────
 
 export const driveError$ = new Subject<DriveApiError | DriveParseError>();
+
+/** Emitted when a CC expense is detected from a notification but no credit card account exists in Finances. */
+export const noCcAccountForExpense$ = new Subject<{ amount: number; comment?: string }>();
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 
@@ -90,6 +96,8 @@ interface ExpenseState {
   lastKnownDriveModifiedTime: string | null;
   /** IDs of items written locally but not yet confirmed in Drive. Cleared only after writeBackupFile() succeeds. */
   pendingSyncIds: string[];
+  /** CC expenses that arrived from the notification widget when multiple CC accounts exist — waiting for the user to pick which card. */
+  pendingCcExpenses: PendingCcExpense[];
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -113,6 +121,7 @@ export const ExpenseStore = signalStore(
     receiptFolderId: null,
     lastKnownDriveModifiedTime: null,
     pendingSyncIds: [],
+    pendingCcExpenses: [],
   }),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
@@ -503,12 +512,13 @@ export const ExpenseStore = signalStore(
           kind: 'expense',
           userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
           entry: wrappedEntry,
+          isCreditCard: record['isCreditCard'] === true,
           raw,
         };
       }
 
       if (isExpenseEntry(raw)) {
-        return { kind: 'expense', userEmail: null, entry: raw, raw };
+        return { kind: 'expense', userEmail: null, entry: raw, isCreditCard: record['isCreditCard'] === true, raw };
       }
 
       return null;
@@ -556,12 +566,51 @@ export const ExpenseStore = signalStore(
       const newEntries: ExpenseEntry[] = [];
       const existingAdjustmentIds = new Set(store.accountAdjustments().map((adjustment) => adjustment.id));
       let nextAccounts = [...store.accounts()];
+      let nextDebts = [...store.debts()];
       const newAdjustments: AccountBalanceAdjustment[] = [];
+      const newPendingCc: PendingCcExpense[] = [];
+      let noCcAccountDetected = false;
 
       for (const item of activeItems) {
         if (item.kind === 'expense') {
-          const entry = item.entry;
+          let entry = item.entry;
           if (existingIds.has(entry.id)) continue;
+
+          if (item.isCreditCard && !entry.debtId) {
+            const activeCreditCards = nextDebts.filter((d) => d.type === 'credit-card' && d.status === 'active');
+            if (activeCreditCards.length === 1) {
+              const cc = activeCreditCards[0];
+              entry = { ...entry, debtId: cc.id, accountId: undefined };
+              const idx = nextDebts.findIndex((d) => d.id === cc.id);
+              if (idx >= 0) {
+                nextDebts = nextDebts.map((d, i) =>
+                  i === idx
+                    ? { ...d, remainingBalance: roundMoney(d.remainingBalance + entry.amount), updatedAt: entry.timestamp }
+                    : d
+                );
+              }
+            } else if (activeCreditCards.length > 1) {
+              // Multiple CC accounts: park it for the user to pick via the in-app picker dialog
+              const alreadyPending = store.pendingCcExpenses().some((p) => p.id === entry.id);
+              if (!alreadyPending) {
+                newPendingCc.push({
+                  id: entry.id,
+                  amount: entry.amount,
+                  comment: entry.comment,
+                  timestamp: entry.timestamp,
+                  type: entry.type,
+                  date: entry.date,
+                  createdByEmail: entry.createdByEmail,
+                  createdByRole: entry.createdByRole,
+                });
+              }
+              existingIds.add(entry.id); // prevent duplicate processing on next flush
+              continue;
+            } else {
+              // No CC account — fall through to normal expense flow (save from default account)
+              noCcAccountDetected = true;
+            }
+          }
 
           if (entry.accountId) {
             const account = nextAccounts.find(
@@ -612,11 +661,24 @@ export const ExpenseStore = signalStore(
       }
 
       await storageService.set(WIDGET_EXPENSE_QUEUE_KEY, JSON.stringify(remainingRawItems));
+
+      // Persist pending CC selection queue and emit no-account signal
+      if (newPendingCc.length > 0) {
+        const merged = [...store.pendingCcExpenses(), ...newPendingCc];
+        await storageService.set(PENDING_CC_SELECTION_KEY, JSON.stringify(merged));
+        patchState(store, { pendingCcExpenses: merged });
+      }
+      if (noCcAccountDetected) {
+        const ccEntry = newEntries.find((e) => !e.debtId && !e.accountId) ?? newEntries[0];
+        noCcAccountForExpense$.next({ amount: ccEntry?.amount ?? 0, comment: ccEntry?.comment });
+      }
+
       if (newEntries.length === 0 && newAdjustments.length === 0) return false;
 
       patchState(store, {
         entries: [...newEntries, ...store.entries()],
         accounts: nextAccounts,
+        debts: nextDebts,
         accountAdjustments: [...newAdjustments, ...store.accountAdjustments()],
       });
       localRevision += 1;
@@ -977,6 +1039,13 @@ export const ExpenseStore = signalStore(
         if (!snapshot || !snapshotMatchesActiveMode(snapshot)) return false;
 
         setCurrencyFromBackup(snapshot.doc.metadata.currency);
+
+        let pendingCcExpenses: PendingCcExpense[] = [];
+        try {
+          const rawPendingCc = await storageService.get(PENDING_CC_SELECTION_KEY);
+          if (rawPendingCc) pendingCcExpenses = JSON.parse(rawPendingCc) as PendingCcExpense[];
+        } catch { /* ignore parse errors */ }
+
         patchState(store, {
           entries: snapshot.doc.expenses,
           limits: snapshot.doc.limits,
@@ -989,6 +1058,7 @@ export const ExpenseStore = signalStore(
           driveFileId: snapshot.fileId,
           lastKnownDriveModifiedTime: snapshot.modifiedTime,
           syncStatus: snapshot.dirty ? 'syncing' : 'idle',
+          pendingCcExpenses,
         });
         localRevision = snapshot.dirty ? 1 : 0;
         persistedRevision = 0;
@@ -1244,6 +1314,84 @@ export const ExpenseStore = signalStore(
           accountAdjustments: store.accountAdjustments().filter((adjustment) => adjustment.accountId !== accountId),
         });
         await markLocalChangeAndPersist();
+      },
+
+      /**
+       * Resolve a pending CC expense (shown in the multi-card picker dialog).
+       * @param expenseId - id of the PendingCcExpense to resolve
+       * @param debtId - ID of the chosen DebtAccount (credit card), or null to save from default account
+       */
+      async resolvePendingCcExpense(expenseId: string, debtId: string | null): Promise<void> {
+        const pending = store.pendingCcExpenses().find((p) => p.id === expenseId);
+        if (!pending) return;
+
+        const now = new Date().toISOString();
+        const defaultAccount = store.accounts().find((a) => a.isDefault && !a.archived)
+          ?? store.accounts().find((a) => !a.archived);
+
+        let nextDebts = store.debts();
+        let nextAccounts = store.accounts();
+        let newEntry: ExpenseEntry;
+
+        if (debtId) {
+          const cc = nextDebts.find((d) => d.id === debtId);
+          if (!cc) throw new Error('Credit card account not found');
+          newEntry = {
+            id: pending.id,
+            date: pending.date,
+            amount: pending.amount,
+            type: pending.type,
+            limit: 0,
+            savings: 0,
+            timestamp: pending.timestamp,
+            comment: pending.comment,
+            debtId,
+            source: 'notification-prompt',
+            createdByEmail: pending.createdByEmail,
+            createdByRole: pending.createdByRole,
+          };
+          nextDebts = nextDebts.map((d) =>
+            d.id === debtId
+              ? { ...d, remainingBalance: roundMoney(d.remainingBalance + pending.amount), updatedAt: now }
+              : d
+          );
+        } else {
+          // Save from default account
+          newEntry = {
+            id: pending.id,
+            date: pending.date,
+            amount: pending.amount,
+            type: pending.type,
+            limit: 0,
+            savings: 0,
+            timestamp: pending.timestamp,
+            comment: pending.comment,
+            accountId: defaultAccount?.id,
+            source: 'notification-prompt',
+            createdByEmail: pending.createdByEmail,
+            createdByRole: pending.createdByRole,
+          };
+          if (defaultAccount) {
+            nextAccounts = nextAccounts.map((a) =>
+              a.id === defaultAccount.id
+                ? { ...a, balance: roundMoney(a.balance - pending.amount), updatedAt: now }
+                : a
+            );
+          }
+        }
+
+        const remaining = store.pendingCcExpenses().filter((p) => p.id !== expenseId);
+        await storageService.set(PENDING_CC_SELECTION_KEY, JSON.stringify(remaining));
+
+        patchState(store, {
+          entries: [newEntry, ...store.entries()],
+          debts: nextDebts,
+          accounts: nextAccounts,
+          pendingCcExpenses: remaining,
+        });
+        localRevision += 1;
+        await methods.persistToDrive();
+        pushFamilyState();
       },
 
       async addDebt(input: CreateDebtAccountInput): Promise<void> {
