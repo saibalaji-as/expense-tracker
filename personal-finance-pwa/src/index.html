@@ -27,30 +27,19 @@
     // Injected at build time via CI — Google Maps JS API key (referrer-restricted)
     window.__GOOGLE_MAPS_API_KEY__ = 'GOOGLE_MAPS_API_KEY_PLACEHOLDER';
   </script>
-  <style>
-    .seo-content { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-  </style>
-  <div class="seo-content">
-    <h1>Spenza – Personal &amp; Family Finance Tracker</h1>
-    <p>Spenza is a personal and family finance tracker. It helps you record daily and monthly expenses, track your accounts and net worth, manage debts and EMIs, set budgets and spending limits, and understand where your money goes through a clear dashboard of insights — all in one private, secure place.</p>
-    <h2>Features</h2>
-    <ul>
-      <li>Expenses: Log daily and monthly spending and keep a running picture of your cash flow.</li>
-      <li>Accounts &amp; net worth: Track balances across your accounts and watch your net worth over time.</li>
-      <li>Debts &amp; EMIs: Keep tabs on loans and EMI schedules so nothing slips through.</li>
-      <li>Budgets &amp; insights: Set spending limits and review dashboard insights for personal or family finances.</li>
-    </ul>
-    <h2>How Spenza uses your Google account data</h2>
-    <p>Spenza only requests the Google permissions it needs to back up and import your own financial data. Your data stays yours — Spenza never sells it or shares it for advertising.</p>
-    <ul>
-      <li>Google Drive (scope: drive.appdata): Used only to store a private backup of your own financial data in a hidden, app-specific folder in your Google Drive. This folder is not visible alongside your normal Drive files, is not human-readable, and is never shared with anyone. Spenza cannot see, read, or touch any of your other Drive files.</li>
-      <li>Google Sheets (scope: spreadsheets): Used only when you choose to import existing records into Spenza from a spreadsheet you own. This is optional and user-initiated — Spenza does not read spreadsheets in the background.</li>
-      <li>Basic profile &amp; email (scopes: openid, email, profile): Used to sign you in securely and identify your account. Spenza does not use your email for marketing.</li>
-    </ul>
-    <p>Privacy Policy: <a href="https://spenza-finance.web.app/privacy">https://spenza-finance.web.app/privacy</a></p>
-    <p>Terms of Service: <a href="https://spenza-finance.web.app/terms">https://spenza-finance.web.app/terms</a></p>
-  </div>
   <app-root></app-root>
+  <div id="seo-content" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;">
+    <h1>Spenza – Personal &amp; Family Finance Tracker</h1>
+    <p>Spenza is a personal and family finance tracker. It helps you record daily and monthly expenses, track accounts and net worth, manage debts and EMIs, set budgets and spending limits.</p>
+    <h2>How Spenza uses your Google account data</h2>
+    <p>Spenza only requests Google permissions it needs to back up and import your own financial data. Your data stays yours — Spenza never sells it or shares it for advertising.</p>
+    <h3>Google Drive (scope: drive.appdata)</h3>
+    <p>Used to store a private backup of your financial data in a hidden app folder in Google Drive.</p>
+    <h3>Google Sheets (scope: spreadsheets)</h3>
+    <p>Used only when you choose to import records from a spreadsheet you own. Optional and user-initiated.</p>
+    <h3>Basic profile and email (scopes: openid, email, profile)</h3>
+    <p>Used to sign you in and identify your account.</p>
+  </div>
   <noscript>
     <h1>Spenza – Personal &amp; Family Finance Tracker</h1>
     <p>Spenza is a personal and family finance tracker. It helps you record daily and monthly expenses, track your accounts and net worth, manage debts and EMIs, set budgets and spending limits, and understand where your money goes through a clear dashboard of insights — all in one private, secure place.</p>
