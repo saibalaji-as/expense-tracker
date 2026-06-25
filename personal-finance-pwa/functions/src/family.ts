@@ -3,7 +3,7 @@ import * as functions from 'firebase-functions/v2/https';
 import type { Request } from 'firebase-functions/v2/https';
 
 const CORS_ORIGINS = [
-  'https://spenza-finance.web.app',
+  'https://spenza.site',
   'http://localhost:4200',
   'http://localhost',
   'https://localhost',

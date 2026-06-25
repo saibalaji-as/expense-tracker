@@ -23,7 +23,7 @@ function resolvePlanId(planType: PlanType): string {
   return id;
 }
 
-const CORS_ORIGINS = ['https://spenza-finance.web.app', 'http://localhost:4200'];
+const CORS_ORIGINS = ['https://spenza.site', 'http://localhost:4200'];
 
 /**
  * Creates a Razorpay subscription.

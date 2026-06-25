@@ -24,7 +24,7 @@ const ACCESS_TOKEN_KEY = 'gapi_access_token';
 const ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
 /** 5-minute safety buffer so a token that is about to expire is never handed out. */
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
-const SUBSCRIBE_URL = 'https://spenza-finance.web.app/#/subscribe';
+const SUBSCRIBE_URL = 'https://spenza.site/#/subscribe';
 
 export interface SignInResult {
   email: string | null;

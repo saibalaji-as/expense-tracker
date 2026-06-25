@@ -11,7 +11,7 @@ function getStripe(): Stripe {
 
 /** Creates a Stripe Checkout session and returns its URL. */
 export const createStripeSession = functions.onRequest(
-  { cors: ['https://spenza-finance.web.app', 'http://localhost:4200'], invoker: 'public' },
+  { cors: ['https://spenza.site', 'http://localhost:4200'], invoker: 'public' },
   async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });
@@ -29,8 +29,8 @@ export const createStripeSession = functions.onRequest(
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `https://spenza-finance.web.app/#/subscribe?success=1`,
-        cancel_url: `https://spenza-finance.web.app/#/subscribe`,
+        success_url: `https://spenza.site/#/subscribe?success=1`,
+        cancel_url: `https://spenza.site/#/subscribe`,
         metadata: { uid },
         subscription_data: { metadata: { uid } },
       });
