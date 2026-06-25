@@ -1,3 +1,4 @@
+// @deprecated — Sheets import removed in v9. Safe to delete after 2026-09-01.
 import { Injectable, isDevMode } from '@angular/core';
 import { Subject } from 'rxjs';
 import { AuthService } from './auth.service';

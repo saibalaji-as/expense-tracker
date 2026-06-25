@@ -162,21 +162,6 @@ import { SpenzaLogoComponent } from '../../shared/components/spenza-logo/spenza-
 
             <div class="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <div class="flex items-start gap-3">
-                <div class="feature-icon bg-success/10 text-success mt-0.5">📄</div>
-                <div>
-                  <h3 class="font-semibold">Google Sheets</h3>
-                  <p class="text-xs text-muted-foreground mb-2">scope: spreadsheets</p>
-                  <p class="text-sm text-muted-foreground leading-relaxed">
-                    Used only when you choose to import existing records from a spreadsheet you own.
-                    Optional and user-initiated — Spenza does not read spreadsheets in the background
-                    or access any spreadsheet you haven't explicitly selected.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div class="flex items-start gap-3">
                 <div class="feature-icon bg-accent text-accent-foreground mt-0.5">👤</div>
                 <div>
                   <h3 class="font-semibold">Basic profile &amp; email</h3>

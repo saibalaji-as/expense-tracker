@@ -53,8 +53,8 @@ firebase functions:delete testNotification   # remove the live insecure endpoint
 
 ## 3. Google OAuth verification (web) — step by step
 
-Your app uses two **sensitive** scopes: `drive.appdata` and `spreadsheets`
-(plus non-sensitive `openid email profile`). Sensitive scopes require app
+Your app uses one **sensitive** scope: `drive.appdata`
+(plus non-sensitive `openid email profile`). The `spreadsheets` scope was removed in v9 (Sheets import feature removed). Sensitive scopes require app
 verification but **not** the expensive CASA security assessment (that's only
 for *restricted* scopes like full Drive — which you correctly removed in v8).
 
@@ -72,11 +72,9 @@ for *restricted* scopes like full Drive — which you correctly removed in v8).
      reachable, and the privacy policy must explicitly describe Google user
      data use (what is read, stored, shared — see `docs/DATA_SAFETY.md`).
 2. **Scopes tab:** add exactly `openid`, `email`, `profile`,
-   `https://www.googleapis.com/auth/drive.appdata`,
-   `https://www.googleapis.com/auth/spreadsheets`.
+   `https://www.googleapis.com/auth/drive.appdata`.
+   The `spreadsheets` scope has been removed (Sheets import removed in v9).
    Use the justifications already drafted in `docs/OAUTH_SCOPE_JUSTIFICATION.md`.
-   If Sheets is only legacy-import, consider dropping `spreadsheets` entirely —
-   `drive.appdata` alone may pass with lighter review.
 3. **Credentials:** verify redirect origins on the web client:
    `https://spenza-finance.web.app`, `http://localhost:4200` (dev only — remove
    dev origins from the production client before submitting).
@@ -87,7 +85,7 @@ for *restricted* scopes like full Drive — which you correctly removed in v8).
 4. **Demo video (required for sensitive scopes):** record a video showing
    sign-in with the Google account picker, the consent screen with your app
    name and scopes, and the features that use each scope (Drive backup in
-   Settings, Sheets import). Upload unlisted to YouTube; link it in the
+   Settings). Upload unlisted to YouTube; link it in the
    verification request.
 5. **Limited Use disclosure:** your privacy policy must contain the Google
    API Services User Data Policy "Limited Use" affirmation sentence.

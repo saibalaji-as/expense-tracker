@@ -1,3 +1,4 @@
+// @deprecated — Sheets import removed in v9. Safe to delete after 2026-09-01.
 // Feature: personal-finance-pwa, Property 2: Batch serialization consistency
 // Feature: personal-finance-pwa, Property 3: API error propagation
 import * as fc from 'fast-check';

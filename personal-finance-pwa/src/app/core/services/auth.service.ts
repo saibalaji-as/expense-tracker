@@ -10,14 +10,11 @@ declare const google: any;
 
 const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 
-// Scopes required for Google Sheets API access
-const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 // Always request all required scopes — openid/email/profile for Firebase Auth identity
-// verification (userinfo endpoint), drive.appdata for private config/backup file,
-// spreadsheets for Sheets import migration. Full drive scope removed in v8.
-const ALL_SCOPES = `openid email profile ${SHEETS_SCOPE} ${DRIVE_APPDATA_SCOPE}`;
-const SCOPE_VERSION = '8'; // v8 = removed full drive scope (family sync now uses Firestore)
+// verification (userinfo endpoint), drive.appdata for private config/backup file.
+const ALL_SCOPES = `openid email profile ${DRIVE_APPDATA_SCOPE}`;
+const SCOPE_VERSION = '9'; // v9 = removed spreadsheets scope (Sheets import feature removed)
 // Persisted short-lived Google access token (web + native). Key names are read by the
 // native Android widget sync — do NOT rename the storage key strings.
 const ACCESS_TOKEN_KEY = 'gapi_access_token';
@@ -541,7 +538,7 @@ export class AuthService {
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
-    const scopes = [SHEETS_SCOPE, DRIVE_APPDATA_SCOPE];
+    const scopes = [DRIVE_APPDATA_SCOPE];
 
     // Silent mode (cold-start / foreground token refresh for a returning user):
     // ask Android Credential Manager to auto-select the previously authorized

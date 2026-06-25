@@ -1,3 +1,4 @@
+// @deprecated — Sheets import removed in v9. Safe to delete after 2026-09-01.
 // Task 17.1: GoogleSheetsService API call pattern integration tests
 // Tests the API call patterns using a mocked gapi global.
 // We test the logic directly without instantiating the Angular service

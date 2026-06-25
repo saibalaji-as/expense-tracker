@@ -27,12 +27,9 @@ permission needed for backup and config storage regardless of family status.
 
 ---
 
-## `spreadsheets` scope
+## `spreadsheets` scope — REMOVED
 
-Spenza provides a one-time import feature that allows users to migrate their
-existing expense data from a Google Sheets spreadsheet into Spenza's
-Drive-backed storage. This is a user-initiated action in Settings and is not
-used for ongoing data access.
+The one-time Google Sheets import feature was removed. The spreadsheets scope is no longer requested.
 
 ---
 

@@ -26,7 +26,6 @@ import { FcmService } from '../../core/services/fcm.service';
 import { SyncService } from '../../core/services/sync.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { ThemeService, AppPalette, AppStyle } from '../../core/services/theme.service';
-import { GoogleSheetsService } from '../../core/services/google-sheets.service';
 import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
 import { StorageService } from '../../core/services/storage.service';
@@ -37,7 +36,6 @@ import { SpendNotificationAccessService } from '../../core/services/spend-notifi
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { PaymentService } from '../../core/services/payment.service';
-import { METADATA_MONTHLY_INCOME } from '../../core/models';
 import { NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '../../core/models/notification-preferences.model';
 import { FamilyDocument } from '../../core/models/family-sync.model';
 import { FamilyApiService } from '../../core/services/family-api.service';
@@ -815,48 +813,6 @@ interface BeforeInstallPromptEvent extends Event {
       <!-- Receipt folder card removed: receipts now live in the private Drive
            appDataFolder (drive.appdata scope) — no user-visible folder to set up. -->
 
-      <!-- Import from Google Sheets -->
-      <app-section-card [title]="'settings.import.title' | translate" [description]="'settings.import.description' | translate">
-        <p class="text-xs text-muted-foreground mb-3">
-          Paste your Google Spreadsheet ID below. Found in the URL:
-          <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">docs.google.com/spreadsheets/d/<strong>SPREADSHEET_ID</strong>/edit</code>
-        </p>
-
-        <div class="flex flex-col gap-2 sm:flex-row">
-          <input appClearable
-            type="text"
-            [(ngModel)]="importSheetId"
-            [placeholder]="'settings.import.placeholder' | translate"
-            class="flex-1 rounded-2xl border border-border bg-card/60 px-4 py-2.5 font-mono text-xs text-foreground outline-none focus:border-primary"
-            aria-label="Google Spreadsheet ID for import"
-          />
-          <button
-            type="button"
-            (click)="onImportFromSheets()"
-            [disabled]="isImporting() || !importSheetId.trim()"
-            class="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold text-primary-foreground gradient-primary shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            @if (isImporting()) {
-              <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-              {{ 'settings.import.importing' | translate }}
-            } @else {
-              <lucide-icon [img]="importIcon" class="h-4 w-4" />
-              {{ 'settings.import.button' | translate }}
-            }
-          </button>
-        </div>
-
-        @if (importMessage()) {
-          <p
-            class="mt-2 text-xs"
-            [style.color]="importError() ? 'var(--destructive)' : 'var(--success)'"
-            role="status"
-          >
-            {{ importMessage() }}
-          </p>
-        }
-      </app-section-card>
-
       <!-- Push Notifications -->
       <app-section-card class="relative z-50" [title]="'settings.push.title' | translate" [description]="'settings.push.description' | translate">
         <div class="space-y-4">
@@ -1486,7 +1442,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly syncService = inject(SyncService);
   readonly expenseStore = inject(ExpenseStore);
   readonly themeService = inject(ThemeService);
-  private readonly sheetsService = inject(GoogleSheetsService);
   readonly backupModeService = inject(BackupModeService);
   private readonly googleDriveService = inject(GoogleDriveService);
   private readonly storageService = inject(StorageService);
@@ -1540,11 +1495,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly editIcon = Pencil;
   readonly xCircleIcon = XCircle;
 
-  // ─── Import from Sheets ───────────────────────────────────────────────────────
-  importSheetId = '';
-  readonly isImporting = signal(false);
-  readonly importMessage = signal<string | null>(null);
-  readonly importError = signal(false);
   readonly isRestoringJson = signal(false);
   readonly restoreJsonMessage = signal<string | null>(null);
   readonly restoreJsonError = signal(false);
@@ -1909,57 +1859,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
     ]);
 
     await this.storageService.clear();
-  }
-
-  // ─── Import from Google Sheets ───────────────────────────────────────────────
-
-  async onImportFromSheets(): Promise<void> {
-    const sheetId = this.importSheetId.trim();
-    if (!sheetId) return;
-
-    this.isImporting.set(true);
-    this.importMessage.set(null);
-    this.importError.set(false);
-
-    try {
-      // Authenticate gapi for Sheets access
-      await this.sheetsService.authenticate();
-
-      // Read all data from Sheets in parallel
-      // Pass '' as month so startsWith('') matches every row
-      const [allExpenses, limits, metadata] = await Promise.all([
-        this.sheetsService.readExpenses(sheetId, ''),
-        this.sheetsService.readLimits(sheetId),
-        this.sheetsService.readMetadata(sheetId),
-      ]);
-
-      const monthlyIncome = parseFloat(metadata[METADATA_MONTHLY_INCOME] ?? '0') || 0;
-
-      // Write everything into the Drive backup via the store
-      // setLimitsAndIncome + addEntry would trigger N writes; use patchState directly
-      // by calling loadFromDrive after bulk-setting state via a dedicated path.
-      // Simplest: update store state then call persistToDrive once.
-      await this.expenseStore.importFromSheets(allExpenses, limits, monthlyIncome);
-
-      this.importMessage.set(
-        `Imported and saved ${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income ${this.currencyService.format(monthlyIncome, this.i18n.locale())}.`
-      );
-      this.feedback.success(
-        'Import saved.',
-        `${allExpenses.length} expenses, ${limits.length} budget limits, and monthly income were saved to your Drive backup.`
-      );
-      this.importSheetId = '';
-    } catch (err: any) {
-      console.error('[Settings] Import from Sheets failed:', err);
-      this.importError.set(true);
-      this.importMessage.set(err?.message ?? 'Import failed. Check the spreadsheet ID and try again.');
-      this.feedback.error(
-        'Import was not saved.',
-        err?.message ?? 'Check the spreadsheet ID, Google access, and internet connection, then try again.'
-      );
-    } finally {
-      this.isImporting.set(false);
-    }
   }
 
   // ─── Notification toggle ──────────────────────────────────────────────────────

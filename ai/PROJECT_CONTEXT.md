@@ -137,11 +137,11 @@
     - `gapi_access_token_expires_at`
   - Native token cache is cleared on sign-out, scope-version mismatch, and full Preferences clear.
 - Required scopes:
-  - Sheets: `https://www.googleapis.com/auth/spreadsheets`.
   - Drive appDataFolder: `https://www.googleapis.com/auth/drive.appdata`.
   - Full Drive scope removed in v8 — family sync now uses Firestore, not shared Drive files.
+  - Spreadsheets scope removed in v9 — Sheets import feature removed.
 - Scope version:
-  - `SCOPE_VERSION = '8'`.
+  - `SCOPE_VERSION = '9'`.
   - Mismatch clears cached auth state to force re-consent.
 - Cached auth keys:
   - `gapi_auth_state`
