@@ -217,6 +217,7 @@
   "common.confirm": "Confirm",
   "common.loading": "Loading...",
   "common.noData": "No data available.",
+  "common.optional": "(Optional)",
   "common.amount": "Amount",
   "common.date": "Date",
   "common.limit": "Limit",

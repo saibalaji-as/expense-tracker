@@ -115,7 +115,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
         >
           <div class="flex items-center gap-3 rounded-2xl border border-border bg-card/60 px-4 py-3 focus-within:border-primary focus-within:shadow-glow transition-all">
             <span class="text-2xl font-semibold text-muted-foreground">{{ currencyService.symbol() }}</span>
-            <label for="monthlyIncome" class="sr-only">{{ 'limits.income.title' | translate }}</label>
+            <label for="monthlyIncome" class="sr-only">{{ 'limits.income.title' | translate }}<span class="text-destructive">*</span></label>
             <input appClearable
               type="number"
               id="monthlyIncome"
@@ -125,7 +125,7 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
               placeholder="0"
               class="w-full bg-transparent text-2xl font-semibold outline-none"
             />
-            <span class="hidden text-xs text-muted-foreground md:inline">{{ 'limits.perMonth' | translate }}</span>
+            <span class="hidden text-xs text-muted-foreground md:inline">{{ 'limits.perMonth' | translate }}<span class="text-destructive ml-0.5">*</span></span>
           </div>
           @if (isIncomeInvalid()) {
             <p class="mt-2 text-xs text-destructive">
@@ -163,12 +163,15 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                       <span class="truncate text-sm font-medium">{{ getDisplayType(i) }}</span>
                     } @else {
                       <div class="min-w-0 flex-1">
-                        <input appClearable
-                          type="text"
-                          formControlName="type"
-                          [placeholder]="'limits.custom.namePlaceholder' | translate"
-                          class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
-                        />
+                        <div class="flex items-center gap-1">
+                          <input appClearable
+                            type="text"
+                            formControlName="type"
+                            [placeholder]="'limits.custom.namePlaceholder' | translate"
+                            class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+                          />
+                          <span class="shrink-0 text-destructive text-xs">*</span>
+                        </div>
                         @if (isCustomTypeInvalid(group)) {
                           <p class="mt-1 text-[10px] text-destructive">{{ 'limits.custom.nameRequired' | translate }}</p>
                         }
@@ -233,12 +236,15 @@ const BUDGET_GROUPS: BudgetCategory[] = ['Needs', 'Wants', 'Savings', 'Growth', 
                         [style.color]="'var(' + getCatColorVar(i) + ')'"
                       >{{ getGroupName(group.get('category')?.value) }} · rec. {{ group.get('recommendedPercentage')?.value }}%</p>
                     } @else {
-                      <input appClearable
-                        type="text"
-                        formControlName="type"
-                        [placeholder]="'limits.custom.namePlaceholder' | translate"
-                        class="w-full rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
-                      />
+                      <div class="flex items-center gap-1">
+                        <input appClearable
+                          type="text"
+                          formControlName="type"
+                          [placeholder]="'limits.custom.namePlaceholder' | translate"
+                          class="flex-1 rounded-lg border border-border bg-card/60 px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+                        />
+                        <span class="shrink-0 text-destructive text-xs">*</span>
+                      </div>
                       <div class="mt-1.5">
                         <app-themed-select formControlName="category" [options]="budgetGroupOptions()" size="xs" />
                       </div>

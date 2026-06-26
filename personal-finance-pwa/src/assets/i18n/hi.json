@@ -217,6 +217,7 @@
   "common.confirm": "पुष्टि करें",
   "common.loading": "लोड हो रहा है...",
   "common.noData": "कोई डेटा उपलब्ध नहीं.",
+  "common.optional": "(वैकल्पिक)",
   "common.amount": "राशि",
   "common.date": "तारीख",
   "common.limit": "सीमा",

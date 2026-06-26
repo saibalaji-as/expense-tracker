@@ -1442,6 +1442,10 @@ export const ExpenseStore = signalStore(
           ...(monthlyEmi !== undefined ? { monthlyEmi } : {}),
           startDate: input.startDate,
           ...(input.nextDueDate ? { nextDueDate: input.nextDueDate } : {}),
+          ...(input.billGenerationDay !== undefined ? { billGenerationDay: input.billGenerationDay } : {}),
+          ...(input.paymentDueDay !== undefined ? { paymentDueDay: input.paymentDueDay } : {}),
+          ...(input.minimumPaymentAmount !== undefined ? { minimumPaymentAmount: input.minimumPaymentAmount } : {}),
+          ...(input.cardNetworkOrBank ? { cardNetworkOrBank: input.cardNetworkOrBank } : {}),
           status: remainingBalance === 0 ? 'paid' : 'active',
           createdAt: now,
           updatedAt: now,
@@ -1470,6 +1474,10 @@ export const ExpenseStore = signalStore(
         const monthlyEmi = input.monthlyEmi === undefined ? existing.monthlyEmi : roundMoney(Number(input.monthlyEmi));
         const startDate = input.startDate ?? existing.startDate;
         const nextDueDate = input.nextDueDate ?? existing.nextDueDate;
+        const billGenerationDay = input.billGenerationDay ?? existing.billGenerationDay;
+        const paymentDueDay = input.paymentDueDay ?? existing.paymentDueDay;
+        const minimumPaymentAmount = input.minimumPaymentAmount ?? existing.minimumPaymentAmount;
+        const cardNetworkOrBank = input.cardNetworkOrBank ?? existing.cardNetworkOrBank;
 
         if (!name) {
           throw new Error('Debt name is required.');
@@ -1511,6 +1519,10 @@ export const ExpenseStore = signalStore(
                   ...(monthlyEmi !== undefined ? { monthlyEmi } : { monthlyEmi: undefined }),
                   startDate,
                   ...(nextDueDate ? { nextDueDate } : { nextDueDate: undefined }),
+                  ...(billGenerationDay !== undefined ? { billGenerationDay } : { billGenerationDay: undefined }),
+                  ...(paymentDueDay !== undefined ? { paymentDueDay } : { paymentDueDay: undefined }),
+                  ...(minimumPaymentAmount !== undefined ? { minimumPaymentAmount } : { minimumPaymentAmount: undefined }),
+                  ...(cardNetworkOrBank ? { cardNetworkOrBank } : { cardNetworkOrBank: undefined }),
                   status: input.status ?? (remainingBalance === 0 ? 'paid' : debt.status === 'paid' ? 'paid' : 'active'),
                   updatedAt: now,
                   updatedByEmail: actor.email,

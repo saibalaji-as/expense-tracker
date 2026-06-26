@@ -109,7 +109,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
         <p class="-mt-2 mb-4 text-sm text-muted-foreground">{{ 'finances.accounts.formDescription' | translate }}</p>
         <form [formGroup]="accountForm" (ngSubmit)="saveAccount()" class="grid gap-4 md:grid-cols-2">
           <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.name' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.name' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <input appClearable
               type="text"
               formControlName="name"
@@ -119,13 +119,13 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
           </label>
 
           <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.type' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.type' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <app-themed-select formControlName="type" [options]="accountTypeOptions()" />
           </label>
 
           @if (!editingAccount()) {
             <label class="space-y-1.5">
-              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.initialBalance' | translate }}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.accounts.initialBalance' | translate }}<span class="text-destructive ml-0.5">*</span></span>
               <input appClearable
                 type="number"
                 min="0"
@@ -139,7 +139,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
           <div class="grid gap-3 md:col-span-2 sm:grid-cols-2">
             <label class="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3">
               <span>
-                <span class="block text-sm font-medium">{{ 'finances.accounts.default' | translate }}</span>
+                <span class="block text-sm font-medium">{{ 'finances.accounts.default' | translate }} <span class="text-muted-foreground text-[10px] font-normal">{{ 'common.optional' | translate }}</span></span>
                 <span class="text-xs text-muted-foreground">{{ 'finances.accounts.defaultHint' | translate }}</span>
               </span>
               <input type="checkbox" formControlName="isDefault" class="h-5 w-5 accent-primary" />
@@ -147,7 +147,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
 
             <label class="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3">
               <span>
-                <span class="block text-sm font-medium">{{ 'finances.accounts.overdraft' | translate }}</span>
+                <span class="block text-sm font-medium">{{ 'finances.accounts.overdraft' | translate }} <span class="text-muted-foreground text-[10px] font-normal">{{ 'common.optional' | translate }}</span></span>
                 <span class="text-xs text-muted-foreground">{{ 'finances.accounts.overdraftHint' | translate }}</span>
               </span>
               <input type="checkbox" formControlName="allowOverdraft" class="h-5 w-5 accent-primary" />
@@ -183,7 +183,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
         <p class="-mt-2 mb-3 text-xs leading-relaxed text-muted-foreground sm:text-sm">{{ 'finances.debts.formDescription' | translate }}</p>
         <form [formGroup]="debtForm" (ngSubmit)="saveDebt()" class="grid grid-cols-2 gap-3">
           <label class="col-span-2 space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.name' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.name' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <input appClearable
               type="text"
               formControlName="name"
@@ -193,37 +193,39 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
           </label>
 
           <div class="relative col-span-2 space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.type' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.type' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <app-themed-select formControlName="type" [options]="debtTypeOptions()" />
           </div>
 
           <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.principalAmount' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.principalAmount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <input appClearable type="number" min="0.01" step="0.01" formControlName="principalAmount" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
           </label>
 
           <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.remainingBalance' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.remainingBalance' | translate }}<span class="text-destructive ml-0.5">*</span></span>
             <input appClearable type="number" min="0" step="0.01" formControlName="remainingBalance" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
           </label>
 
           <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.interestRate' | translate }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.interestRate' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
             <input appClearable type="number" min="0" step="0.01" formControlName="interestRate" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
           </label>
 
-          <label class="space-y-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.monthlyEmi' | translate }}</span>
-            <input appClearable type="number" min="0" step="0.01" formControlName="monthlyEmi" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
-          </label>
+          @if (debtForm.controls.type.value !== 'credit-card') {
+            <label class="space-y-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.monthlyEmi' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
+              <input appClearable type="number" min="0" step="0.01" formControlName="monthlyEmi" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+            </label>
+          }
 
           @if (debtForm.controls.type.value !== 'credit-card') {
             <label class="col-span-2 space-y-1.5">
-              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.startDate' | translate }}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.startDate' | translate }}<span class="text-destructive ml-0.5">*</span></span>
               <input appClearable type="date" formControlName="startDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
             </label>
             <label class="col-span-2 space-y-1.5">
-              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.nextDueDate' | translate }}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.debts.nextDueDate' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
               <input appClearable type="date" formControlName="nextDueDate" class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
             </label>
           }
@@ -233,7 +235,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
               <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Credit Card Details</p>
               <div class="grid grid-cols-2 gap-3">
                 <label class="space-y-1.5">
-                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill Generation Date</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill Generation Date<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                   <select formControlName="billGenerationDay" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
                     <option [value]="0">Select day</option>
                     @for (d of dayOptions; track d) {
@@ -243,7 +245,7 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                   <span class="text-[10px] text-muted-foreground">Day statement is generated</span>
                 </label>
                 <label class="space-y-1.5">
-                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment Due Date</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment Due Date<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                   <select formControlName="paymentDueDay" class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
                     <option [value]="0">Select day</option>
                     @for (d of dayOptions; track d) {
@@ -253,12 +255,12 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                   <span class="text-[10px] text-muted-foreground">Reminder fires 3 days before this</span>
                 </label>
                 <label class="space-y-1.5">
-                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Minimum Payment Amount</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Minimum Payment Amount<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                   <input appClearable type="number" min="0" step="0.01" formControlName="minimumPaymentAmount"
                     class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
                 </label>
                 <label class="space-y-1.5">
-                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bank / Card Network</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bank / Card Network<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                   <input appClearable type="text" formControlName="cardNetworkOrBank"
                     class="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                     placeholder="e.g. HDFC Visa" />
@@ -334,15 +336,15 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                 @if (adjustingAccount()?.id === account.id) {
                   <form [formGroup]="adjustmentForm" (ngSubmit)="saveAdjustment()" class="mt-4 grid gap-3 rounded-2xl border border-border bg-muted/30 p-3 sm:grid-cols-[160px_1fr_minmax(160px,1fr)_auto] sm:items-end">
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.adjust.kind' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.adjust.kind' | translate }}<span class="text-destructive ml-0.5">*</span></span>
                       <app-themed-select formControlName="kind" [options]="adjustmentKindOptions()" size="sm" />
                     </label>
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
                       <input appClearable type="number" min="0.01" step="0.01" formControlName="amount" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
                     </label>
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.adjust.reason' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.adjust.reason' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                       <input appClearable type="text" formControlName="reason" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" [placeholder]="'finances.adjust.reasonPlaceholder' | translate" />
                     </label>
                     <div class="flex gap-2">
@@ -468,19 +470,19 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                 @if (payingDebt()?.id === debt.id) {
                   <form [formGroup]="paymentForm" (ngSubmit)="saveDebtPayment()" class="mt-4 grid gap-3 rounded-2xl border border-border bg-muted/30 p-3 sm:grid-cols-[1fr_1fr_1fr_minmax(160px,1fr)_auto] sm:items-end">
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
                       <input appClearable type="number" min="0.01" step="0.01" formControlName="amount" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
                     </label>
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.date' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.date' | translate }}<span class="text-destructive ml-0.5">*</span></span>
                       <input appClearable type="date" formControlName="date" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
                     </label>
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                       <app-themed-select formControlName="accountId" [options]="paymentAccountOptions()" size="sm" />
                     </label>
                     <label class="space-y-1">
-                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.comment' | translate }}</span>
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.comment' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
                       <input appClearable type="text" formControlName="comment" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" [placeholder]="'finances.debts.paymentCommentPlaceholder' | translate" />
                     </label>
                     <div class="flex gap-2">
@@ -764,7 +766,7 @@ export class FinancesComponent {
         remainingBalance: value.remainingBalance,
         interestRate: value.interestRate > 0 ? value.interestRate : undefined,
         monthlyEmi: value.monthlyEmi > 0 ? value.monthlyEmi : undefined,
-        startDate: isCreditCard ? toLocalDateString() : value.startDate,
+        startDate: isCreditCard ? (this.editingDebt()?.startDate ?? toLocalDateString()) : value.startDate,
         nextDueDate: isCreditCard ? undefined : (value.nextDueDate || undefined),
         billGenerationDay: isCreditCard && value.billGenerationDay > 0 ? value.billGenerationDay : undefined,
         paymentDueDay: isCreditCard && value.paymentDueDay > 0 ? value.paymentDueDay : undefined,

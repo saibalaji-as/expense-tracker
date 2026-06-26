@@ -313,7 +313,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 
             <!-- Category chips -->
             <div>
-              <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.expenseType' | translate }}</p>
+              <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.expenseType' | translate }}<span class="text-destructive ml-0.5">*</span></p>
               <div class="flex flex-wrap gap-1.5">
                 @for (cat of visibleCategories(); track cat.id) {
                   <button
@@ -367,7 +367,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
             <div class="mt-4 flex gap-2">
               <!-- Amount -->
               <div class="flex-1 min-w-0">
-	                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}</label>
+	                <label for="amount-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}<span class="text-destructive ml-0.5">*</span></label>
                 <div class="mt-1 flex items-center gap-1.5 rounded-xl border border-border bg-card/60 px-3 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <span class="text-base font-semibold text-muted-foreground shrink-0">{{ currencyService.symbol() }}</span>
                   <input appClearable
@@ -382,7 +382,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
               </div>
               <!-- Date -->
               <div class="w-[50%] shrink-0">
-	                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.date' | translate }}</label>
+	                <label for="date-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.date' | translate }}<span class="text-destructive ml-0.5">*</span></label>
                 <div class="mt-1 flex items-center gap-1.5 overflow-hidden rounded-xl border border-border bg-card/60 px-2.5 py-2 focus-within:border-primary focus-within:shadow-glow transition-all">
                   <lucide-icon name="calendar" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <input appClearable
@@ -407,7 +407,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
 
             @if (activeAccounts().length > 0) {
               <div class="mt-2.5">
-                <label for="account-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}</label>
+                <label for="account-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></label>
                 <div class="mt-1">
                   <app-themed-select formControlName="accountId" [options]="paymentAccountOptions()" size="sm" />
                 </div>

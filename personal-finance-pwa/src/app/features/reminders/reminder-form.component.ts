@@ -100,7 +100,7 @@ interface GeocodingResult {
 
         <!-- Title -->
         <div class="space-y-1.5">
-          <label class="text-sm font-medium">{{ 'reminders.form.title' | translate }}</label>
+          <label class="text-sm font-medium">{{ 'reminders.form.title' | translate }}<span class="text-destructive ml-0.5">*</span></label>
           <input
             formControlName="title"
             type="text"
@@ -146,7 +146,7 @@ interface GeocodingResult {
         <!-- Date/time picker -->
         @if (form.get('type')?.value === 'datetime') {
           <div class="space-y-1.5">
-            <label class="text-sm font-medium">{{ 'reminders.form.remindAt' | translate }}</label>
+            <label class="text-sm font-medium">{{ 'reminders.form.remindAt' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></label>
             <input
               formControlName="remindAt"
               type="datetime-local"
@@ -160,7 +160,7 @@ interface GeocodingResult {
         @if (form.get('type')?.value === 'location' && isPro()) {
           <div class="space-y-3">
             <div class="space-y-1.5">
-              <label class="text-sm font-medium">{{ 'reminders.form.locationSearch' | translate }}</label>
+              <label class="text-sm font-medium">{{ 'reminders.form.locationSearch' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></label>
               <div class="flex gap-2">
                 <input
                   [value]="locationQuery()"
