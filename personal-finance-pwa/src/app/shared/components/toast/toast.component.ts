@@ -8,7 +8,6 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Router } from '@angular/router';
-import { GoogleSheetsService } from '../../../core/services/google-sheets.service';
 import { driveError$ } from '../../../core/services/expense-store.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { DriveApiError } from '../../../core/services/google-drive.service';
@@ -55,22 +54,12 @@ export class ToastComponent implements OnInit, OnDestroy {
   readonly showSwitchToSingleUser = signal(false);
 
   readonly feedback = inject(UserFeedbackService);
-  private readonly sheetsService = inject(GoogleSheetsService);
   private readonly backupModeService = inject(BackupModeService);
   private readonly router = inject(Router);
   private readonly authService = inject(AuthService);
-  private subscription?: Subscription;
   private driveSubscription?: Subscription;
 
   ngOnInit(): void {
-    this.subscription = this.sheetsService.apiError$.subscribe((error) => {
-      this.feedback.error(
-        'Could not save to Google Sheets.',
-        `${error.message} Check your connection and spreadsheet access, then try again.`,
-        false
-      );
-    });
-
     this.driveSubscription = driveError$.subscribe((error) => {
       const driveErr = error as DriveApiError;
       const mode = this.backupModeService.getMode();
@@ -122,7 +111,6 @@ export class ToastComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.subscription?.unsubscribe();
     this.driveSubscription?.unsubscribe();
   }
 

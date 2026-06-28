@@ -1,0 +1,78 @@
+name: E2E Tests
+
+# Gates merges on the Playwright E2E suite. The Angular dev server is started
+# automatically by Playwright's `webServer` config (reuseExistingServer is false
+# when CI=true), and the Firebase Auth/Firestore emulators are provided by
+# `firebase emulators:exec` so Firestore-dependent specs have a backend.
+
+on:
+  pull_request:
+    paths:
+      - 'personal-finance-pwa/**'
+      - '.github/workflows/e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'personal-finance-pwa/**'
+      - '.github/workflows/e2e.yml'
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: personal-finance-pwa
+    env:
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: personal-finance-pwa/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      # `demo-*` project IDs make the emulators run fully offline with no
+      # credentials. Playwright starts ng serve itself; emulators:exec just
+      # keeps Auth (9099) + Firestore (8080) up for the duration of the run.
+      # We call `playwright test` directly (not `npm run e2e`, whose `;`-chained
+      # report steps would mask a non-zero test exit code).
+      - name: Run E2E suite
+        run: firebase emulators:exec --only auth,firestore --project demo-spenza "npx playwright test"
+
+      - name: Generate markdown reports
+        if: ${{ !cancelled() }}
+        run: node e2e/generate-report.js && node e2e/extract-html-report.js
+
+      - name: Upload Playwright HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: personal-finance-pwa/e2e-report/
+          retention-days: 14
+
+      - name: Upload test results JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: personal-finance-pwa/e2e-results.json
+          retention-days: 14

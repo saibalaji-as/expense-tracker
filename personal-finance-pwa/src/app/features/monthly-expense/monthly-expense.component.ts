@@ -81,7 +81,7 @@ import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/u
           >
             <lucide-icon [img]="chevronLeftIcon" class="h-4 w-4" />
           </button>
-          <span class="px-3 text-sm font-medium whitespace-nowrap">{{ selectedMonthLabel() }}</span>
+          <span data-testid="month-label" class="px-3 text-sm font-medium whitespace-nowrap">{{ selectedMonthLabel() }}</span>
           <button
             (click)="nextMonth()"
             [disabled]="isCurrentMonth()"

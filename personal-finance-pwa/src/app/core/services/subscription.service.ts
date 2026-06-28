@@ -69,6 +69,20 @@ export class SubscriptionService {
     this.#unsubscribe?.();
     this.#listeningUid = uid;
     this.loaded.set(false);
+
+    // E2E test override: when running in dev mode and a test override key is present,
+    // skip the Firestore listener entirely and apply the seeded status immediately.
+    if (isDevMode()) {
+      const override = localStorage.getItem('CapacitorStorage.e2e_subscription_status');
+      if (override) {
+        try {
+          const parsed = JSON.parse(override) as SubscriptionStatus;
+          this.status.set(parsed);
+          this.loaded.set(true);
+          return;
+        } catch { /* malformed — fall through to real Firestore */ }
+      }
+    }
     const { doc, onSnapshot } = await import('firebase/firestore');
     const db = await this.#getDb();
     // Ensure Firebase Auth has a signed-in user before starting the Firestore listener.

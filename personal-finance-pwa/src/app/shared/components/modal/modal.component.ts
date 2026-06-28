@@ -21,8 +21,11 @@ import { TranslatePipe } from '../../pipes';
   template: `
     @if (isOpen) {
       <!-- Backdrop -->
+      <!-- z-[60]/z-[65] keep the modal above the fixed mobile bottom nav (z-index:50)
+           — otherwise the nav intercepts pointer events on action buttons near the
+           bottom — while staying below toasts (z-[70]) so feedback remains visible. -->
       <div
-        class="fixed inset-0 z-40 bg-black/50"
+        class="fixed inset-0 z-[60] bg-black/50"
         (click)="onCancel()"
         aria-hidden="true"
       ></div>
@@ -33,7 +36,7 @@ import { TranslatePipe } from '../../pipes';
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="title"
-        class="fixed inset-x-4 top-1/2 z-50 max-h-[calc(100vh-2rem)] -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl sm:mx-auto sm:max-w-2xl"
+        class="fixed inset-x-4 top-1/2 z-[65] max-h-[calc(100vh-2rem)] -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl sm:mx-auto sm:max-w-2xl"
         (keydown.escape)="onCancel()"
         tabindex="-1"
       >

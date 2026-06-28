@@ -1,8 +1,10 @@
 # Spenza — End-to-End Test Cases
 
 **App:** Spenza Personal Finance PWA (Angular + Firebase + Google Drive)  
-**Date:** 2026-06-07  
+**Date:** 2026-06-27 (updated)  
 **Coverage:** All routes, guards, user flows, AI features, offline behaviour, and subscription gates
+
+> **Update 2026-06-27:** Added modules 15–19 covering Reminders, Credit-Card spend detection, Theming (palette & surface style), the public landing page, and native Android home-screen widgets. Revised the AI module (modules 9 & 11) for the new hosted/BYOK/disabled provider model, and revised offline notes for the Drive-only persistence layer (Google Sheets / IndexedDB offline queue removed; Drive JSON backup is the sole source of truth).
 
 ---
 
@@ -10,7 +12,7 @@
 
 | # | Module | Test IDs |
 |---|--------|----------|
-| 1 | Authentication | TC-AUTH-01 – TC-AUTH-06 |
+| 1 | Authentication | TC-AUTH-01 – TC-AUTH-08 |
 | 2 | Onboarding & Mode Selection | TC-ONBD-01 – TC-ONBD-07 |
 | 3 | Daily Expense Logging | TC-DAILY-01 – TC-DAILY-18 |
 | 4 | Monthly Expense View | TC-MNTH-01 – TC-MNTH-07 |
@@ -18,12 +20,17 @@
 | 6 | Finances — Asset Accounts | TC-FIN-01 – TC-FIN-09 |
 | 7 | Finances — Debt Accounts & Payments | TC-DEBT-01 – TC-DEBT-10 |
 | 8 | Dashboard & Analytics | TC-DASH-01 – TC-DASH-08 |
-| 9 | AI Features | TC-AI-01 – TC-AI-09 |
+| 9 | AI Features (Hosted / BYOK / Disabled) | TC-AI-01 – TC-AI-11 |
 | 10 | Family Sync | TC-FAM-01 – TC-FAM-10 |
-| 11 | Settings | TC-SET-01 – TC-SET-12 |
+| 11 | Settings | TC-SET-01 – TC-SET-14 |
 | 12 | Subscription / Pro Paywall | TC-SUB-01 – TC-SUB-06 |
 | 13 | Offline & PWA | TC-PWA-01 – TC-PWA-06 |
 | 14 | Route Guards & Navigation | TC-GUARD-01 – TC-GUARD-06 |
+| 15 | Reminders (Date/Time & Location) | TC-REM-01 – TC-REM-12 |
+| 16 | Credit-Card Spend Detection & Pending Expenses | TC-CC-01 – TC-CC-09 |
+| 17 | Theming — Palette & Surface Style | TC-THEME-01 – TC-THEME-07 |
+| 18 | Public Landing Page | TC-LAND-01 – TC-LAND-05 |
+| 19 | Native Android Widgets (Expense & Streak) | TC-WIDG-01 – TC-WIDG-08 |
 
 ---
 
@@ -88,6 +95,26 @@
 2. Cancel or allow OAuth to fail
 
 **Expected:** Error toast is shown; user remains on login page; no crash
+
+---
+
+### TC-AUTH-07 — Silent token refresh on foreground (no picker)
+**Precondition:** Returning user with a previously authorised Google account; access token near/after expiry  
+**Steps:**
+1. Background the app, wait until the ~1h access token is stale
+2. Bring the app to the foreground (or reload within token expiry on web)
+
+**Expected:** `getTokenSilent()` / native `#nativeSignIn({silent})` auto-selects the authorised account with **no** account-picker UI and refreshes the token; on web, `#restoreSession` restores the persisted token (5-min buffer) so a reload does not bounce to `/auth/callback`. The user is never asked to sign in again.
+
+---
+
+### TC-AUTH-08 — Missing Drive (appdata) scope is detected and recoverable
+**Precondition:** User unticked the Drive permission checkbox during Google granular consent  
+**Steps:**
+1. Sign in but deny/omit the `drive.appdata` scope
+2. App attempts a Drive call
+
+**Expected:** `grantedScopesIncludeDrive()` returns false → `MissingDriveScopeError`; instead of an infinite sign-in loop, `AuthCallbackComponent` shows the i18n `auth.error.driveAccess` message (en/ta/hi) telling the user to tick **all** permission checkboxes; the next interactive web sign-in uses `prompt: 'consent'` to re-show them.
 
 ---
 
@@ -733,16 +760,27 @@
 
 ---
 
-## 9. AI Features
+## 9. AI Features (Hosted / BYOK / Disabled)
 
-### TC-AI-01 — AI mode toggle in Settings
+> **Provider model (2026-06-10):** `AiSettingsService` exposes three provider modes — `hosted` (default; Spenza-managed Groq for insights/voice + Gemini for receipts, **no user key required**), `byok` (legacy "bring your own key": user supplies a Gemini and/or Groq key), and `disabled`. Legacy values are normalised: `user-key` → `byok`, `default` → `hosted`, unknown → `hosted`. Deterministic local fallbacks must still run when the network/AI is unavailable.
+
+### TC-AI-01 — Default provider is Hosted (no key required)
+**Precondition:** Fresh install, never opened AI settings  
+**Steps:**
+1. Open the app and use any AI feature (Smart Fill / voice / insights)
+
+**Expected:** AI works with no API key entered; `AiSettingsService.isHosted()` is `true`; requests are sent with **no** `X-Gemini-Api-Key` / Groq key header (server uses its own `GROQ_API_KEY` / `GEMINI_API_KEY`); insight responses report `provider: 'groq'` (text) or `'gemini'` (receipts)
+
+---
+
+### TC-AI-01b — Switch to BYOK and store a key
 **Steps:**
 1. Navigate to Settings → AI
-2. Switch from "Default" to "Use My Key"
-3. Enter a valid Gemini API key
+2. Switch provider from "Hosted" to "Use My Key" (BYOK)
+3. Enter a valid Gemini (and/or Groq) API key, choose the BYOK preference
 4. Save
 
-**Expected:** API key is stored (privately); AI mode switches to `userKey`; key is not displayed in plain text
+**Expected:** Key is stored privately (masked, never shown in plain text); provider mode becomes `byok`; subsequent AI calls send the user's key header
 
 ---
 
@@ -752,7 +790,16 @@
 2. Go to Daily Expense form
 3. Go to Dashboard insights
 
-**Expected:** Mic/voice button and Smart Fill button are hidden; Dashboard insights show "AI Unavailable" state
+**Expected:** Mic/voice button and Smart Fill button are hidden; Dashboard insights show "AI Unavailable" state; `isDisabled()` is `true`; no AI network calls are made
+
+---
+
+### TC-AI-02b — Legacy provider values migrate on load
+**Precondition:** Stored settings contain a legacy `provider` value (`user-key` or `default`)  
+**Steps:**
+1. Launch the app so `AiSettingsService.normalize()` runs
+
+**Expected:** `user-key` → `byok`, `default` → `hosted`, any unknown value → `hosted`; the migrated value is persisted and used everywhere
 
 ---
 
@@ -801,21 +848,39 @@
 
 ---
 
-### TC-AI-08 — AI insight rate-limit is handled
-**Precondition:** API quota exceeded for the Gemini key  
+### TC-AI-08 — AI insight daily cap is enforced
+**Precondition:** Hosted mode  
 **Steps:**
-1. Request AI insights when quota is exceeded
+1. Request AI insights repeatedly within a single day
 
-**Expected:** "Rate limit" section is shown with appropriate message; cached insights (if any) are displayed; no crash
+**Expected:** Generation is capped at `maxTotalCallsPerDay = 5` total and 2 per locale (raised from 2 / 1); once exhausted, a "limit reached" message is shown and cached insights (if any) are displayed; no crash
 
 ---
 
-### TC-AI-09 — AI insight requires API key when in userKey mode and key is missing
+### TC-AI-09 — AI insight requires API key only in BYOK mode when key is missing
 **Steps:**
-1. Set AI mode to "Use My Key" but leave key blank
+1. Set AI mode to "Use My Key" (BYOK) but leave the key blank
 2. Request insights
 
-**Expected:** "API Key Required" state is shown with a link to open AI Settings; no API call is made
+**Expected:** "API Key Required" state is shown with a link to open AI Settings; no API call is made. (In **Hosted** mode this state never appears — the key check is skipped.)
+
+---
+
+### TC-AI-10 — Hosted receipt extraction falls back to server Gemini
+**Precondition:** Hosted mode, no user key  
+**Steps:**
+1. Attach a receipt and tap Smart Fill
+
+**Expected:** Request is sent with no key header; the server uses its own `GEMINI_API_KEY` (multimodal still requires Gemini); extraction succeeds and returns `provider: 'gemini'`
+
+---
+
+### TC-AI-11 — Local deterministic fallback when AI is unreachable
+**Precondition:** AI endpoint returns 5xx / network offline  
+**Steps:**
+1. Trigger voice parse or insight generation
+
+**Expected:** App falls back to the deterministic local parser/summary; the user still gets a usable result; no crash or blank state
 
 ---
 
@@ -1028,6 +1093,25 @@
 
 ---
 
+### TC-SET-13 — AI provider card (Hosted / BYOK / Disabled)
+**Steps:**
+1. Open Settings → AI
+2. Observe the provider selector
+
+**Expected:** Three options are shown — Hosted (default, "no key needed"), Use My Key (BYOK), Disabled. Selecting Hosted clears/ignores any stored key; selecting BYOK reveals key + preference fields; selecting Disabled hides all AI affordances app-wide. The current selection persists across sessions. *(See module 9 for behavioural cases.)*
+
+---
+
+### TC-SET-14 — Spend-notification access toggle (Android)
+**Precondition:** Native Android build  
+**Steps:**
+1. Open Settings → enable "Detect card spends from notifications"
+2. Approve the OS notification-access permission
+
+**Expected:** `SpendNotificationAccessService.setPromptEnabled(true)` runs; status reflects "granted/enabled"; tapping the row when permission is missing opens OS notification-access settings. Disabling stops new spend prompts. *(See module 16 for the detection → pending-expense flow.)*
+
+---
+
 ## 12. Subscription / Pro Paywall
 
 ### TC-SUB-01 — Non-Pro user sees upgrade prompt on Finances route
@@ -1105,20 +1189,20 @@
 
 ---
 
-### TC-PWA-03 — Offline queue length is tracked
+### TC-PWA-03 — Offline (unsynced) count is tracked
 **Steps:**
 1. Log 3 expenses while offline
 
-**Expected:** Queue length badge shows "3"; entries are in IndexedDB pending sync
+**Expected:** Entries are saved local-first and visible immediately; an offline-log badge surfaces 3 unsynced items pending the background Drive write (Drive JSON backup is the sole persistence layer — the legacy IndexedDB/Sheets queue has been removed)
 
 ---
 
-### TC-PWA-04 — Queue flushes automatically on reconnect
+### TC-PWA-04 — Unsynced entries flush to Drive on reconnect
 **Steps:**
-1. Have queued offline entries
+1. Have local-first entries that have not yet reached Drive
 2. Come back online
 
-**Expected:** Queue is flushed to Google Sheets/Drive; queue length returns to 0; no duplicate entries
+**Expected:** The background sync writes them to `appDataFolder/spenza-backup.json` with retry; the offline-log badge returns to 0; no duplicate entries
 
 ---
 
@@ -1189,6 +1273,378 @@
 
 ---
 
+## 15. Reminders (Date/Time & Location)
+
+> **Feature (2026-06-12):** New `/reminders` (list) and `/reminders/:id` (form) routes behind `authGuard` + `setupGuard`. Reminders live in Firestore `users/{uid}/reminders`. Two types — `datetime` and `location` (geofence). Datetime reminders schedule a Capacitor local notification and are also claimed by a server scheduler (~1 min cadence); location reminders check foreground position on app resume against a radius. Status is `active | completed | expired`. Location reminders are **Pro-gated**. Voice creation parses a spoken phrase via `AiVoiceReminderService`. Maps picker via `GoogleMapsLoaderService` (hidden gracefully when no Maps key).
+
+### TC-REM-01 — Open Reminders list
+**Steps:**
+1. Navigate to `/reminders`
+
+**Expected:** Active reminders render newest-first; empty state shown when none; an "Add reminder" affordance routes to `/reminders/new`
+
+---
+
+### TC-REM-02 — Create a date/time reminder
+**Steps:**
+1. Open the reminder form, enter a title
+2. Select type "Date & time", pick a future `datetime-local` value
+3. Save
+
+**Expected:** A Firestore reminder doc is created with `type: 'datetime'`, `status: 'active'`; a local notification is scheduled and its `notificationId` is stored; the item appears in the list
+
+---
+
+### TC-REM-03 — Date/time reminder fires a notification
+**Precondition:** Active datetime reminder whose `remindAt` has arrived; notification permission granted  
+**Steps:**
+1. Wait for the scheduled time
+
+**Expected:** Local notification is delivered (or server scheduler delivers it); `notifiedAt` is set; the reminder transitions out of the active-pending state
+
+---
+
+### TC-REM-04 — Expiry grace window for a fired-but-unconfirmed reminder
+**Precondition:** Datetime reminder past `remindAt` with `notifiedAt === null`  
+**Steps:**
+1. Observe `markExpiredDatetimeReminders` behaviour
+
+**Expected:** The reminder is only marked `expired` after the `EXPIRY_GRACE_MS` (3 min) window, giving the per-minute server scheduler time to claim and deliver it
+
+---
+
+### TC-REM-05 — Create a location reminder (Pro)
+**Precondition:** Pro subscription  
+**Steps:**
+1. Open the form, select type "Location"
+2. Search a place (Nominatim) or tap the map to drop/drag the pin
+3. Adjust the radius (km), Save
+
+**Expected:** Reminder saved with `type: 'location'` and a `ReminderLocation { name, lat, lng, radiusKm }`; the confirmed location + radius circle render on the map
+
+---
+
+### TC-REM-06 — Location reminder type is Pro-gated for non-Pro users
+**Precondition:** Free (non-Pro) user  
+**Steps:**
+1. Open the form and select the "Location" type
+
+**Expected:** A Pro hint (`reminders.form.locationProHint`) is shown and the location-picker fields are not usable; only datetime reminders can be saved
+
+---
+
+### TC-REM-07 — Location reminder triggers on geofence entry
+**Precondition:** Active location reminder with `notifiedAt === null`  
+**Steps:**
+1. Resume the app while physically within `radiusKm` of the saved point
+
+**Expected:** On app resume, foreground position is read (8s timeout) and haversine distance ≤ radius fires a notification and sets `notifiedAt`; no double-fire on subsequent resumes
+
+---
+
+### TC-REM-08 — Maps picker hidden when no API key
+**Precondition:** `GOOGLE_MAPS_API_KEY` / `window.__GOOGLE_MAPS_API_KEY__` absent  
+**Steps:**
+1. Open a location reminder form
+
+**Expected:** `mapsAvailable()` is false; the map host is hidden gracefully; text search (Nominatim) still works; no console crash
+
+---
+
+### TC-REM-09 — Voice-create a reminder
+**Steps:**
+1. In the form, tap the voice button and speak e.g. "Remind me to pay rent tomorrow at 9am"
+2. Wait for parsing
+
+**Expected:** `AiVoiceReminderService` parses the phrase; title and `remindAt` are pre-filled; a recording/parsing state is shown and stops automatically; user can review before saving
+
+---
+
+### TC-REM-10 — Edit a reminder reschedules its notification
+**Steps:**
+1. Open an existing datetime reminder, change the time, Save
+
+**Expected:** The previously scheduled local notification (`notificationId`) is cancelled and a new one is scheduled; the Firestore doc is updated
+
+---
+
+### TC-REM-11 — Delete a reminder
+**Steps:**
+1. Delete a reminder from the list/form
+
+**Expected:** Firestore doc removed; any pending local notification is cancelled; item disappears from the list in real time (onSnapshot)
+
+---
+
+### TC-REM-12 — Reminders require deployed Firestore rules
+**Precondition:** `users/{uid}/reminders` owner-only rules deployed  
+**Steps:**
+1. Read/write a reminder as the signed-in owner; attempt access as another uid
+
+**Expected:** Owner can read/write own reminders; cross-user access is denied. (Regression guard: missing rules previously broke the whole reminders screen.)
+
+---
+
+## 16. Credit-Card Spend Detection & Pending Expenses
+
+> **Feature:** On Android, with notification access granted (`SpendNotificationAccessService`), a `SpendNotificationClassifier` detects credit-card spend notifications and queues a `PendingCcExpense`. The in-app `CreditCardPickerComponent` then prompts the user to attribute it. Pending items persist under `spenza_pending_cc_expense_queue_v1`. Resolving creates an `ExpenseEntry` with `source: 'notification-prompt'` and updates balances: assigning to a card **increases** that card's `remainingBalance`; saving to the default account **decreases** that account's `balance`.
+
+### TC-CC-01 — Detected card spend creates a pending prompt
+**Precondition:** Android, notification access enabled, a card-spend notification arrives  
+**Steps:**
+1. Receive/tap the spend notification
+
+**Expected:** A `PendingCcExpense` (amount, comment, date, timestamp, type) is queued; on next app open the Credit-Card picker surfaces the first pending item with the detected amount and optional merchant comment
+
+---
+
+### TC-CC-02 — Assign pending spend to a specific credit card
+**Precondition:** ≥1 active `credit-card` debt account exists  
+**Steps:**
+1. In the picker, choose a credit card
+
+**Expected:** `resolvePendingCcExpense(id, debtId)` creates an `ExpenseEntry` with `debtId` set and `source: 'notification-prompt'`; the chosen card's `remainingBalance` increases by the amount; item removed from the pending queue
+
+---
+
+### TC-CC-03 — Save pending spend to the default account
+**Steps:**
+1. In the picker, choose "Save to default account"
+
+**Expected:** `resolvePendingCcExpense(id, null)` creates an entry with `accountId` = default (or first non-archived) account; that account's `balance` decreases by the amount; item removed from the queue
+
+---
+
+### TC-CC-04 — Picker shows only active credit cards
+**Steps:**
+1. Open the picker with a mix of active, archived, and non-card debts
+
+**Expected:** Only debts where `type === 'credit-card'` and `status === 'active'` are offered as targets
+
+---
+
+### TC-CC-05 — Cancelling keeps the item pending
+**Steps:**
+1. Tap outside / cancel the picker without choosing
+
+**Expected:** No entry is created; the `PendingCcExpense` stays in the queue and re-prompts next time; no balance change
+
+---
+
+### TC-CC-06 — Pending queue survives app restart
+**Steps:**
+1. Queue a pending CC expense, force-close, reopen
+
+**Expected:** The item is rehydrated from `spenza_pending_cc_expense_queue_v1` and re-prompts; resolving once removes it permanently
+
+---
+
+### TC-CC-07 — Multiple pending items are resolved one at a time
+**Precondition:** ≥2 pending CC expenses queued  
+**Steps:**
+1. Resolve the first; observe the picker
+
+**Expected:** The picker always shows `pendingCcExpenses()[0]`; after each resolution the next item appears until the queue is empty
+
+---
+
+### TC-CC-08 — Resolved entry carries family attribution
+**Precondition:** Family mode  
+**Steps:**
+1. Resolve a pending CC expense
+
+**Expected:** The created `ExpenseEntry` preserves `createdByEmail` / `createdByRole` from the pending item so it is attributed correctly in the family feed
+
+---
+
+### TC-CC-09 — No default account → save-to-account is a no-op on balances
+**Precondition:** No non-archived asset account exists  
+**Steps:**
+1. Choose "Save to default account" for a pending CC spend
+
+**Expected:** The expense entry is still created (no `accountId`), but no account balance is mutated; no crash
+
+---
+
+## 17. Theming — Palette & Surface Style
+
+> **Feature (2026-06-13):** Settings exposes a colour **palette** (`violet | rose | azure | emerald | amber`) and a surface **style** (`glass | neumorphism | claymorphism | neobrutalism`). Persisted as `pf-palette` / `pf-style`; applied via `data-palette` / `data-style` attributes on `<html>`. Selections sync to the native Android home-screen widgets (palette + style rendered per light/dark).
+
+### TC-THEME-01 — Change colour palette
+**Steps:**
+1. Settings → Appearance → pick a palette (e.g. Emerald)
+
+**Expected:** `ThemeService.setPalette()` persists `pf-palette`; `data-palette` updates on `<html>`; accent colours change app-wide instantly; a "Palette saved" confirmation is shown
+
+---
+
+### TC-THEME-02 — Change surface style
+**Steps:**
+1. Settings → Appearance → pick a style (e.g. Neumorphism)
+
+**Expected:** `ThemeService.setStyle()` persists `pf-style`; surfaces re-render in the chosen style with a cross-fade ripple originating at the tapped card; a "Style saved" confirmation names the style
+
+---
+
+### TC-THEME-03 — Palette & style persist across sessions
+**Steps:**
+1. Set a non-default palette + style, restart the app
+
+**Expected:** Saved values are restored from storage on launch and re-applied before first paint (no flash of default violet/glass)
+
+---
+
+### TC-THEME-04 — Invalid stored value falls back to default
+**Precondition:** `pf-palette` / `pf-style` storage holds an unknown value  
+**Steps:**
+1. Launch the app
+
+**Expected:** Validation rejects the bad value; palette falls back to `violet`, style to `glass`
+
+---
+
+### TC-THEME-05 — Palette/style is independent of light/dark mode
+**Steps:**
+1. Toggle dark mode, then change palette
+
+**Expected:** Palette and style apply correctly in both light and dark; dark-mode toggle does not reset palette/style
+
+---
+
+### TC-THEME-06 — Selection syncs to Android widgets
+**Precondition:** Android, an Expense/Streak widget is on the home screen  
+**Steps:**
+1. Change palette and/or style in the app
+
+**Expected:** The next widget refresh renders the widget surface bitmap (`WidgetSurface` / `WidgetTheme`) using the selected palette + style for the current day/night, matching the app
+
+---
+
+### TC-THEME-07 — Each palette/style combination is selectable
+**Steps:**
+1. Cycle through all 5 palettes × 4 styles
+
+**Expected:** All 20 combinations apply without error; the active option is visually indicated (`aria-pressed` / check icon)
+
+---
+
+## 18. Public Landing Page
+
+> **Feature (2026-06-22):** Root route `''` serves `WelcomeComponent` with **no** auth guard, so logged-out visitors and the Google OAuth branding crawler (which runs no JS) see the app's purpose, Google data-scope explanations, and Privacy/Terms links. `/`, `/privacy`, `/terms` render shell-less and without the loading screen (`isPublicPage`). Static branding markup is embedded in `index.html` (cleared on Angular bootstrap), and `/privacy` & `/terms` also have standalone static pages served via Firebase rewrites; `ngsw-config` excludes them from the cached app shell.
+
+### TC-LAND-01 — Logged-out visitor sees the landing page
+**Steps:**
+1. Visit `/` while signed out
+
+**Expected:** Welcome/landing content renders with no auth redirect; app shell, bottom nav, and loading screen are hidden; data-scope explanation + Privacy/Terms links are present
+
+---
+
+### TC-LAND-02 — Signed-in user is redirected to /daily
+**Steps:**
+1. Visit `/` while authenticated and setup-complete
+
+**Expected:** `WelcomeComponent` redirects to `/daily`; the landing page is not shown to logged-in users
+
+---
+
+### TC-LAND-03 — Branding visible without JavaScript
+**Precondition:** JS disabled (simulating Google's branding crawler)  
+**Steps:**
+1. Fetch raw HTML of `/`
+
+**Expected:** Static branding markup inside `<app-root>` in `index.html` is present in the served HTML (before Angular clears it on bootstrap)
+
+---
+
+### TC-LAND-04 — Static /privacy and /terms pages
+**Steps:**
+1. Visit `/privacy` and `/terms` directly (signed out)
+
+**Expected:** Standalone static `public/privacy.html` / `public/terms.html` are served via Firebase rewrites (ahead of the SPA catch-all); the service worker does not serve the cached app shell there (`navigationUrls` negation)
+
+---
+
+### TC-LAND-05 — Landing text matches in-app components
+**Steps:**
+1. Compare static landing/privacy/terms text with the hash-routed welcome/privacy/terms components
+
+**Expected:** Static and component copy are kept in sync (regression check — they are maintained separately)
+
+---
+
+## 19. Native Android Widgets (Expense & Streak)
+
+> **Feature (2026-06-13):** Two home-screen widgets. The Expense widget logs/adds an expense from the home screen; the Duolingo-style **Daily Streak** widget shows a streak that counts a day when ≥1 expense is logged. `StreakCalculator` is pure local logic over the snapshot (`spenza_drive_backup_snapshot_v1`) + email-scoped widget queue (`spenza_widget_expense_queue_v1`); best streak persists as `spenza_streak_best_v1`. Three reaction states: ACTIVE / AT_RISK / BROKEN. A daily 20:00 `StreakReminderReceiver` posts a "keep your streak alive" notification only when today is not yet logged. **Note: requires a native Gradle build; not exercisable in the web app.**
+
+### TC-WIDG-01 — Add expense from the Expense widget
+**Precondition:** Expense widget on the home screen  
+**Steps:**
+1. Use the widget's quick-add to log an amount
+
+**Expected:** The entry is appended to `spenza_widget_expense_queue_v1` (source tagged as widget) and flushed to the in-app store / Drive on next app open; the entry appears in the daily log
+
+---
+
+### TC-WIDG-02 — Streak increments when today is logged
+**Steps:**
+1. Log ≥1 expense for the current local date
+
+**Expected:** `StreakCalculator` counts today; the streak widget shows the ACTIVE state with the incremented count
+
+---
+
+### TC-WIDG-03 — Streak counts back from today-or-yesterday
+**Precondition:** Logged yesterday, not yet today  
+**Steps:**
+1. Open the widget before midnight
+
+**Expected:** Streak stays alive (AT_RISK state) counting from yesterday; it only breaks after midnight passes with today unlogged
+
+---
+
+### TC-WIDG-04 — Broken streak state
+**Precondition:** No expense logged for ≥2 days  
+**Steps:**
+1. View the widget
+
+**Expected:** BROKEN state — flame icon/badge/colour and message reflect a reset streak; count returns to 0; `best` streak value is preserved
+
+---
+
+### TC-WIDG-05 — Best streak persists
+**Steps:**
+1. Reach a new high streak, then break it
+
+**Expected:** `spenza_streak_best_v1` retains the highest value reached and is displayed even after the current streak resets
+
+---
+
+### TC-WIDG-06 — Daily streak reminder notification
+**Precondition:** Streak widget present, today not yet logged, 20:00 local  
+**Steps:**
+1. Wait for the 20:00 `StreakReminderReceiver` alarm
+
+**Expected:** A "keep your streak alive" notification posts on the `streak-reminders` channel **only** when today is unlogged; it is suppressed once an expense exists for today
+
+---
+
+### TC-WIDG-07 — Reminder scheduling tied to widget lifecycle
+**Steps:**
+1. Add the streak widget, then later remove it
+
+**Expected:** The 20:00 alarm is scheduled in provider `onEnabled`/`onUpdate`, `MainActivity`, and `BootReceiver`; it is cancelled in `onDisabled` when the last widget is removed
+
+---
+
+### TC-WIDG-08 — Both widgets refresh on snapshot write & match theme
+**Steps:**
+1. Log an expense in-app (snapshot write); change palette/style
+
+**Expected:** `ExpenseWidgetProvider.updateAll()` also refreshes the streak widget; both render with the app's selected palette + surface style for day/night
+
+---
+
 ## Cross-Cutting Concerns
 
 | Area | Expectation |
@@ -1198,9 +1654,10 @@
 | **Date handling** | All dates use `toLocalDateString` / `parseLocalDate` utils; no raw `new Date()` calls that ignore timezone |
 | **Role attribution** | Every `ExpenseEntry` written in Family mode has `createdByEmail` and `createdByRole` populated |
 | **Accessibility** | Key interactive elements have `aria-label`; modals trap focus; alerts use `role="alert"` and `aria-live` |
-| **Error boundaries** | Any failed Drive/Sheets API call shows a toast; the app does not crash to a blank screen |
+| **Error boundaries** | Any failed Drive API call shows a toast; the app does not crash to a blank screen |
+| **Persistence** | Google Drive JSON backup (`appDataFolder/spenza-backup.json`) is the sole source of truth; the legacy Google Sheets / IndexedDB offline queue has been removed. Entries save local-first and sync to Drive in the background with retry; an offline-log badge surfaces unsynced items |
 | **Responsive layout** | All pages are usable at 375 px (mobile) and 1280 px (desktop) viewport widths |
 
 ---
 
-*Generated by Claude · Spenza PWA · 2026-06-07*
+*Generated by Claude · Spenza PWA · 2026-06-07 · Updated 2026-06-27 (modules 9, 11, 15–19, auth + cross-cutting revisions)*

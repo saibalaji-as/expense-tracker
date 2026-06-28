@@ -3,10 +3,10 @@
 <head>
   <meta name="google-site-verification" content="eD77wio_RqxXxGLFwFVtvcnJwOSxNCwyt_Pa18pfs8o" />
   <meta charset="utf-8">
-  <title>Spenza - Telecom Expense Management</title>
+  <title>Spenza - Personal Finance & Expense Tracker</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Spenza - Telecom expense management platform to track, optimize, and control your business communication costs.">
+  <meta name="description" content="Spenza - a personal finance app to track daily expenses, set 50/30/20 budgets, manage accounts and debts, and see where your money goes. Your data backs up privately to your own Google Drive.">
   <meta name="theme-color" content="#7c3aed">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -27,26 +27,30 @@
     // Injected at build time via CI — Google Maps JS API key (referrer-restricted)
     window.__GOOGLE_MAPS_API_KEY__ = 'GOOGLE_MAPS_API_KEY_PLACEHOLDER';
   </script>
-  <!-- Bot-visible content (outside app-root so Google sees it immediately) -->
+  <app-root>
+  <!-- Bot-visible static branding. Lives INSIDE <app-root> so Angular clears it on
+       bootstrap (JS clients never see it), while no-JS crawlers (Google OAuth review)
+       still read it in the raw served HTML. Keeping it outside <app-root> leaked these
+       hidden nodes into every route and broke text-based E2E selectors. -->
   <div id="spenza-info" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;left:-9999px;">
     <!-- <div id="spenza-info" style="font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:40px 20px;color:#111;line-height:1.6;"> -->
     <header style="margin-bottom:32px;">
       <span style="font-size:1.6rem;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;">Spenza</span>
     </header>
-    <h1 style="font-size:2rem;font-weight:700;margin-bottom:8px;">Telecom Expense Management</h1>
+    <h1 style="font-size:2rem;font-weight:700;margin-bottom:8px;">Personal Finance &amp; Expense Tracker</h1>
     <p style="font-size:1.05rem;color:#444;margin-bottom:24px;">
-      Spenza is a telecom expense management platform that helps businesses manage, optimize,
-      and control their communication costs. Track usage across all lines and plans, monitor
-      invoices, identify savings, and gain full visibility into your organization's telecom spend
-      — all in one secure place.
+      Spenza is a personal finance app that helps you track daily expenses, plan budgets, and
+      understand where your money goes. Log spending in seconds, follow the 50/30/20 budgeting
+      rule, manage your accounts and debts, and see clear monthly summaries — all in one private,
+      secure place. Your financial data is backed up only to your own Google Drive.
     </p>
 
     <h2 style="font-size:1.3rem;font-weight:600;margin-top:32px;">Features</h2>
     <ul style="margin:12px 0 0 20px;color:#444;">
-      <li><strong>Expense tracking:</strong> Monitor telecom invoices and usage across all accounts and plans.</li>
-      <li><strong>Cost optimization:</strong> Identify unused lines, overage charges, and savings opportunities.</li>
-      <li><strong>Dashboards &amp; insights:</strong> Visualize spend trends and get actionable reports for your team.</li>
-      <li><strong>Budgets &amp; alerts:</strong> Set spending limits and receive alerts before costs exceed thresholds.</li>
+      <li><strong>Expense tracking:</strong> Log daily expenses by category and review them by day and month.</li>
+      <li><strong>Budgets &amp; limits:</strong> Set 50/30/20 needs/wants/savings budgets and get low-savings warnings.</li>
+      <li><strong>Accounts &amp; debts:</strong> Track bank/cash account balances, debts and EMIs, and your net worth.</li>
+      <li><strong>Dashboards &amp; insights:</strong> Visualize spending trends and get weekly summaries of your finances.</li>
     </ul>
 
     <h2 style="font-size:1.3rem;font-weight:600;margin-top:32px;">How Spenza uses your Google account data</h2>
@@ -74,8 +78,7 @@
       <a href="/terms" style="color:#7c3aed;">Terms of Service</a>
     </p>
   </div>
-
-  <app-root></app-root>
+  </app-root>
   <noscript>
     <p>Please enable JavaScript to use Spenza. <a href="/privacy">Privacy Policy</a></p>
   </noscript>

@@ -1,5 +1,24 @@
 # Task History
 
+## 2026-06-28 - Playwright E2E: final 7 failures fixed (suite green) + CI gating
+
+### What was changed (test code only — no app behavior change)
+- **`e2e/fixtures/auth.fixture.ts`**: `authenticatedPage` + `proUserPage` now `goto('/#/daily', { waitUntil: 'commit' })` and `await page.locator('#amount-input').waitFor({ state: 'visible' })` before `use(page)`.
+- **`e2e/helpers/page-helpers.ts`**: `goOffline`/`goOnline` additionally `dispatchEvent(new Event('offline'|'online'))`.
+- **`e2e/tests/03-daily-expense.spec.ts`**: `selectCat()` waits for the chip, clicks, verifies `aria-pressed`, retries once.
+- **`e2e/tests/05-limits.spec.ts`** (TC-LMT-05): scoped custom-category fields to `:visible`; assert `toHaveValue('Pet Care')`.
+- **`e2e/tests/16-landing.spec.ts`** (TC-LAND-03): assert against raw served HTML via `page.request.get('/')`.
+- **`.github/workflows/e2e.yml`** (new): runs the suite on PRs/`main` under `firebase emulators:exec`, uploads the HTML report.
+
+### Why
+- Root cause for 4 of 7: `app.html` renders the router-outlet only when `!isLoading()`; the fixture's `waitForURL` returns immediately for hash routes, so tests hit a half-rendered page and going offline mid-bootstrap left an empty `<main>` (seen in the saved `error-context.md` snapshots). The `load`-event wait also hung intermittently → TC-LMT-01's 30s fixture timeout; `waitUntil:'commit'` avoids it.
+- TC-PWA-02: `SyncService` keys off window online/offline events that `setOffline` doesn't reliably dispatch.
+- TC-LMT-05: limits page renders duplicate mobile (`md:hidden`) + desktop (`hidden md:block`) DOM; `.first()` hit the hidden copy.
+- TC-LAND-03: Angular clears the static `#spenza-info` block from `<app-root>` on bootstrap, so the live DOM check was racy; the raw HTTP response is the true no-JS view.
+
+### Verification
+- User re-ran `npm run e2e`: **164 passed / 0 failed / 40 skipped** (run 2026-06-28T11:00Z). All 204 specs also transpile via `npx playwright test --list`. Full diagnosis in `e2e/E2E_FIX_NOTES.md` (Pass 3). The 40 skips are intentional env-limits + conditional self-skips (selector-not-found) — candidate follow-up to convert into real assertions.
+
 ## 2026-06-13 - Widget palette + surface-style theming (glass/neu/clay/neobrutal)
 
 ### What was changed

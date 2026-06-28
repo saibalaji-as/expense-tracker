@@ -25,3 +25,9 @@ android/capacitor-cordova-android-plugins/
 android/app/*.keystore
 android/app/*.jks
 android/app/*.p12
+
+# Playwright E2E generated artifacts (curated TEST_REPORT*.md in e2e/ are kept)
+e2e-report/
+e2e-results.json
+test-results/
+e2e/report-data/

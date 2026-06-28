@@ -5,12 +5,12 @@ import { BackupMode } from './backup-mode.service';
 import { firebaseConfig } from '../config/firebase.config';
 import { environment } from '../../../environments/environment';
 import type { Auth } from 'firebase/auth';
+import { DRIVE_APPDATA_SCOPE, grantedScopesIncludeDrive } from '../utils/drive-scope';
 
 declare const google: any;
 
 const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 
-const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 // Always request all required scopes — openid/email/profile for Firebase Auth identity
 // verification (userinfo endpoint), drive.appdata for private config/backup file.
 const ALL_SCOPES = `openid email profile ${DRIVE_APPDATA_SCOPE}`;
@@ -39,10 +39,6 @@ export class MissingDriveScopeError extends Error {
   constructor() {
     super('Google sign-in completed, but Drive access was not granted. Please sign in again and tick ALL permission checkboxes (especially "See, edit, create and delete its own configuration data in your Google Drive").');
   }
-}
-
-function grantedScopesIncludeDrive(scopeString: string | null | undefined): boolean {
-  return !!scopeString && scopeString.includes(DRIVE_APPDATA_SCOPE);
 }
 
 export function computeScopes(_mode: BackupMode | null): string {
