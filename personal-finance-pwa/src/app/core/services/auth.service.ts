@@ -11,6 +11,17 @@ declare const google: any;
 
 const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 
+// Web/Android OAuth client ID used by the native Google Sign-In plugin and the
+// backend serverAuthCode exchange. Must match the function's GOOGLE_WEB_CLIENT_ID.
+const GOOGLE_WEB_CLIENT_ID = '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com';
+
+// Master switch for the offline-mode "never sign in again" refresh-token flow.
+// OFF by default: the offline serverAuthCode → backend-exchange path needs on-device
+// validation (a failed exchange caused a double sign-in popup + "cancelled by user").
+// While OFF, native sign-in uses the proven online-mode flow + Credential Manager
+// silent refresh. Flip to true only when testing the refresh-token path on a device.
+const ENABLE_NATIVE_OFFLINE_REFRESH = false;
+
 // Always request all required scopes — openid/email/profile for Firebase Auth identity
 // verification (userinfo endpoint), drive.appdata for private config/backup file.
 const ALL_SCOPES = `openid email profile ${DRIVE_APPDATA_SCOPE}`;
@@ -19,6 +30,9 @@ const SCOPE_VERSION = '9'; // v9 = removed spreadsheets scope (Sheets import fea
 // native Android widget sync — do NOT rename the storage key strings.
 const ACCESS_TOKEN_KEY = 'gapi_access_token';
 const ACCESS_TOKEN_EXPIRES_AT_KEY = 'gapi_access_token_expires_at';
+/** Firebase refresh token — read by the native widget-sync worker to mint ID tokens
+ *  for the family Firestore push. Do NOT rename (native SharedPreferences key). */
+const FIREBASE_REFRESH_TOKEN_KEY = 'firebase_refresh_token';
 /** 5-minute safety buffer so a token that is about to expire is never handed out. */
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const SUBSCRIBE_URL = 'https://spenza.site/#/subscribe';
@@ -101,7 +115,16 @@ export class AuthService {
    * Await this before checking isAuthenticated() on app startup.
    */
   readonly sessionRestored: Promise<void>;
+
+  /** Eager native plugin init (online mode) — restored to match the original working
+   *  startup so the interactive sign-in behaves exactly as before. */
   readonly #nativeInitPromise: Promise<void> | null = null;
+
+  /** The mode the native plugin is currently initialized with. The plugin sets online
+   *  vs offline (serverAuthCode) at initialize() time, not per-login, so the (flag-gated)
+   *  offline flow re-inits to switch modes. */
+  #socialLoginMode: 'online' | 'offline' | null = null;
+  #socialLoginInitPromise: Promise<void> | null = null;
 
   constructor(
     private readonly storageService: StorageService,
@@ -110,18 +133,38 @@ export class AuthService {
     // through immediately — a fresh token is obtained lazily on the first API call.
     this.sessionRestored = this.#restoreSession();
 
-    // Initialize the native Google Sign-In plugin once on startup.
+    // Initialize the native Google Sign-In plugin once on startup, in ONLINE mode —
+    // exactly as the original working build did. (The offline refresh-token flow, when
+    // enabled, re-initializes on demand via #ensureSocialLoginMode.)
     if (this.#isNative) {
+      this.#socialLoginMode = 'online';
       this.#nativeInitPromise = (async () => {
         const { SocialLogin } = await import('@capgo/capacitor-social-login');
         await SocialLogin.initialize({
-          google: {
-            // webClientId is required by the plugin on Android for token verification
-            webClientId: '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com',
-          },
+          google: { webClientId: GOOGLE_WEB_CLIENT_ID },
         });
       })().catch((err) => console.error('SocialLogin.initialize failed:', err));
+      this.#socialLoginInitPromise = this.#nativeInitPromise;
     }
+  }
+
+  /**
+   * Ensures the native Google Sign-In plugin is initialized in the requested mode,
+   * re-initializing only when the mode changes. Offline mode returns a serverAuthCode
+   * (exchanged on our backend for a refresh token); online mode returns tokens directly.
+   */
+  async #ensureSocialLoginMode(mode: 'online' | 'offline'): Promise<void> {
+    if (this.#socialLoginMode === mode && this.#socialLoginInitPromise) {
+      return this.#socialLoginInitPromise;
+    }
+    this.#socialLoginMode = mode;
+    this.#socialLoginInitPromise = (async () => {
+      const { SocialLogin } = await import('@capgo/capacitor-social-login');
+      await SocialLogin.initialize({
+        google: { webClientId: GOOGLE_WEB_CLIENT_ID, mode },
+      });
+    })();
+    return this.#socialLoginInitPromise;
   }
 
   // ---------------------------------------------------------------------------
@@ -202,20 +245,42 @@ export class AuthService {
     ]);
   }
 
+  /**
+   * Persists the Firebase refresh token for the native widget-sync worker. The token
+   * lives on the Firebase User object; it's stable across ID-token refreshes, so it
+   * lets the background job obtain a valid ID token long after the app was last open.
+   */
+  async #persistFirebaseRefreshToken(user: { refreshToken?: string } | null): Promise<void> {
+    const refreshToken = user?.refreshToken;
+    if (refreshToken) {
+      await this.storageService.set(FIREBASE_REFRESH_TOKEN_KEY, refreshToken);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   signIn(): Promise<SignInResult> {
     if (this.#isNative) {
-      if (!this.#nativeSignInPromise) {
-        this.#nativeSignInPromise = this.#nativeSignIn().finally(() => {
-          this.#nativeSignInPromise = null;
-        });
-      }
-      return this.#nativeSignInPromise;
+      return this.#requestNativeSignIn();
     }
     return this.#webSignIn();
+  }
+
+  /**
+   * Single entry point for every native Google sign-in (silent OR interactive).
+   * Collapses concurrent callers onto one in-flight SocialLogin.login() so the
+   * user can never be shown multiple account pickers / Credential Manager sheets
+   * at once. An interactive request that arrives while a silent one is in flight
+   * simply awaits the same promise; the caller re-checks token validity after.
+   */
+  #requestNativeSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
+    if (this.#nativeSignInPromise) return this.#nativeSignInPromise;
+    this.#nativeSignInPromise = this.#nativeSignIn(opts).finally(() => {
+      this.#nativeSignInPromise = null;
+    });
+    return this.#nativeSignInPromise;
   }
 
   /**
@@ -230,15 +295,20 @@ export class AuthService {
     if (this.#accessToken) return Promise.resolve(this.#accessToken);
 
     if (this.#isNative) {
-      if (!this.#nativeSignInPromise) {
-        this.#nativeSignInPromise = this.#nativeSignIn().finally(() => {
-          this.#nativeSignInPromise = null;
+      const interactiveSignIn = () =>
+        this.#requestNativeSignIn().then(() => {
+          if (!this.#accessToken) throw new Error('Native sign-in did not return a token.');
+          return this.#accessToken;
         });
+
+      if (ENABLE_NATIVE_OFFLINE_REFRESH) {
+        // Prefer a silent backend refresh (uses the stored Google refresh token via the
+        // persistent Firebase session) so a missing access token is renewed with NO UI.
+        // Only fall back to an interactive sign-in when no refresh token is on file.
+        return this.#mintGoogleTokenFromServer().then((minted) => minted ?? interactiveSignIn());
       }
-      return this.#nativeSignInPromise.then(() => {
-        if (!this.#accessToken) throw new Error('Native sign-in did not return a token.');
-        return this.#accessToken;
-      });
+
+      return interactiveSignIn();
     }
 
     // Web: reuse an in-flight request if one is already pending
@@ -307,8 +377,10 @@ export class AuthService {
     if (this.#hasValidCachedToken()) return this.#accessToken;
     if (this.#isNative) {
       try {
-        await this.#nativeSignIn({ silent: true });
-        return this.#accessToken;
+        // Route through the shared guard so a silent refresh can never run
+        // alongside (and double up with) an interactive sign-in.
+        await this.#requestNativeSignIn({ silent: true });
+        return this.#hasValidCachedToken() ? this.#accessToken : null;
       } catch {
         return null;
       }
@@ -425,6 +497,8 @@ export class AuthService {
         this.firebaseUid.set(auth.currentUser.uid);
         await this.storageService.set('firebase_uid', auth.currentUser.uid);
       }
+      // Keep the worker's refresh token fresh whenever we confirm a live session.
+      await this.#persistFirebaseRefreshToken(auth.currentUser);
       return;
     }
     if (this.#accessToken) {
@@ -434,6 +508,7 @@ export class AuthService {
         const userCred = await signInWithCredential(auth, credential);
         this.firebaseUid.set(userCred.user.uid);
         await this.storageService.set('firebase_uid', userCred.user.uid);
+        await this.#persistFirebaseRefreshToken(userCred.user);
       } catch (err) {
         console.warn('[AuthService] Silent Firebase re-sign-in failed:', err);
       }
@@ -529,7 +604,160 @@ export class AuthService {
   // Native (Android / iOS) — @capgo/capacitor-social-login
   // ---------------------------------------------------------------------------
 
+  /**
+   * Native sign-in dispatcher.
+   *
+   * Interactive: prefer the offline (serverAuthCode → backend exchange) flow so a Google
+   * REFRESH token is established server-side and the user never has to sign in again.
+   * If the backend is unreachable (e.g. functions not deployed yet) it falls back to the
+   * legacy online-mode login so sign-in never breaks.
+   *
+   * Silent: first try the backend refresh (zero UI, uses the persistent Firebase session
+   * to mint a fresh Google access token). Only if that yields nothing fall back to the
+   * Android Credential Manager silent auto-select.
+   */
   async #nativeSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
+    if (opts.silent) {
+      if (ENABLE_NATIVE_OFFLINE_REFRESH) {
+        const minted = await this.#mintGoogleTokenFromServer();
+        if (minted) {
+          return { email: this.userEmail(), accountChanged: false };
+        }
+      }
+      return this.#nativeOnlineSignIn({ silent: true });
+    }
+
+    if (ENABLE_NATIVE_OFFLINE_REFRESH) {
+      try {
+        return await this.#nativeOfflineSignIn();
+      } catch (err) {
+        console.warn('[AuthService] Offline sign-in failed; falling back to online mode:', err);
+        return this.#nativeOnlineSignIn({});
+      }
+    }
+
+    return this.#nativeOnlineSignIn({});
+  }
+
+  /**
+   * Interactive offline sign-in: gets a one-time serverAuthCode and exchanges it on the
+   * backend for an access token + refresh token (stored server-side) + id_token.
+   */
+  async #nativeOfflineSignIn(): Promise<SignInResult> {
+    await this.#ensureSocialLoginMode('offline');
+    const { SocialLogin } = await import('@capgo/capacitor-social-login');
+    const previousEmail = await this.storageService.get('gapi_user_email');
+
+    const result = await SocialLogin.login({
+      provider: 'google',
+      options: { scopes: ['openid', 'email', 'profile', DRIVE_APPDATA_SCOPE] },
+    });
+
+    const offline = result.result as { responseType?: string; serverAuthCode?: string };
+    const serverAuthCode = offline?.serverAuthCode ?? null;
+    if (offline?.responseType !== 'offline' || !serverAuthCode) {
+      throw new Error('Expected offline Google login response with serverAuthCode.');
+    }
+
+    const exchange = await this.#exchangeServerAuthCode(serverAuthCode);
+    if (!exchange?.accessToken) {
+      throw new Error('Auth code exchange did not return an access token.');
+    }
+
+    // Same granular-consent guard as the online flow: a token without drive.appdata
+    // 403s on every Drive call and would re-trigger sign-in forever.
+    await this.#assertDriveScopeGranted(exchange.accessToken);
+
+    const expiresAt = Date.now() + (exchange.expiresIn > 0 ? exchange.expiresIn : 3300) * 1000;
+    this.#accessToken = exchange.accessToken;
+    this.#accessTokenExpiresAt = expiresAt;
+    this.isAuthenticated.set(true);
+    await this.storageService.set('gapi_auth_state', '1');
+    await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+    await this.storageService.set(ACCESS_TOKEN_KEY, exchange.accessToken);
+    await this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, String(expiresAt));
+
+    const email = exchange.email ?? null;
+    if (email) {
+      this.userEmail.set(email);
+      await this.storageService.set('gapi_user_email', email);
+    }
+
+    // Establish the persistent Firebase session from the exchange id_token; this is what
+    // later authorizes silent backend refreshes (and persists the Firebase refresh token).
+    await this.#signIntoFirebase(exchange.idToken, exchange.accessToken);
+
+    return {
+      email,
+      accountChanged: !!previousEmail && !!email && previousEmail !== email,
+    };
+  }
+
+  /** POSTs a serverAuthCode to the backend exchange endpoint. Returns null on failure. */
+  async #exchangeServerAuthCode(
+    serverAuthCode: string
+  ): Promise<{ accessToken: string; expiresIn: number; idToken: string | null; email: string | null } | null> {
+    try {
+      const res = await fetch(`${environment.firebaseFunctionsUrl}/exchangeGoogleAuthCode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverAuthCode }),
+      });
+      if (!res.ok) {
+        console.warn('[AuthService] exchangeGoogleAuthCode HTTP', res.status);
+        return null;
+      }
+      const body = await res.json();
+      if (!body?.accessToken) return null;
+      return {
+        accessToken: String(body.accessToken),
+        expiresIn: Number(body.expiresIn) || 3300,
+        idToken: body.idToken ?? null,
+        email: body.email ?? null,
+      };
+    } catch (err) {
+      console.warn('[AuthService] exchangeGoogleAuthCode request failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Silently mints a fresh Google access token from the server-stored refresh token,
+   * authorized by the persistent Firebase session. No UI ever. Returns the token (and
+   * caches/persists it) on success, or null when there is no stored refresh token /
+   * the backend is unreachable, so the caller can fall back.
+   */
+  async #mintGoogleTokenFromServer(): Promise<string | null> {
+    try {
+      const idToken = await this.getFirebaseIdToken();
+      if (!idToken) return null;
+      const res = await fetch(`${environment.firebaseFunctionsUrl}/getGoogleAccessToken`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) return null; // 404 (no refresh token) / 410 (revoked) → caller falls back
+      const body = await res.json();
+      const accessToken = body?.accessToken ? String(body.accessToken) : null;
+      if (!accessToken) return null;
+
+      const expiresAt = Date.now() + (Number(body.expiresIn) > 0 ? Number(body.expiresIn) : 3300) * 1000;
+      this.#accessToken = accessToken;
+      this.#accessTokenExpiresAt = expiresAt;
+      this.isAuthenticated.set(true);
+      await this.storageService.set('gapi_auth_state', '1');
+      await this.storageService.set('gapi_scope_version', SCOPE_VERSION);
+      await this.storageService.set(ACCESS_TOKEN_KEY, accessToken);
+      await this.storageService.set(ACCESS_TOKEN_EXPIRES_AT_KEY, String(expiresAt));
+      return accessToken;
+    } catch (err) {
+      console.warn('[AuthService] Server token mint failed:', err);
+      return null;
+    }
+  }
+
+  /** Legacy online-mode native sign-in. Used as a fallback when the offline/backend
+   *  refresh-token flow is unavailable (e.g. functions not yet deployed). */
+  async #nativeOnlineSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
     await this.#nativeInitPromise;
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
@@ -540,8 +768,12 @@ export class AuthService {
     // ask Android Credential Manager to auto-select the previously authorized
     // account with NO account-picker UI, so an expired token is renewed invisibly.
     // `forceRefreshToken` avoids handing back an OS-cached invalid token.
+    // NOTE: `style:'bottom'` is intentionally omitted — it forced the Credential
+    // Manager bottom-sheet to appear even on a "silent" refresh (the stray lower
+    // menu popup). Without it, auto-select renews invisibly and only falls back to
+    // UI when there is genuinely no usable cached credential.
     const options: Record<string, unknown> = opts.silent
-      ? { scopes, style: 'bottom', filterByAuthorizedAccounts: true, autoSelectEnabled: true, forceRefreshToken: true }
+      ? { scopes, filterByAuthorizedAccounts: true, autoSelectEnabled: true, forceRefreshToken: true }
       : { scopes };
 
     // First attempt may throw "No credentials found" on Android Credential Manager
@@ -732,6 +964,10 @@ export class AuthService {
       const uid = userCred.user.uid;
       this.firebaseUid.set(uid);
       await this.storageService.set('firebase_uid', uid);
+      // Persist the Firebase refresh token so the native widget-sync WorkManager job
+      // can mint a fresh ID token (securetoken API) and push family expenses to
+      // Firestore without the app being open. See WidgetExpenseSyncWorker.
+      await this.#persistFirebaseRefreshToken(userCred.user);
     } catch (err) {
       // Non-critical for Drive features, but subscription will fail without Firebase auth.
       console.warn('[AuthService] Firebase sign-in failed:', err);
@@ -749,6 +985,7 @@ export class AuthService {
     void this.storageService.remove('firebase_uid');
     void this.storageService.remove(ACCESS_TOKEN_KEY);
     void this.storageService.remove(ACCESS_TOKEN_EXPIRES_AT_KEY);
+    void this.storageService.remove(FIREBASE_REFRESH_TOKEN_KEY);
     void (async () => {
       const { signOut } = await import('firebase/auth');
       const auth = await this.#getFirebaseAuth();

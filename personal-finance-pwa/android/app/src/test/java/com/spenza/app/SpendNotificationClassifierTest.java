@@ -137,4 +137,105 @@ public class SpendNotificationClassifierTest {
         assertEquals(SpendNotificationClassifier.Type.UNKNOWN, result.type);
         assertFalse(result.shouldPrompt());
     }
+
+    @Test
+    public void extractsCardLast4FromEndingPhrase() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Rs. 1,499 spent on HDFC Credit Card ending 4321 at Amazon.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.EXPENSE_TRANSACTION, result.type);
+        assertTrue(result.isCreditCard);
+        assertEquals("4321", result.cardLast4);
+    }
+
+    @Test
+    public void extractsCardLast4FromMaskedNumber() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "INR 899 charged on ICICI credit card XX7788 at BigBasket.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.EXPENSE_TRANSACTION, result.type);
+        assertTrue(result.isCreditCard);
+        assertEquals("7788", result.cardLast4);
+    }
+
+    @Test
+    public void classifiesBankSideCcBillPayment() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Rs 9,000 debited from HDFC Bank A/c XX1234 towards your HDFC Credit Card XX7788.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.CREDIT_CARD_PAYMENT, result.type);
+        assertTrue(result.shouldPrompt());
+        assertEquals(9000.0, result.amount, 0.001);
+        // Must pick the CARD's digits (after the "credit card" mention), not the bank a/c.
+        assertEquals("7788", result.cardLast4);
+    }
+
+    @Test
+    public void classifiesCardSidePaymentReceivedAsCcPaymentNotIncome() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Payment of Rs 9,000 received on your ICICI Credit Card ending 7788. Available limit INR 45,000.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.CREDIT_CARD_PAYMENT, result.type);
+        assertEquals("7788", result.cardLast4);
+    }
+
+    @Test
+    public void creditCardPurchaseIsNotClassifiedAsBillPayment() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Rs. 1,499 spent on HDFC Credit Card ending 4321 at Amazon.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.EXPENSE_TRANSACTION, result.type);
+    }
+
+    @Test
+    public void flagsSalaryCredit() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Salary of Rs 50,000 credited to HDFC Bank A/c XX1234 on 01-Jul-26.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.INCOME_OR_REFUND, result.type);
+        assertTrue(result.isSalary);
+    }
+
+    @Test
+    public void nonSalaryCreditIsNotFlaggedAsSalary() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Rs 500 cashback credited to your Paytm wallet.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.INCOME_OR_REFUND, result.type);
+        assertFalse(result.isSalary);
+    }
+
+    @Test
+    public void cardLast4IsNullForNonCreditCardSpends() {
+        SpendNotificationClassifier.Classification result = SpendNotificationClassifier.classify(
+            "Rs. 250 debited from HDFC Bank A/c XX1234 via UPI.",
+            "com.google.android.apps.messaging",
+            "INR"
+        );
+
+        assertEquals(SpendNotificationClassifier.Type.EXPENSE_TRANSACTION, result.type);
+        assertFalse(result.isCreditCard);
+        assertEquals(null, result.cardLast4);
+    }
 }

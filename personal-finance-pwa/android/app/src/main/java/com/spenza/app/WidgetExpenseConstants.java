@@ -11,6 +11,14 @@ final class WidgetExpenseConstants {
     static final String BACKUP_MODE_KEY = "spenza_backup_mode";
     static final String SHARED_FILE_ID_KEY = "spenza_shared_file_id";
     static final String OWNER_ROLE_KEY = "spenza_owner_role";
+    // Firestore-based family instant sync (widget → partner) plumbing.
+    static final String FIRESTORE_FAMILY_ID_KEY = "spenza_firestore_family_id";
+    static final String FIREBASE_UID_KEY = "firebase_uid";
+    static final String FIREBASE_REFRESH_TOKEN_KEY = "firebase_refresh_token";
+    static final String FIREBASE_API_KEY = "AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg";
+    static final String SECURETOKEN_URL = "https://securetoken.googleapis.com/v1/token?key=" + FIREBASE_API_KEY;
+    static final String FAMILY_WIDGET_SYNC_URL =
+        "https://us-central1-spenza-notifications.cloudfunctions.net/syncWidgetExpenseToFamily";
     static final String AI_SETTINGS_KEY = "spenza_ai_settings_private";
     static final String CURRENCY_KEY = "spenza_currency";
     static final String SPEND_NOTIFICATION_PROMPTS_ENABLED_KEY = "spenza_spend_notification_prompts_enabled_v1";
@@ -23,7 +31,10 @@ final class WidgetExpenseConstants {
     static final String WIDGET_AMOUNT_KIND_EXTRA = "com.spenza.app.WIDGET_AMOUNT_KIND";
     static final String WIDGET_AMOUNT_KIND_EXPENSE = "expense";
     static final String WIDGET_AMOUNT_KIND_CREDIT = "credit";
+    static final String WIDGET_AMOUNT_KIND_CC_PAYMENT = "cc-payment";
     static final String WIDGET_IS_CREDIT_CARD_EXTRA = "com.spenza.app.WIDGET_IS_CREDIT_CARD";
+    static final String WIDGET_CC_LAST4_EXTRA = "com.spenza.app.WIDGET_CC_LAST4";
+    static final String WIDGET_IS_SALARY_EXTRA = "com.spenza.app.WIDGET_IS_SALARY";
     static final String WIDGET_SOURCE_NOTIFICATION_PROMPT = "notification-prompt";
     static final String TYPE_MORE = "__spenza_more__";
     static final String SYNC_WORK_NAME = "spenza-widget-expense-sync";

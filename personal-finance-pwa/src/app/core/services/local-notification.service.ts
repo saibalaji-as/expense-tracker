@@ -5,7 +5,16 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
 import { budgetThresholdExceeded$ } from './budget-events';
 import { getDailyReminderContent } from '../utils/reminder-message';
-import { DebtAccount } from '../models';
+import { AccountBalanceAdjustment, DebtAccount, DebtPayment, ExpenseEntry } from '../models';
+import { CurrencyService } from './currency.service';
+import {
+  buildCreditCardReminderPlan,
+  creditCardNotificationIdsForCancel,
+} from '../utils/credit-card-reminders';
+import {
+  buildSalaryReminderPlan,
+  SALARY_REMINDER_NOTIFICATION_ID,
+} from '../utils/salary-reminder';
 
 /**
  * LocalNotificationService
@@ -53,7 +62,8 @@ export class LocalNotificationService {
 
   constructor(
     private storageService: StorageService,
-    private router: Router
+    private router: Router,
+    private currencyService: CurrencyService
   ) {}
 
   /**
@@ -814,65 +824,128 @@ export class LocalNotificationService {
   }
 
   /**
-   * Schedule monthly payment due reminders for all active credit card accounts.
-   * Fires 3 days before the paymentDueDay each month.
-   * Call this on app init, after creating/updating a credit card, and after recording a payment.
+   * (Re)schedule the full credit-card bill notification ladder for all cards.
+   *
+   * Every notification is a one-shot whose amount/suppression is computed at
+   * scheduling time by the pure planner in `utils/credit-card-reminders.ts`.
+   * Called by `ExpenseStore` on app data load and after every debt-affecting
+   * mutation (payments, widget CC spends, card create/update/delete), so the
+   * scheduled content never goes stale.
    */
-  async scheduleCreditCardDueReminders(debts: DebtAccount[]): Promise<void> {
-    if (!this.isNativePlatform || this.permissionStatus() !== 'granted') return;
+  async scheduleCreditCardDueReminders(
+    debts: readonly DebtAccount[],
+    entries: readonly ExpenseEntry[] = [],
+    payments: readonly DebtPayment[] = []
+  ): Promise<void> {
+    if (!this.isNativePlatform) return;
+    await this.refreshNativePermissionStatus();
+    if (this.permissionStatus() !== 'granted') return;
 
-    const activeCards = debts.filter((d) => d.type === 'credit-card' && d.status === 'active' && d.paymentDueDay);
-
-    for (const card of activeCards) {
-      const notificationId = this.creditCardNotificationId(card.id);
+    // Cancel all ladder slots (and the legacy monthly-repeat ID) for every
+    // credit card, including archived/paid ones, so stale reminders never fire.
+    const creditCards = debts.filter((d) => d.type === 'credit-card');
+    const cancelIds = creditCards.flatMap((card) => creditCardNotificationIdsForCancel(card.id));
+    if (cancelIds.length > 0) {
       try {
-        const reminderDate = this.nextCreditCardReminderDate(card.paymentDueDay!);
-        const dueLabel = `${card.paymentDueDay}th`;
-        await LocalNotifications.schedule({
-          notifications: [
-            {
-              id: notificationId,
-              title: 'Credit Card Bill Due in 3 Days',
-              body: `${card.name}: ₹${card.remainingBalance.toLocaleString('en-IN')} outstanding. Due on ${dueLabel}.`,
-              schedule: { at: reminderDate, repeats: true, every: 'month' },
-              extra: { route: '/finances', debtId: card.id },
-            },
-          ],
-        });
-        if (isDevMode()) { console.log(`[LocalNotificationService] CC reminder scheduled for ${card.name} on ${reminderDate.toLocaleString()}`); }
-      } catch (error) {
-        console.error(`[LocalNotificationService] Failed to schedule CC reminder for ${card.name}:`, error);
+        await LocalNotifications.cancel({ notifications: cancelIds.map((id) => ({ id })) });
+      } catch {
+        // Cancelling IDs that were never scheduled is a no-op failure on some platforms.
       }
+    }
+
+    const plan = buildCreditCardReminderPlan(
+      debts,
+      entries,
+      payments,
+      new Date(),
+      (amount) => this.currencyService.format(amount)
+    );
+    if (plan.length === 0) return;
+
+    try {
+      await LocalNotifications.schedule({
+        notifications: plan.map((item) => ({
+          id: item.id,
+          title: item.title,
+          body: item.body,
+          schedule: { at: item.at },
+          extra: { route: '/finances', debtId: item.debtId },
+        })),
+      });
+      if (isDevMode()) {
+        console.log(`[LocalNotificationService] Scheduled ${plan.length} CC bill notifications.`);
+      }
+    } catch (error) {
+      console.error('[LocalNotificationService] Failed to schedule CC bill notifications:', error);
     }
   }
 
-  /** Cancel the due-date reminder for a specific credit card (e.g. when archived/deleted). */
+  /**
+   * (Re)schedule the fallback "enter your salary" reminder. One-shot on the
+   * user's salary day evening; suppressed for the month once a salary-tagged
+   * account credit is recorded (usually via the salary SMS prompt).
+   * Called by `ExpenseStore` on data load / adjustment changes and by Settings
+   * when the preference changes.
+   */
+  async scheduleSalaryReminder(adjustments: readonly AccountBalanceAdjustment[]): Promise<void> {
+    if (!this.isNativePlatform) return;
+    await this.refreshNativePermissionStatus();
+    if (this.permissionStatus() !== 'granted') return;
+
+    try {
+      const prefs = await this.storageService.getNotificationPreferences();
+      const plan = buildSalaryReminderPlan(
+        prefs.salaryReminderEnabled === true,
+        prefs.salaryDay ?? 1,
+        adjustments,
+        new Date()
+      );
+
+      await LocalNotifications.cancel({ notifications: [{ id: SALARY_REMINDER_NOTIFICATION_ID }] }).catch(() => undefined);
+      if (!plan) return;
+
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id: plan.id,
+            title: plan.title,
+            body: plan.body,
+            schedule: { at: plan.at },
+            extra: { route: '/finances' },
+          },
+        ],
+      });
+      if (isDevMode()) {
+        console.log(`[LocalNotificationService] Salary reminder scheduled for ${plan.at.toLocaleString()}`);
+      }
+    } catch (error) {
+      console.error('[LocalNotificationService] Failed to schedule salary reminder:', error);
+    }
+  }
+
+  /** Cancel every scheduled notification for a specific credit card (delete flow). */
   async cancelCreditCardDueReminder(debtId: string): Promise<void> {
     if (!this.isNativePlatform) return;
     try {
-      await LocalNotifications.cancel({ notifications: [{ id: this.creditCardNotificationId(debtId) }] });
+      await LocalNotifications.cancel({
+        notifications: creditCardNotificationIdsForCancel(debtId).map((id) => ({ id })),
+      });
     } catch (error) {
-      console.error('[LocalNotificationService] Failed to cancel CC reminder:', error);
+      console.error('[LocalNotificationService] Failed to cancel CC reminders:', error);
     }
   }
 
-  /** Deterministic numeric ID in range 10000–19999 derived from a debt UUID. */
-  private creditCardNotificationId(debtId: string): number {
-    let hash = 0;
-    for (let i = 0; i < debtId.length; i++) {
-      hash = (Math.imul(31, hash) + debtId.charCodeAt(i)) | 0;
+  /**
+   * Refresh the permission signal from the OS before scheduling. App init runs
+   * store hydration and notification initialization concurrently, so the signal
+   * may not be populated yet when the first reschedule request arrives.
+   */
+  private async refreshNativePermissionStatus(): Promise<void> {
+    try {
+      const result = await LocalNotifications.checkPermissions();
+      this.permissionStatus.set(result.display === 'granted' ? 'granted' : result.display === 'denied' ? 'denied' : 'default');
+    } catch {
+      // Keep the last known status.
     }
-    return 10000 + (Math.abs(hash) % 10000);
-  }
-
-  /** Compute the next reminder date = 3 days before paymentDueDay, always in the future. */
-  private nextCreditCardReminderDate(paymentDueDay: number): Date {
-    const now = new Date();
-    const reminderDay = paymentDueDay - 3;
-    const candidate = new Date(now.getFullYear(), now.getMonth(), reminderDay, 9, 0, 0, 0);
-    if (candidate <= now) {
-      candidate.setMonth(candidate.getMonth() + 1);
-    }
-    return candidate;
   }
 }

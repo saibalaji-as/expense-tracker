@@ -1,4 +1,4 @@
-import { computed, inject, isDevMode } from '@angular/core';
+import { computed, effect, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
@@ -23,6 +23,7 @@ import {
   UpdateDebtPaymentInput,
 } from '../models';
 import { StorageService } from './storage.service';
+import { LocalNotificationService } from './local-notification.service';
 import { BackupDocument, DriveApiError, DriveParseError, GoogleDriveService } from './google-drive.service';
 import { BackupMode, BackupModeService } from './backup-mode.service';
 import { AppCurrency, CurrencyService } from './currency.service';
@@ -35,6 +36,15 @@ const PENDING_CC_SELECTION_KEY = 'spenza_pending_cc_expense_queue_v1';
 
 interface ExpenseWidgetPlugin {
   refresh(): Promise<void>;
+  /**
+   * Fired by the native widget the moment an expense/adjustment is written to the
+   * pending queue, so an already-foregrounded app can drain it immediately instead
+   * of waiting for the next cold start. (Capacitor plugin event.)
+   */
+  addListener(
+    eventName: 'widgetExpenseQueued',
+    listenerFunc: () => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 const ExpenseWidget = registerPlugin<ExpenseWidgetPlugin>('ExpenseWidget');
@@ -60,6 +70,8 @@ interface WidgetExpenseEntryQueueItem extends WidgetExpenseQueueItemBase {
   kind: 'expense';
   entry: ExpenseEntry;
   isCreditCard: boolean;
+  /** Card last-4 the notification mentioned — auto-matches a card during flush. */
+  ccLast4: string | null;
 }
 
 interface WidgetAdjustmentQueueItem extends WidgetExpenseQueueItemBase {
@@ -67,7 +79,21 @@ interface WidgetAdjustmentQueueItem extends WidgetExpenseQueueItemBase {
   adjustment: AccountBalanceAdjustment;
 }
 
-type WidgetExpenseQueueItem = WidgetExpenseEntryQueueItem | WidgetAdjustmentQueueItem;
+/** A credit-card bill payment captured by the widget from a bank/card SMS. */
+interface WidgetCcPaymentQueueItem extends WidgetExpenseQueueItemBase {
+  kind: 'cc-payment';
+  payment: {
+    id: string;
+    debtId?: string;
+    accountId?: string;
+    amount: number;
+    date: string;
+    comment?: string;
+    ccLast4?: string;
+  };
+}
+
+type WidgetExpenseQueueItem = WidgetExpenseEntryQueueItem | WidgetAdjustmentQueueItem | WidgetCcPaymentQueueItem;
 
 type AccountBalanceDelta = Map<string, number>;
 
@@ -291,6 +317,7 @@ export const ExpenseStore = signalStore(
     currencyService = inject(CurrencyService),
     authService = inject(AuthService),
     familySyncService = inject(FamilySyncService),
+    localNotificationService = inject(LocalNotificationService),
   ) => {
     let localRevision = 0;
     let persistedRevision = 0;
@@ -301,6 +328,8 @@ export const ExpenseStore = signalStore(
     // this only keeps trying to sync it up. Backoff grows with consecutive failures.
     let backgroundFlushTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundFlushAttempts = 0;
+    // Guards against double-registering the native widget "expense queued" listener.
+    let widgetExpenseListenerRegistered = false;
     const BG_FLUSH_BASE_MS = 5000;
     const BG_FLUSH_MAX_MS = 5 * 60 * 1000;
     let applyingRemote = false;
@@ -353,6 +382,43 @@ export const ExpenseStore = signalStore(
         addAccountDelta(deltas, entry.accountId, -entry.amount);
       }
       return deltas;
+    };
+
+    /** Credit-card purchases (entry.debtId, not debt payments) grouped by card. */
+    const debtChargesForAddedEntries = (entries: ExpenseEntry[]): Map<string, number> => {
+      const charges = new Map<string, number>();
+      for (const entry of entries) {
+        if (entry.debtId && entry.source !== 'debt-payment') {
+          charges.set(entry.debtId, roundMoney((charges.get(entry.debtId) ?? 0) + entry.amount));
+        }
+      }
+      return charges;
+    };
+
+    /** Increase card outstanding for purchases charged to it. Validates before mutating. */
+    const applyDebtCharges = (debts: DebtAccount[], charges: Map<string, number>): DebtAccount[] => {
+      if (charges.size === 0) return debts;
+
+      const now = new Date().toISOString();
+      const actor = activityActor();
+      for (const debtId of charges.keys()) {
+        const debt = debts.find((d) => d.id === debtId);
+        if (!debt || debt.type !== 'credit-card' || debt.status !== 'active') {
+          throw new Error('Selected credit card is not active anymore. Choose another payment method.');
+        }
+      }
+
+      return debts.map((debt) => {
+        const charge = charges.get(debt.id);
+        if (charge === undefined) return debt;
+        return {
+          ...debt,
+          remainingBalance: roundMoney(debt.remainingBalance + charge),
+          updatedAt: now,
+          updatedByEmail: actor.email,
+          updatedByRole: actor.role,
+        };
+      });
     };
 
     const accountDeltasForEntryUpdate = (
@@ -506,19 +572,68 @@ export const ExpenseStore = signalStore(
         };
       }
 
+      const readCcLast4 = (...sources: unknown[]): string | null => {
+        for (const source of sources) {
+          if (typeof source !== 'object' || source === null) continue;
+          const value = (source as Record<string, unknown>)['ccLast4'];
+          if (typeof value === 'string' && /^\d{4}$/.test(value)) return value;
+        }
+        return null;
+      };
+
+      if (record['kind'] === 'cc-payment') {
+        const wrapped = record['payment'];
+        if (typeof wrapped === 'object' && wrapped !== null) {
+          const candidate = wrapped as Record<string, unknown>;
+          if (
+            typeof candidate['id'] === 'string' && candidate['id'].trim() !== '' &&
+            typeof candidate['amount'] === 'number' && Number.isFinite(candidate['amount']) && candidate['amount'] > 0 &&
+            typeof candidate['date'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(candidate['date'])
+          ) {
+            return {
+              kind: 'cc-payment',
+              userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
+              payment: {
+                id: candidate['id'],
+                debtId: typeof candidate['debtId'] === 'string' && candidate['debtId'].trim() !== '' ? candidate['debtId'] : undefined,
+                accountId: typeof candidate['accountId'] === 'string' && candidate['accountId'].trim() !== '' ? candidate['accountId'] : undefined,
+                amount: candidate['amount'],
+                date: candidate['date'],
+                comment: typeof candidate['comment'] === 'string' && candidate['comment'].trim() !== '' ? candidate['comment'] : undefined,
+                ccLast4: typeof candidate['ccLast4'] === 'string' && /^\d{4}$/.test(candidate['ccLast4']) ? candidate['ccLast4'] : undefined,
+              },
+              raw,
+            };
+          }
+        }
+        return null;
+      }
+
       const wrappedEntry = record['entry'];
       if (isExpenseEntry(wrappedEntry)) {
         return {
           kind: 'expense',
           userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
           entry: wrappedEntry,
-          isCreditCard: record['isCreditCard'] === true,
+          // The native widget writes the flag INSIDE the entry; older builds may
+          // have written it on the wrapper — accept both.
+          isCreditCard:
+            record['isCreditCard'] === true ||
+            (wrappedEntry as unknown as Record<string, unknown>)['isCreditCard'] === true,
+          ccLast4: readCcLast4(record, wrappedEntry),
           raw,
         };
       }
 
       if (isExpenseEntry(raw)) {
-        return { kind: 'expense', userEmail: null, entry: raw, isCreditCard: record['isCreditCard'] === true, raw };
+        return {
+          kind: 'expense',
+          userEmail: null,
+          entry: raw,
+          isCreditCard: record['isCreditCard'] === true,
+          ccLast4: readCcLast4(record),
+          raw,
+        };
       }
 
       return null;
@@ -569,6 +684,7 @@ export const ExpenseStore = signalStore(
       let nextDebts = [...store.debts()];
       const newAdjustments: AccountBalanceAdjustment[] = [];
       const newPendingCc: PendingCcExpense[] = [];
+      const ccPaymentItems: WidgetCcPaymentQueueItem[] = [];
       let noCcAccountDetected = false;
 
       for (const item of activeItems) {
@@ -576,10 +692,42 @@ export const ExpenseStore = signalStore(
           let entry = item.entry;
           if (existingIds.has(entry.id)) continue;
 
-          if (item.isCreditCard && !entry.debtId) {
+          // Drop the native widget's transport-only props so they never leak
+          // into the persisted backup schema.
+          {
+            const transportRecord = entry as unknown as Record<string, unknown>;
+            if (transportRecord['isCreditCard'] !== undefined || transportRecord['ccLast4'] !== undefined) {
+              const { isCreditCard: _flag, ccLast4: _last4, ...cleanEntry } =
+                entry as ExpenseEntry & { isCreditCard?: boolean; ccLast4?: string };
+              entry = cleanEntry;
+            }
+          }
+
+          // Explicit card choice made in the widget: charge that card, no guessing.
+          if (entry.debtId && entry.source !== 'debt-payment') {
+            const cardIndex = nextDebts.findIndex(
+              (d) => d.id === entry.debtId && d.type === 'credit-card' && d.status === 'active'
+            );
+            if (cardIndex >= 0) {
+              entry = { ...entry, accountId: undefined };
+              nextDebts = nextDebts.map((d, i) =>
+                i === cardIndex
+                  ? { ...d, remainingBalance: roundMoney(d.remainingBalance + entry.amount), updatedAt: entry.timestamp }
+                  : d
+              );
+            } else {
+              // Card archived/deleted since the widget save — keep the expense,
+              // drop the link so no balance is silently affected.
+              entry = { ...entry, debtId: undefined };
+            }
+          } else if (item.isCreditCard && !entry.debtId) {
             const activeCreditCards = nextDebts.filter((d) => d.type === 'credit-card' && d.status === 'active');
-            if (activeCreditCards.length === 1) {
-              const cc = activeCreditCards[0];
+            // The notification's card last-4 pins the exact card — no picker needed.
+            const last4Match = item.ccLast4
+              ? activeCreditCards.filter((d) => d.cardLast4 === item.ccLast4)
+              : [];
+            if (activeCreditCards.length === 1 || last4Match.length === 1) {
+              const cc = last4Match.length === 1 ? last4Match[0] : activeCreditCards[0];
               entry = { ...entry, debtId: cc.id, accountId: undefined };
               const idx = nextDebts.findIndex((d) => d.id === cc.id);
               if (idx >= 0) {
@@ -633,6 +781,13 @@ export const ExpenseStore = signalStore(
           continue;
         }
 
+        if (item.kind === 'cc-payment') {
+          // Resolved after the main state patch via recordDebtPayment so the
+          // account deduction + card reduction + audit record stay atomic.
+          ccPaymentItems.push(item);
+          continue;
+        }
+
         const adjustment = item.adjustment;
         if (existingAdjustmentIds.has(adjustment.id)) continue;
         const accountIndex = nextAccounts.findIndex(
@@ -673,17 +828,91 @@ export const ExpenseStore = signalStore(
         noCcAccountForExpense$.next({ amount: ccEntry?.amount ?? 0, comment: ccEntry?.comment });
       }
 
-      if (newEntries.length === 0 && newAdjustments.length === 0) return false;
+      if (newEntries.length === 0 && newAdjustments.length === 0 && ccPaymentItems.length === 0) return false;
 
-      patchState(store, {
-        entries: [...newEntries, ...store.entries()],
-        accounts: nextAccounts,
-        debts: nextDebts,
-        accountAdjustments: [...newAdjustments, ...store.accountAdjustments()],
-      });
-      localRevision += 1;
-      await methods.persistToDrive();
-      pushFamilyState();
+      if (newEntries.length > 0 || newAdjustments.length > 0) {
+        patchState(store, {
+          entries: [...newEntries, ...store.entries()],
+          accounts: nextAccounts,
+          debts: nextDebts,
+          accountAdjustments: [...newAdjustments, ...store.accountAdjustments()],
+        });
+        localRevision += 1;
+        await methods.persistToDrive();
+        pushFamilyState();
+      }
+
+      // ── Widget-captured credit-card bill payments ────────────────────────
+      // Each one runs through recordDebtPayment (account deduction, card
+      // outstanding reduction, Debt Payment expense, audit record — atomic).
+      if (ccPaymentItems.length > 0) {
+        const retryRawItems: unknown[] = [];
+        for (const item of ccPaymentItems) {
+          const payment = item.payment;
+
+          // Resolve the card: explicit choice → SMS last-4 → only card.
+          const activeCards = store.debts().filter((d) => d.type === 'credit-card' && d.status === 'active');
+          let card = payment.debtId ? activeCards.find((d) => d.id === payment.debtId) : undefined;
+          if (!card && payment.ccLast4) {
+            const matches = activeCards.filter((d) => d.cardLast4 === payment.ccLast4);
+            if (matches.length === 1) card = matches[0];
+          }
+          if (!card && activeCards.length === 1) card = activeCards[0];
+          if (!card) {
+            if (activeCards.length === 0) {
+              noCcAccountForExpense$.next({ amount: payment.amount, comment: payment.comment });
+            }
+            retryRawItems.push(item.raw); // resolvable once the card exists/is unambiguous
+            continue;
+          }
+
+          // Duplicate guard: bank-side and card-side SMS describe the same
+          // payment — record it once per card+amount+date.
+          const alreadyRecorded = store.debtPayments().some(
+            (p) => p.debtId === card!.id && p.amount === roundMoney(payment.amount) && p.date === payment.date
+          );
+          if (alreadyRecorded) continue;
+
+          if (card.remainingBalance <= 0) {
+            // Nothing outstanding in-app — recording would corrupt balances.
+            if (isDevMode()) { console.warn('[ExpenseStore] Skipping widget CC payment: card has no tracked outstanding.'); }
+            continue;
+          }
+
+          // Resolve the paying account: explicit choice → default account.
+          const account =
+            (payment.accountId
+              ? store.accounts().find((a) => a.id === payment.accountId && !a.archived)
+              : undefined)
+            ?? store.accounts().find((a) => a.isDefault && !a.archived)
+            ?? store.accounts().find((a) => !a.archived);
+          if (!account) {
+            retryRawItems.push(item.raw);
+            continue;
+          }
+
+          try {
+            await methods.recordDebtPayment({
+              debtId: card.id,
+              accountId: account.id,
+              // The SMS amount can exceed the tracked outstanding when older
+              // spends were never logged; cap so state stays consistent.
+              amount: Math.min(roundMoney(payment.amount), card.remainingBalance),
+              date: payment.date,
+              comment: payment.comment ?? 'Credit card bill payment (auto-detected)',
+            });
+          } catch (error) {
+            // Overdraft or similar guided failure — keep it queued for retry.
+            if (isDevMode()) { console.warn('[ExpenseStore] Widget CC payment kept queued:', error); }
+            retryRawItems.push(item.raw);
+          }
+        }
+
+        if (retryRawItems.length > 0) {
+          const currentQueue = await readWidgetExpenseQueue();
+          await storageService.set(WIDGET_EXPENSE_QUEUE_KEY, JSON.stringify([...currentQueue, ...retryRawItems]));
+        }
+      }
 
       if (store.syncStatus() === 'error') {
         if (isDevMode()) { console.warn('[ExpenseStore] Widget expenses were added locally but Drive persistence is pending.'); }
@@ -948,7 +1177,8 @@ export const ExpenseStore = signalStore(
           store.accounts(),
           accountDeltasForAddedEntries([entry])
         );
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
+        const updatedDebts = applyDebtCharges(store.debts(), debtChargesForAddedEntries([entry]));
+        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
         
         // Task 7.2: Check budget threshold after adding entry
         const limit = store.limitMap()[entry.type];
@@ -985,7 +1215,8 @@ export const ExpenseStore = signalStore(
           store.accounts(),
           accountDeltasForAddedEntries(entries)
         );
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
+        const updatedDebts = applyDebtCharges(store.debts(), debtChargesForAddedEntries(entries));
+        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
 
         for (const entry of entries) {
           const limit = store.limitMap()[entry.type];
@@ -1079,6 +1310,27 @@ export const ExpenseStore = signalStore(
 
       async flushPendingWidgetExpenses(): Promise<boolean> {
         return flushPendingWidgetExpenses();
+      },
+
+      /**
+       * Subscribes to the native widget's "expense queued" event so an expense
+       * logged from the home-screen widget appears in the running app instantly —
+       * no app relaunch required. Safe to call once on startup; the registration
+       * is idempotent. No-op on web (the plugin event never fires there).
+       */
+      async listenForWidgetExpenses(): Promise<void> {
+        if (widgetExpenseListenerRegistered) return;
+        widgetExpenseListenerRegistered = true;
+        try {
+          await ExpenseWidget.addListener('widgetExpenseQueued', () => {
+            void flushPendingWidgetExpenses().catch((err) => {
+              if (isDevMode()) { console.warn('[ExpenseStore] Widget event flush failed:', err); }
+            });
+          });
+        } catch (err) {
+          widgetExpenseListenerRegistered = false;
+          if (isDevMode()) { console.warn('[ExpenseStore] Failed to register widget listener:', err); }
+        }
       },
 
       /**
@@ -1414,7 +1666,10 @@ export const ExpenseStore = signalStore(
         if (!Number.isFinite(remainingBalance) || remainingBalance < 0) {
           throw new Error('Enter a valid remaining balance.');
         }
-        if (remainingBalance > principalAmount) {
+        // Loans: remaining can never exceed what was borrowed. Credit cards
+        // follow the opposite model (limit + revolving outstanding) — spending
+        // can even exceed the limit, so this rule does not apply.
+        if (remainingBalance > principalAmount && input.type !== 'credit-card') {
           throw new Error('Remaining balance cannot be higher than the borrowed amount.');
         }
         if (interestRate !== undefined && (!Number.isFinite(interestRate) || interestRate < 0)) {
@@ -1446,7 +1701,11 @@ export const ExpenseStore = signalStore(
           ...(input.paymentDueDay !== undefined ? { paymentDueDay: input.paymentDueDay } : {}),
           ...(input.minimumPaymentAmount !== undefined ? { minimumPaymentAmount: input.minimumPaymentAmount } : {}),
           ...(input.cardNetworkOrBank ? { cardNetworkOrBank: input.cardNetworkOrBank } : {}),
-          status: remainingBalance === 0 ? 'paid' : 'active',
+          ...(input.cardLast4 && /^\d{4}$/.test(input.cardLast4) ? { cardLast4: input.cardLast4 } : {}),
+          ...(input.creditLimit !== undefined && input.creditLimit > 0 ? { creditLimit: roundMoney(Number(input.creditLimit)) } : {}),
+          // A credit card with zero outstanding is simply healthy, not "paid off"
+          // — it must stay active so it remains selectable as a payment method.
+          status: remainingBalance === 0 && input.type !== 'credit-card' ? 'paid' : 'active',
           createdAt: now,
           updatedAt: now,
           createdByEmail: actor.email,
@@ -1464,6 +1723,7 @@ export const ExpenseStore = signalStore(
         }
 
         const name = input.name === undefined ? existing.name : input.name.trim();
+        const nextType = input.type ?? existing.type;
         const principalAmount = input.principalAmount === undefined
           ? existing.principalAmount
           : roundMoney(Number(input.principalAmount));
@@ -1478,6 +1738,15 @@ export const ExpenseStore = signalStore(
         const paymentDueDay = input.paymentDueDay ?? existing.paymentDueDay;
         const minimumPaymentAmount = input.minimumPaymentAmount ?? existing.minimumPaymentAmount;
         const cardNetworkOrBank = input.cardNetworkOrBank ?? existing.cardNetworkOrBank;
+        const cardLast4 = input.cardLast4 !== undefined ? input.cardLast4 : existing.cardLast4;
+        const creditLimit = input.creditLimit !== undefined ? input.creditLimit : existing.creditLimit;
+
+        if (cardLast4 !== undefined && cardLast4 !== '' && !/^\d{4}$/.test(cardLast4)) {
+          throw new Error('Card last 4 digits must be exactly 4 numbers.');
+        }
+        if (creditLimit !== undefined && (!Number.isFinite(creditLimit) || creditLimit < 0)) {
+          throw new Error('Enter a valid credit limit.');
+        }
 
         if (!name) {
           throw new Error('Debt name is required.');
@@ -1488,7 +1757,8 @@ export const ExpenseStore = signalStore(
         if (!Number.isFinite(remainingBalance) || remainingBalance < 0) {
           throw new Error('Enter a valid remaining balance.');
         }
-        if (remainingBalance > principalAmount) {
+        // Loan-only rule — credit cards use the limit + revolving outstanding model.
+        if (remainingBalance > principalAmount && nextType !== 'credit-card') {
           throw new Error('Remaining balance cannot be higher than the borrowed amount.');
         }
         if (interestRate !== undefined && (!Number.isFinite(interestRate) || interestRate < 0)) {
@@ -1523,7 +1793,11 @@ export const ExpenseStore = signalStore(
                   ...(paymentDueDay !== undefined ? { paymentDueDay } : { paymentDueDay: undefined }),
                   ...(minimumPaymentAmount !== undefined ? { minimumPaymentAmount } : { minimumPaymentAmount: undefined }),
                   ...(cardNetworkOrBank ? { cardNetworkOrBank } : { cardNetworkOrBank: undefined }),
-                  status: input.status ?? (remainingBalance === 0 ? 'paid' : debt.status === 'paid' ? 'paid' : 'active'),
+                  ...(cardLast4 && /^\d{4}$/.test(cardLast4) ? { cardLast4 } : { cardLast4: undefined }),
+                  ...(creditLimit !== undefined && creditLimit > 0 ? { creditLimit: roundMoney(Number(creditLimit)) } : { creditLimit: undefined }),
+                  status: input.status ?? (nextType === 'credit-card'
+                    ? (debt.status === 'archived' ? 'archived' : 'active')
+                    : (remainingBalance === 0 ? 'paid' : debt.status === 'paid' ? 'paid' : 'active')),
                   updatedAt: now,
                   updatedByEmail: actor.email,
                   updatedByRole: actor.role,
@@ -1549,6 +1823,11 @@ export const ExpenseStore = signalStore(
         patchState(store, {
           debts: store.debts().filter((debt) => debt.id !== debtId),
         });
+        if (existing.type === 'credit-card') {
+          // The reschedule effect only covers cards still in the list; a
+          // deleted card's pending notifications must be cancelled explicitly.
+          void localNotificationService.cancelCreditCardDueReminder(debtId);
+        }
         await markLocalChangeAndPersist();
       },
 
@@ -1618,7 +1897,8 @@ export const ExpenseStore = signalStore(
               ? {
                   ...candidate,
                   remainingBalance: nextRemainingBalance,
-                  status: nextRemainingBalance === 0 ? 'paid' : 'active',
+                  // Cards revolve: a cleared bill keeps the card active/selectable.
+                  status: nextRemainingBalance === 0 && candidate.type !== 'credit-card' ? 'paid' : 'active',
                   updatedAt: now,
                   updatedByEmail: actor.email,
                   updatedByRole: actor.role,
@@ -1693,7 +1973,7 @@ export const ExpenseStore = signalStore(
               ? {
                   ...candidate,
                   remainingBalance: nextRemainingBalance,
-                  status: nextRemainingBalance === 0 ? 'paid' : 'active',
+                  status: nextRemainingBalance === 0 && candidate.type !== 'credit-card' ? 'paid' : 'active',
                   updatedAt: now,
                   updatedByEmail: actor.email,
                   updatedByRole: actor.role,
@@ -1734,7 +2014,11 @@ export const ExpenseStore = signalStore(
         );
         const now = new Date().toISOString();
         const actor = activityActor();
-        const nextRemainingBalance = roundMoney(Math.min(debt.principalAmount, debt.remainingBalance + payment.amount));
+        // Loans cap restored balance at the borrowed amount; card outstanding
+        // is revolving and has no such cap.
+        const nextRemainingBalance = debt.type === 'credit-card'
+          ? roundMoney(debt.remainingBalance + payment.amount)
+          : roundMoney(Math.min(debt.principalAmount, debt.remainingBalance + payment.amount));
 
         patchState(store, {
           entries: store.entries().filter((entry) => entry.id !== payment.expenseId),
@@ -1744,7 +2028,7 @@ export const ExpenseStore = signalStore(
               ? {
                   ...candidate,
                   remainingBalance: nextRemainingBalance,
-                  status: nextRemainingBalance === 0 ? 'paid' : 'active',
+                  status: nextRemainingBalance === 0 && candidate.type !== 'credit-card' ? 'paid' : 'active',
                   updatedAt: now,
                   updatedByEmail: actor.email,
                   updatedByRole: actor.role,
@@ -2159,6 +2443,27 @@ export const ExpenseStore = signalStore(
         await backupModeService.setMode('single');
       })();
     });
+
+    // Keep the native credit-card bill ladder and the salary fallback reminder
+    // in sync with app state. Runs on every relevant state change (app data
+    // load, widget CC spends, payments, card edits, account credits) —
+    // debounced because loads and widget flushes patch state several times in
+    // quick succession. Native-only inside the schedule methods; no-op on web.
+    if (Capacitor.isNativePlatform()) {
+      let notificationRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+      effect(() => {
+        const debts = store.debts();
+        const entries = store.entries();
+        const payments = store.debtPayments();
+        const adjustments = store.accountAdjustments();
+        if (notificationRefreshTimer) clearTimeout(notificationRefreshTimer);
+        notificationRefreshTimer = setTimeout(() => {
+          notificationRefreshTimer = null;
+          void localNotificationService.scheduleCreditCardDueReminders(debts, entries, payments);
+          void localNotificationService.scheduleSalaryReminder(adjustments);
+        }, 1500);
+      });
+    }
 
     return methods;
   })

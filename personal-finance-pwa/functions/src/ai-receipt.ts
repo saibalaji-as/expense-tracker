@@ -1,5 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import { requireFirebaseUid } from './auth';
+import { requireFirebaseUid, requireProTier } from './auth';
 
 interface AiReceiptPayload {
   fileName?: string;
@@ -88,12 +88,22 @@ export const extractReceipt = onRequest({ cors: true, secrets: ['GROQ_API_KEY', 
     return;
   }
 
-  // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+  // Hosted path spends server-side API quota and is a Pro-only feature in the
+  // client UI (Daily Expense receipt-camera AI button is gated behind isPro()) —
+  // enforce both here, since a signed-in free user could otherwise call this
+  // endpoint directly.
   if (!userApiKey) {
+    let uid: string;
     try {
-      await requireFirebaseUid(req);
+      uid = await requireFirebaseUid(req);
     } catch {
       res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI receipt extraction.' });
+      return;
+    }
+    try {
+      await requireProTier(uid);
+    } catch {
+      res.status(403).json({ error: 'Pro subscription required for hosted AI receipt extraction.' });
       return;
     }
   }

@@ -72,6 +72,7 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         bindButton(context, views, R.id.widget_shopping, WidgetExpenseConstants.TYPE_SHOPPING, 104);
         bindButton(context, views, R.id.widget_more, WidgetExpenseConstants.TYPE_MORE, 105);
         bindCreditButton(context, views, R.id.widget_credit, 106);
+        applyPredictedHighlight(context, views, showShopping);
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
@@ -86,6 +87,32 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         views.setOnClickPendingIntent(viewId, pendingIntent);
+    }
+
+    /**
+     * Highlights the quick-action button for the category the user is most likely to log
+     * right now (from {@link WidgetCategoryPredictor}). When the predicted category has no
+     * dedicated quick button — or the Shopping slot is hidden — we highlight "More", which
+     * already opens the form pre-selected to the predicted category. No-ops when there is
+     * not enough history to predict.
+     */
+    private static void applyPredictedHighlight(Context context, RemoteViews views, boolean showShopping) {
+        int viewId = predictedButtonId(WidgetCategoryPredictor.predictType(context), showShopping);
+        if (viewId != 0) {
+            views.setInt(viewId, "setBackgroundResource", R.drawable.widget_predicted_highlight);
+        }
+    }
+
+    private static int predictedButtonId(String predicted, boolean showShopping) {
+        if (predicted == null) return 0;
+        if (WidgetExpenseConstants.TYPE_FOOD.equals(predicted)) return R.id.widget_food;
+        if (WidgetExpenseConstants.TYPE_TRANSPORT.equals(predicted)) return R.id.widget_transport;
+        if (WidgetExpenseConstants.TYPE_ENTERTAINMENT.equals(predicted)) return R.id.widget_entertainment;
+        if (WidgetExpenseConstants.TYPE_SHOPPING.equals(predicted)) {
+            return showShopping ? R.id.widget_shopping : R.id.widget_more;
+        }
+        // Any other predicted category lives behind the More form, which opens pre-selected.
+        return R.id.widget_more;
     }
 
     private static void bindCreditButton(Context context, RemoteViews views, int viewId, int requestCode) {
@@ -110,6 +137,11 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         views.setProgressBar(R.id.widget_budget_progress, 100, insight.progressPercent, false);
         views.setTextViewText(R.id.widget_trend_badge, insight.trendBadge);
         views.setTextViewText(R.id.widget_trend_text, insight.trendText);
+        // Partner-aware framing: in family mode the spend total above is the combined family
+        // total, so the subtitle calls that out and shows who logged the most recent expense.
+        if (insight.subtitle != null) {
+            views.setTextViewText(R.id.expense_widget_subtitle, insight.subtitle);
+        }
     }
 
     private static final class DailyInsight {
@@ -118,20 +150,23 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         final int progressPercent;
         final String trendBadge;
         final String trendText;
+        /** Header subtitle; null keeps the layout default ("DAILY INSIGHT"). */
+        final String subtitle;
 
-        private DailyInsight(String spentText, String budgetText, int progressPercent, String trendBadge, String trendText) {
+        private DailyInsight(String spentText, String budgetText, int progressPercent, String trendBadge, String trendText, String subtitle) {
             this.spentText = spentText;
             this.budgetText = budgetText;
             this.progressPercent = progressPercent;
             this.trendBadge = trendBadge;
             this.trendText = trendText;
+            this.subtitle = subtitle;
         }
 
         static DailyInsight from(Context context) {
             SharedPreferences prefs = WidgetExpenseQueue.prefs(context);
             JSONObject doc = localBackupDocument(prefs);
             if (doc == null) {
-                return new DailyInsight("₹0", "₹0", 0, "0%", "Open Spenza once to load insight");
+                return new DailyInsight("₹0", "₹0", 0, "0%", "Open Spenza once to load insight", null);
             }
 
             JSONObject metadata = doc.optJSONObject("metadata");
@@ -149,13 +184,82 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             yesterdaySpent += queuedTotalForDate(queued, yesterday, activeEmail);
             double dailyBudget = dailyBudget(monthlyIncome, limits, today);
             int progress = dailyBudget > 0 ? (int) Math.min(100, Math.round((todaySpent / dailyBudget) * 100)) : 0;
+            String subtitle = familySubtitle(prefs, expenses, queued, today, activeEmail);
             return new DailyInsight(
                 formatMoney(currency, todaySpent),
                 formatMoney(currency, dailyBudget),
                 progress,
                 trendBadge(todaySpent, yesterdaySpent),
-                trendText(todaySpent, yesterdaySpent)
+                trendText(todaySpent, yesterdaySpent),
+                subtitle
             );
+        }
+
+        /**
+         * Family-mode header subtitle. Returns null in single mode so the layout keeps its
+         * default "DAILY INSIGHT". In family mode the budget figures already aggregate both
+         * members (partner expenses are merged into the local backup), so the subtitle frames
+         * the total as the family's and names who logged the most recent expense today.
+         */
+        private static String familySubtitle(
+            SharedPreferences prefs,
+            JSONArray expenses,
+            JSONArray queue,
+            String today,
+            String activeEmail
+        ) {
+            if (!"family".equals(prefs.getString(WidgetExpenseConstants.BACKUP_MODE_KEY, null))) {
+                return null;
+            }
+
+            JSONObject latest = null;
+            String latestTs = "";
+            if (expenses != null) {
+                for (int i = 0; i < expenses.length(); i++) {
+                    JSONObject entry = expenses.optJSONObject(i);
+                    if (entry == null || !today.equals(entry.optString("date"))) continue;
+                    String ts = entry.optString("timestamp", "");
+                    if (latest == null || ts.compareTo(latestTs) > 0) {
+                        latest = entry;
+                        latestTs = ts;
+                    }
+                }
+            }
+            if (queue != null && activeEmail != null) {
+                for (int i = 0; i < queue.length(); i++) {
+                    JSONObject queuedItem = queue.optJSONObject(i);
+                    if (queuedItem == null || !activeEmail.equals(queuedItem.optString("userEmail", null))) continue;
+                    JSONObject entry = queuedItem.optJSONObject("entry");
+                    if (entry == null || !today.equals(entry.optString("date"))) continue;
+                    String ts = entry.optString("timestamp", "");
+                    if (latest == null || ts.compareTo(latestTs) > 0) {
+                        latest = entry;
+                        latestTs = ts;
+                    }
+                }
+            }
+
+            if (latest == null) {
+                return "FAMILY · SHARED TODAY";
+            }
+            String author = latest.optString("createdByEmail", null);
+            boolean isSelf = author == null
+                ? "owner".equalsIgnoreCase(prefs.getString(WidgetExpenseConstants.OWNER_ROLE_KEY, null))
+                : (activeEmail != null && activeEmail.equalsIgnoreCase(author));
+            String who = isSelf ? "YOU" : authorLabel(author);
+            return "FAMILY · " + who + " LOGGED LAST";
+        }
+
+        /** Short display name for the partner — email prefix when available, else a generic label. */
+        private static String authorLabel(String email) {
+            if (email != null && email.contains("@")) {
+                String prefix = email.substring(0, email.indexOf('@')).trim();
+                if (!prefix.isEmpty()) {
+                    if (prefix.length() > 12) prefix = prefix.substring(0, 12);
+                    return prefix.toUpperCase(Locale.US);
+                }
+            }
+            return "PARTNER";
         }
 
         private static JSONObject localBackupDocument(SharedPreferences prefs) {

@@ -59,13 +59,23 @@ exports.generateInsights = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ_
         res.status(503).json({ error: 'AI insights unavailable: no API key configured on server.' });
         return;
     }
-    // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+    // Hosted path spends server-side API quota and is a Pro-only feature in the
+    // client UI (Dashboard 'Ask AI' is gated behind isPro()) — enforce both here,
+    // since a signed-in free user could otherwise call this endpoint directly.
     if (!hasUserKey) {
+        let uid;
         try {
-            await (0, auth_1.requireFirebaseUid)(req);
+            uid = await (0, auth_1.requireFirebaseUid)(req);
         }
         catch {
             res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI insights.' });
+            return;
+        }
+        try {
+            await (0, auth_1.requireProTier)(uid);
+        }
+        catch {
+            res.status(403).json({ error: 'Pro subscription required for hosted AI insights.' });
             return;
         }
     }

@@ -24,6 +24,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.ArrayList;
@@ -57,9 +58,49 @@ public class WidgetExpenseSyncWorker extends Worker {
         if (queuedEntries.isEmpty()) return Result.success();
 
         SharedPreferences prefs = WidgetExpenseQueue.prefs(context);
+
+        // ── Family (Firestore) instant sync — runs FIRST, independent of the Google Drive
+        // access token. This is how the partner receives the expense, and it must work even
+        // when the app has been killed for hours and the cached Drive token is expired (it
+        // uses the long-lived Firebase refresh token instead). Idempotent on the backend
+        // (dedupes by id), so re-running on later Drive retries is harmless. The queue is
+        // NOT cleared here — the Drive write below still owns clearing it so the user's own
+        // device gets the expense on next app open.
+        if (isFirestoreFamily(prefs)) {
+            String familyEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+            JSONArray familyExpenses = new JSONArray();
+            JSONArray familyAdjustments = new JSONArray();
+            for (JSONObject queuedItem : queuedEntries) {
+                String queuedEmail = queuedItem.optString("userEmail", null);
+                if ((familyEmail != null || queuedEmail != null)
+                    && !String.valueOf(familyEmail).equals(String.valueOf(queuedEmail))) {
+                    continue;
+                }
+                String familyKind = queuedItem.optString("kind", "expense");
+                if ("cc-payment".equals(familyKind)) {
+                    // Debt payments are resolved atomically by ExpenseStore in
+                    // the app; the family partner receives them via Drive polling.
+                    continue;
+                }
+                if ("adjustment".equals(familyKind)) {
+                    JSONObject adjustment = queuedItem.optJSONObject("adjustment");
+                    if (adjustment != null) familyAdjustments.put(adjustment);
+                } else {
+                    JSONObject entry = queuedItem.optJSONObject("entry");
+                    if (entry == null) entry = queuedItem;
+                    familyExpenses.put(entry);
+                }
+            }
+            if (familyExpenses.length() > 0 || familyAdjustments.length() > 0) {
+                boolean pushed = pushFamilyWidgetExpenses(prefs, familyExpenses, familyAdjustments);
+                Log.d(TAG, "Family Firestore push (pre-Drive) result=" + pushed
+                    + " expenses=" + familyExpenses.length() + " adjustments=" + familyAdjustments.length());
+            }
+        }
+
         String token = validAccessToken(prefs);
         if (token == null) {
-            Log.w(TAG, "No valid cached token; keeping widget expenses queued.");
+            Log.w(TAG, "No valid cached token; Drive write deferred, keeping widget expenses queued.");
             return Result.retry();
         }
 
@@ -85,6 +126,11 @@ public class WidgetExpenseSyncWorker extends Worker {
             if (accountAdjustments == null) {
                 accountAdjustments = new JSONArray();
                 doc.put("accountAdjustments", accountAdjustments);
+            }
+            JSONArray debts = doc.optJSONArray("debts");
+            if (debts == null) {
+                debts = new JSONArray();
+                doc.put("debts", debts);
             }
 
             Set<String> existingIds = new HashSet<>();
@@ -113,6 +159,12 @@ public class WidgetExpenseSyncWorker extends Worker {
                 }
 
                 String kind = queuedItem.optString("kind", "expense");
+                if ("cc-payment".equals(kind)) {
+                    // Must go through ExpenseStore.recordDebtPayment in the app —
+                    // syncing here would break account/card/audit atomicity.
+                    remaining.add(queuedItem);
+                    continue;
+                }
                 if ("adjustment".equals(kind)) {
                     JSONObject adjustment = queuedItem.optJSONObject("adjustment");
                     if (adjustment == null) {
@@ -133,7 +185,19 @@ public class WidgetExpenseSyncWorker extends Worker {
                     if (entry == null) entry = queuedItem;
                     String id = entry.optString("id", "");
                     if (!id.isEmpty() && !existingIds.contains(id)) {
-                        if (!applyLinkedExpense(accounts, entry)) {
+                        // Legacy CC-detected entries without an explicit card need the
+                        // app's picker (single-card auto-assign / multi-card dialog).
+                        // Syncing them here would silently deduct the wrong ledger.
+                        if (entry.optBoolean("isCreditCard", false) && !entry.has("debtId")) {
+                            remaining.add(queuedItem);
+                            continue;
+                        }
+                        if (entry.has("debtId")) {
+                            if (!applyCreditCardCharge(debts, entry)) {
+                                remaining.add(queuedItem);
+                                continue;
+                            }
+                        } else if (!applyLinkedExpense(accounts, entry)) {
                             remaining.add(queuedItem);
                             continue;
                         }
@@ -153,9 +217,11 @@ public class WidgetExpenseSyncWorker extends Worker {
             doc.put("expenses", mergedExpenses);
             doc.put("accounts", accounts);
             doc.put("accountAdjustments", mergedAdjustments);
+            doc.put("debts", debts);
             doc.put("lastUpdated", WidgetExpenseUtils.isoNow());
             String modifiedTime = writeBackupFile(fileId, token, doc);
             writeLocalBackupSnapshot(prefs, fileId, modifiedTime, doc);
+            // (Family Firestore push already happened up-front, independent of this token.)
             WidgetExpenseQueue.replaceQueue(context, remaining);
             Log.d(TAG, "Synced " + syncedCount + " widget expenses to Drive.");
             return Result.success();
@@ -166,6 +232,34 @@ public class WidgetExpenseSyncWorker extends Worker {
             Log.e(TAG, "Widget expense sync failed.", error);
             return Result.retry();
         }
+    }
+
+    /** Charge a credit-card purchase against the linked debt account's balance. */
+    private static boolean applyCreditCardCharge(JSONArray debts, JSONObject entry) throws JSONException {
+        String debtId = entry.optString("debtId", "");
+        if (debtId.isEmpty()) return true;
+
+        double amount = WidgetExpenseUtils.roundMoney(entry.optDouble("amount", 0));
+        if (amount <= 0) return false;
+
+        for (int i = 0; i < debts.length(); i++) {
+            JSONObject debt = debts.optJSONObject(i);
+            if (debt == null || !debtId.equals(debt.optString("id", ""))) continue;
+            if (!"credit-card".equals(debt.optString("type", "")) || !"active".equals(debt.optString("status", "active"))) {
+                // Card archived/deleted since the widget save — keep the expense
+                // but drop the link so no balance is silently affected.
+                entry.remove("debtId");
+                return true;
+            }
+            debt.put("remainingBalance", WidgetExpenseUtils.roundMoney(debt.optDouble("remainingBalance", 0) + amount));
+            debt.put("updatedAt", WidgetExpenseUtils.isoNow());
+            if (entry.has("createdByEmail")) debt.put("updatedByEmail", entry.optString("createdByEmail"));
+            if (entry.has("createdByRole")) debt.put("updatedByRole", entry.optString("createdByRole"));
+            return true;
+        }
+        // Card not found in the remote doc — same fallback as above.
+        entry.remove("debtId");
+        return true;
     }
 
     private static boolean applyLinkedExpense(JSONArray accounts, JSONObject entry) throws JSONException {
@@ -212,6 +306,93 @@ public class WidgetExpenseSyncWorker extends Worker {
         return false;
     }
 
+    /** True only for the modern Firestore-based family mode (family mode with no shared Drive file). */
+    private static boolean isFirestoreFamily(SharedPreferences prefs) {
+        String mode = prefs.getString(WidgetExpenseConstants.BACKUP_MODE_KEY, null);
+        if (!"family".equals(mode)) return false;
+        String shared = prefs.getString(WidgetExpenseConstants.SHARED_FILE_ID_KEY, null);
+        if (shared != null && !shared.trim().isEmpty()) return false; // legacy Drive-based family
+        String familyId = prefs.getString(WidgetExpenseConstants.FIRESTORE_FAMILY_ID_KEY, null);
+        return familyId != null && !familyId.trim().isEmpty();
+    }
+
+    /**
+     * Pushes new widget items to the family's shared Firestore state via the
+     * syncWidgetExpenseToFamily Cloud Function. Mints a fresh Firebase ID token from
+     * the persisted refresh token so it works even hours after the app was last open.
+     * Returns true only on a 2xx response; any failure (incl. 409 "state not ready")
+     * returns false so the caller keeps the items queued for retry.
+     */
+    private static boolean pushFamilyWidgetExpenses(SharedPreferences prefs, JSONArray expenses, JSONArray adjustments) {
+        try {
+            String refreshToken = prefs.getString(WidgetExpenseConstants.FIREBASE_REFRESH_TOKEN_KEY, null);
+            if (refreshToken == null || refreshToken.trim().isEmpty()) {
+                Log.w(TAG, "No Firebase refresh token; cannot push family widget expenses.");
+                return false;
+            }
+            String familyId = prefs.getString(WidgetExpenseConstants.FIRESTORE_FAMILY_ID_KEY, null);
+            if (familyId == null || familyId.trim().isEmpty()) return false;
+
+            String idToken = exchangeRefreshToken(refreshToken);
+            if (idToken == null) return false;
+
+            JSONObject body = new JSONObject();
+            body.put("familyId", familyId);
+            body.put("expenses", expenses);
+            body.put("adjustments", adjustments);
+
+            HttpURLConnection connection = (HttpURLConnection) new URL(WidgetExpenseConstants.FAMILY_WIDGET_SYNC_URL).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Authorization", "Bearer " + idToken);
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(20_000);
+            connection.setDoOutput(true);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = connection.getResponseCode();
+            String response = readResponse(connection);
+            if (code >= 200 && code < 300) {
+                Log.d(TAG, "Family Firestore push ok: " + response);
+                return true;
+            }
+            Log.w(TAG, "Family Firestore push HTTP " + code + ": " + response);
+            return false;
+        } catch (Exception error) {
+            Log.e(TAG, "Family Firestore push error.", error);
+            return false;
+        }
+    }
+
+    /** Exchanges a Firebase refresh token for a fresh ID token via the securetoken API. */
+    private static String exchangeRefreshToken(String refreshToken) {
+        try {
+            String form = "grant_type=refresh_token&refresh_token="
+                + URLEncoder.encode(refreshToken, "UTF-8");
+            HttpURLConnection connection = (HttpURLConnection) new URL(WidgetExpenseConstants.SECURETOKEN_URL).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(20_000);
+            connection.setDoOutput(true);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(form.getBytes(StandardCharsets.UTF_8));
+            }
+            int code = connection.getResponseCode();
+            String response = readResponse(connection);
+            if (code < 200 || code >= 300) {
+                Log.w(TAG, "securetoken HTTP " + code + ": " + response);
+                return null;
+            }
+            String idToken = new JSONObject(response).optString("id_token", null);
+            return idToken != null && !idToken.isEmpty() ? idToken : null;
+        } catch (Exception error) {
+            Log.e(TAG, "securetoken exchange error.", error);
+            return null;
+        }
+    }
+
     private static String validAccessToken(SharedPreferences prefs) {
         if (!"1".equals(prefs.getString(WidgetExpenseConstants.AUTH_STATE_KEY, null))) return null;
         String token = prefs.getString(WidgetExpenseConstants.ACCESS_TOKEN_KEY, null);
@@ -232,7 +413,11 @@ public class WidgetExpenseSyncWorker extends Worker {
         String mode = prefs.getString(WidgetExpenseConstants.BACKUP_MODE_KEY, null);
         if ("family".equals(mode)) {
             String sharedFileId = prefs.getString(WidgetExpenseConstants.SHARED_FILE_ID_KEY, null);
-            return sharedFileId == null || sharedFileId.trim().isEmpty() ? null : sharedFileId;
+            if (sharedFileId != null && !sharedFileId.trim().isEmpty()) {
+                return sharedFileId; // legacy Drive-based family: single shared file
+            }
+            // Firestore-based family: no shared Drive file. Each user keeps their own
+            // personal backup (resolved below) and the partner is reached via Firestore.
         }
 
         String snapshotRaw = prefs.getString(WidgetExpenseConstants.LOCAL_BACKUP_CACHE_KEY, null);

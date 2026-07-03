@@ -831,7 +831,7 @@ describe('Unit: clearLocalData resets state', () => {
         { type: 'Food', recommendedPercentage: 15, userPercentage: 15, category: 'Needs' as const },
       ] as ExpenseLimit[],
       monthlyIncome: 5000,
-      syncStatus: 'error' as const,
+      syncStatus: 'error' as 'error' | 'idle',
     };
 
     // Simulate clearLocalData

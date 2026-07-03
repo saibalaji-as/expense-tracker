@@ -132,6 +132,15 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    // Native cold start: the Google access token only lives ~1 hour, so a returning
+    // user who reopens the app after it expired would otherwise hit an interactive
+    // account picker on the first Drive read. Renew it silently up-front (no-op when
+    // the cached token is still valid; never shows UI). This is what stops the app
+    // demanding sign-in on every open within the hour.
+    if (Capacitor.isNativePlatform()) {
+      await this.authService.getTokenSilent();
+    }
+
     const loadedCachedData = await this.tryLoadCachedStartupData();
     if (loadedCachedData) {
       this.clearLoadingTimeout();
@@ -405,6 +414,11 @@ export class App implements OnInit, OnDestroy {
     this.resumeDebounceId = window.setTimeout(() => {
       this.resumeDebounceId = null;
       this.expenseStore.flushPendingChanges();
+      // Drain any expenses logged from the home-screen widget while the app was
+      // backgrounded — flushPendingChanges() only pushes already-known changes and
+      // the Drive poll skips when remote modifiedTime is unchanged, so neither one
+      // picks up a widget entry. This is what removes the "reopen the app" step.
+      void this.expenseStore.flushPendingWidgetExpenses();
       void this.refreshBackupIfChanged();
       this.tryStartFamilySync();
       // Proactively renew a stale Google access token with no UI while the app is
@@ -524,6 +538,9 @@ export class App implements OnInit, OnDestroy {
     document.addEventListener('resume', this.resumeHandler);
     if (Capacitor.isNativePlatform()) {
       void this.#setupReminderNotificationTap();
+      // Live widget → app channel: drain the queue the instant the native widget
+      // logs an expense, so it shows up without leaving/reopening the app.
+      void this.expenseStore.listenForWidgetExpenses();
     }
     this.routeScrollSubscription = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))

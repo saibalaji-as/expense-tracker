@@ -8,9 +8,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ── Reminders: owner-only read/write ──
+    // ── Reminders: owner-only read/write. Location-type reminders are a Pro-only
+    // feature in the client UI (reminder-form.component.ts disables the button
+    // behind isPro()) — enforce it here too, since a free user could otherwise
+    // write a location reminder directly via the Firestore SDK, bypassing the UI. ──
     match /users/{uid}/reminders/{reminderId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid &&
+        (request.resource.data.type != 'location' || isProUser(uid));
     }
 
     // ── New: family document (read-only for members) ──
@@ -46,12 +51,26 @@ service cloud.firestore {
       allow write: if false; // Firebase Functions only
     }
 
+    // ── Google OAuth refresh tokens: SERVER ONLY (Cloud Functions via Admin SDK). ──
+    // Clients must never read or write these — they hold long-lived Drive access.
+    match /googleTokens/{uid} {
+      allow read, write: if false;
+    }
+
     // ── Helper ──
     function isFamilyMember(familyId) {
       let familyDoc = get(/databases/$(database)/documents/families/$(familyId));
       return familyDoc != null &&
              (familyDoc.data.ownerUid == request.auth.uid ||
               familyDoc.data.partnerUid == request.auth.uid);
+    }
+
+    function isProUser(uid) {
+      let subPath = /databases/$(database)/documents/users/$(uid)/subscription/status;
+      return exists(subPath) &&
+             get(subPath).data.tier == 'pro' &&
+             get(subPath).data.expiresAt is timestamp &&
+             get(subPath).data.expiresAt > request.time;
     }
 
     // Deny everything else.

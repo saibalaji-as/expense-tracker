@@ -39,6 +39,7 @@ import {
   Crop,
   Users,
   WalletCards,
+  CreditCard,
   Image,
   Lock,
 } from 'lucide-angular';
@@ -56,7 +57,10 @@ import { SubscriptionService } from '../../core/services/subscription.service';
 import { BackupModeService, OwnerRole } from '../../core/services/backup-mode.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraft, DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
-import { AssetAccount, ExpenseEntry, ExpenseReceipt } from '../../core/models';
+import { AssetAccount, DebtAccount, ExpenseEntry, ExpenseReceipt } from '../../core/models';
+
+/** Prefix distinguishing credit-card values from asset-account IDs in the payment selector. */
+const DEBT_PAYMENT_OPTION_PREFIX = 'debt:';
 import { CurrencyFormatPipe, TranslatePipe } from '../../shared/pipes';
 import {
   ButtonComponent,
@@ -128,7 +132,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, Image, Lock }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, CreditCard, Image, Lock }),
     },
   ],
   template: `
@@ -405,7 +409,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
               </div>
             </div>
 
-            @if (activeAccounts().length > 0) {
+            @if (paymentAccountOptions().length > 0) {
               <div class="mt-2.5">
                 <label for="account-input" class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{{ 'daily.paymentSource' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></label>
                 <div class="mt-1">
@@ -414,6 +418,11 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                 @if (selectedAccount(); as account) {
                   <p class="mt-1 text-[11px] text-muted-foreground">
                     {{ i18n.t('daily.paymentSourceBalance', { amount: currencyService.format(account.balance, i18n.locale()) }) }}
+                  </p>
+                }
+                @if (selectedCreditCard(); as card) {
+                  <p class="mt-1 text-[11px] text-muted-foreground">
+                    {{ i18n.t('daily.paymentCardOutstanding', { amount: currencyService.format(card.remainingBalance, i18n.locale()) }) }}
                   </p>
                 }
               </div>
@@ -1755,18 +1764,38 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   });
 
   readonly activeAccounts = computed(() => this.expenseStore.activeAccounts());
+  readonly activeCreditCards = computed(() =>
+    this.expenseStore.debts().filter((debt) => debt.type === 'credit-card' && debt.status === 'active')
+  );
   readonly selectedAccount = computed((): AssetAccount | null => {
     this.formValue();
     const accountId = this.form.get('accountId')?.value ?? '';
     return this.activeAccounts().find((account) => account.id === accountId) ?? null;
   });
-  readonly paymentAccountOptions = computed<ThemedSelectOption[]>(() =>
-    this.activeAccounts().map((account) => ({
+  readonly selectedCreditCard = computed((): DebtAccount | null => {
+    this.formValue();
+    const value = this.form.get('accountId')?.value ?? '';
+    if (typeof value !== 'string' || !value.startsWith(DEBT_PAYMENT_OPTION_PREFIX)) return null;
+    const debtId = value.slice(DEBT_PAYMENT_OPTION_PREFIX.length);
+    return this.activeCreditCards().find((card) => card.id === debtId) ?? null;
+  });
+  readonly paymentAccountOptions = computed<ThemedSelectOption[]>(() => {
+    const accountOptions: ThemedSelectOption[] = this.activeAccounts().map((account) => ({
       value: account.id,
       label: `${account.name} · ${this.currencyService.format(account.balance, this.i18n.locale())}`,
       icon: 'wallet-cards',
-    }))
-  );
+    }));
+    // Cards are only selectable when creating: editing a card-linked entry is
+    // blocked by product rule, and attaching a card during edit would need
+    // reverse/apply support in ExpenseStore.updateEntry.
+    if (this.isEditMode()) return accountOptions;
+    const cardOptions: ThemedSelectOption[] = this.activeCreditCards().map((card) => ({
+      value: `${DEBT_PAYMENT_OPTION_PREFIX}${card.id}`,
+      label: `${card.name} · ${this.i18n.t('daily.paymentCreditCard')}`,
+      icon: 'credit-card',
+    }));
+    return [...accountOptions, ...cardOptions];
+  });
   readonly splitCategoryOptions = computed<ThemedSelectOption[]>(() =>
     this.availableCategories().map((category) => ({
       value: category.name,
@@ -1808,6 +1837,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
     effect(() => {
       const accounts = this.activeAccounts();
+      const cards = this.activeCreditCards();
       const defaultAccountId = this.defaultAccountId();
 
       untracked(() => {
@@ -1816,10 +1846,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         if (!accountControl) return;
 
         const current = accountControl.value ?? '';
+        // A valid credit-card selection must survive account-list changes.
+        const currentIsValidCard =
+          typeof current === 'string' &&
+          current.startsWith(DEBT_PAYMENT_OPTION_PREFIX) &&
+          cards.some((card) => `${DEBT_PAYMENT_OPTION_PREFIX}${card.id}` === current);
+        if (currentIsValidCard) return;
+
         const currentIsValid = accounts.some((account) => account.id === current);
-        if (accounts.length === 0 && current) {
+        if (accounts.length === 0 && cards.length === 0 && current) {
           accountControl.setValue('', { emitEvent: false });
-        } else if (accounts.length > 0 && !currentIsValid) {
+        } else if ((accounts.length > 0 || cards.length > 0) && !currentIsValid) {
           accountControl.setValue(defaultAccountId, { emitEvent: false });
         }
       });
@@ -1979,6 +2016,17 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private selectedPaymentAccountId(): string | undefined {
     const accountId = this.form.get('accountId')?.value ?? '';
     return this.activeAccounts().some((account) => account.id === accountId) ? accountId : undefined;
+  }
+
+  /** Resolve the payment selector into an entry link: asset account OR credit card. */
+  private selectedPaymentLink(): { accountId?: string; debtId?: string } {
+    const value = this.form.get('accountId')?.value ?? '';
+    if (typeof value === 'string' && value.startsWith(DEBT_PAYMENT_OPTION_PREFIX)) {
+      const debtId = value.slice(DEBT_PAYMENT_OPTION_PREFIX.length);
+      return this.activeCreditCards().some((card) => card.id === debtId) ? { debtId } : {};
+    }
+    const accountId = this.selectedPaymentAccountId();
+    return accountId ? { accountId } : {};
   }
 
   accountName(accountId: string | undefined): string {
@@ -2881,7 +2929,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const limit = this.form.get('limit')?.value ?? 0;
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
-    const accountId = this.selectedPaymentAccountId();
+    const paymentLink = this.selectedPaymentLink();
     const { receipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(id, date);
     const actor = this.activityActor();
 
@@ -2895,7 +2943,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       timestamp,
       comment,
       receipt,
-      accountId,
+      ...paymentLink,
       createdByEmail: actor.email,
       createdByRole: actor.role,
     };
@@ -2958,7 +3006,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const firstId = crypto.randomUUID();
     const { receipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(firstId, date);
     const actor = this.activityActor();
-    const accountId = this.selectedPaymentAccountId();
+    const paymentLink = this.selectedPaymentLink();
 
     const entries = rows.map((row, index): ExpenseEntry => {
       const id = index === 0 ? firstId : crypto.randomUUID();
@@ -2981,7 +3029,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
         timestamp,
         comment,
         receipt,
-        accountId,
+        ...paymentLink,
         createdByEmail: actor.email,
         createdByRole: actor.role,
       };

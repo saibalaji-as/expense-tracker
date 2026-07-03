@@ -17,6 +17,10 @@ export interface DebtAccount {
   paymentDueDay?: number;
   minimumPaymentAmount?: number;
   cardNetworkOrBank?: string;
+  /** Last 4 digits of the card number — auto-matches detected SMS spends to this card. */
+  cardLast4?: string;
+  /** Total credit limit — enables utilization display. */
+  creditLimit?: number;
   createdAt: string;
   updatedAt: string;
   createdByEmail?: string;
@@ -50,6 +54,8 @@ export interface CreateDebtAccountInput {
   paymentDueDay?: number;
   minimumPaymentAmount?: number;
   cardNetworkOrBank?: string;
+  cardLast4?: string;
+  creditLimit?: number;
 }
 
 export interface UpdateDebtAccountInput {
@@ -66,6 +72,8 @@ export interface UpdateDebtAccountInput {
   paymentDueDay?: number;
   minimumPaymentAmount?: number;
   cardNetworkOrBank?: string;
+  cardLast4?: string;
+  creditLimit?: number;
 }
 
 export interface RecordDebtPaymentInput {

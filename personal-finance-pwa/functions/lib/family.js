@@ -36,8 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.redeemFamilyInvite = exports.leaveFamily = exports.dissolveFamily = exports.createFamilyInvite = exports.createFamily = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v2/https"));
+const auth_1 = require("./auth");
 const CORS_ORIGINS = [
-    'https://spenza-finance.web.app',
+    'https://spenza.site',
     'http://localhost:4200',
     'http://localhost',
     'https://localhost',
@@ -68,6 +69,19 @@ exports.createFamily = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
     }
     try {
         const { uid: ownerUid, email: ownerEmail } = await requireFamilyAuth(req);
+        // Family/Shared mode is a Pro-only feature in the client UI (mode-selection
+        // and family-setup both gate the owner flow behind isPro()) — enforce it
+        // here too, since a signed-in free user could otherwise call this endpoint
+        // directly and become a family owner without paying. Partner-side join
+        // (redeemFamilyInvite) intentionally stays ungated: partners are free-tier
+        // by design.
+        try {
+            await (0, auth_1.requireProTier)(ownerUid);
+        }
+        catch {
+            res.status(403).json({ error: 'Pro subscription required to create a family.' });
+            return;
+        }
         // Idempotent: return existing active family if already created
         const existing = await admin.firestore()
             .collection('families')

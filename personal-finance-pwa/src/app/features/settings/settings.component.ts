@@ -41,7 +41,7 @@ import { FamilyDocument } from '../../core/models/family-sync.model';
 import { FamilyApiService } from '../../core/services/family-api.service';
 import { FamilySyncService } from '../../core/services/family-sync.service';
 import { firebaseConfig } from '../../core/config/firebase.config';
-import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent } from '../../shared/components';
+import { ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent, ThemedSelectComponent, ThemedSelectOption } from '../../shared/components';
 import { TranslatePipe } from '../../shared/pipes';
 import {
   LucideAngularModule,
@@ -80,7 +80,7 @@ interface BeforeInstallPromptEvent extends Event {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent, LucideAngularModule, TranslatePipe],
+  imports: [FormsModule, RouterLink, DatePipe, ClearableInputDirective, SectionCardComponent, ModalComponent, NotificationDisclosureComponent, ThemedSelectComponent, LucideAngularModule, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -1041,6 +1041,51 @@ interface BeforeInstallPromptEvent extends Event {
                 </div>
               </div>
             </div>
+          }
+
+          <!-- Salary Reminder Toggle (native only — needs scheduled local notifications) -->
+          @if (isNativePlatform) {
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium">{{ 'settings.local.salaryReminder' | translate }}</p>
+                <p class="text-xs text-muted-foreground">
+                  {{ 'settings.local.salaryReminderHint' | translate }}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                [attr.aria-checked]="notificationPrefs().salaryReminderEnabled === true"
+                (click)="onSalaryReminderToggle()"
+                [disabled]="localNotificationService.permissionStatus() === 'denied'"
+                [class]="
+                  'relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ' +
+                  (notificationPrefs().salaryReminderEnabled === true ? 'bg-primary' : 'bg-muted')
+                "
+                aria-label="Toggle salary reminder"
+              >
+                <span
+                  [class]="
+                    'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ' +
+                    (notificationPrefs().salaryReminderEnabled === true ? 'translate-x-5' : 'translate-x-0')
+                  "
+                ></span>
+              </button>
+            </div>
+
+            @if (notificationPrefs().salaryReminderEnabled === true) {
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs text-muted-foreground">{{ 'settings.local.salaryDay' | translate }}</p>
+                <div class="w-28">
+                  <app-themed-select
+                    size="sm"
+                    [options]="salaryDayOptions"
+                    [value]="salaryDayValue()"
+                    (valueChange)="onSalaryDayChange($event)"
+                  />
+                </div>
+              </div>
+            }
           }
 
           <!-- Test Notification Button (for debugging) -->
@@ -2080,6 +2125,70 @@ export class SettingsComponent implements OnInit, OnDestroy {
    * Task 9.5: Toggle budget warnings on/off
    * Updates preferences and saves to storage
    */
+  readonly salaryDayOptions: ThemedSelectOption[] = Array.from({ length: 28 }, (_, i) => ({
+    value: String(i + 1),
+    label: String(i + 1),
+  }));
+
+  salaryDayValue(): string {
+    return String(this.notificationPrefs().salaryDay ?? 1);
+  }
+
+  async onSalaryReminderToggle(): Promise<void> {
+    const current = this.notificationPrefs();
+    const updated = { ...current, salaryReminderEnabled: current.salaryReminderEnabled !== true };
+
+    this.notificationPrefs.set(updated);
+
+    try {
+      if (updated.salaryReminderEnabled && this.localNotificationService.permissionStatus() !== 'granted') {
+        const status = await this.localNotificationService.requestPermission();
+        if (status !== 'granted') {
+          this.notificationPrefs.set(current);
+          this.feedback.warning(
+            'Notification permission needed.',
+            'Allow notifications for Spenza to get the salary reminder.'
+          );
+          return;
+        }
+      }
+      await this.storageService.setNotificationPreferences(updated);
+      await this.localNotificationService.scheduleSalaryReminder(this.expenseStore.accountAdjustments());
+      this.feedback.success(
+        updated.salaryReminderEnabled ? 'Salary reminder on.' : 'Salary reminder off.',
+        updated.salaryReminderEnabled
+          ? `If no salary is detected, Spenza will remind you on the ${updated.salaryDay ?? 1} of each month at 8 PM.`
+          : 'Spenza will not remind you to record salary.'
+      );
+    } catch (error) {
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Salary reminder setting was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
+  }
+
+  async onSalaryDayChange(value: string): Promise<void> {
+    const day = Math.min(28, Math.max(1, Number(value) || 1));
+    const current = this.notificationPrefs();
+    const updated = { ...current, salaryDay: day };
+
+    this.notificationPrefs.set(updated);
+
+    try {
+      await this.storageService.setNotificationPreferences(updated);
+      await this.localNotificationService.scheduleSalaryReminder(this.expenseStore.accountAdjustments());
+      this.feedback.success('Salary day saved.', `Reminder will check around the ${day} of each month.`);
+    } catch (error) {
+      this.notificationPrefs.set(current);
+      this.feedback.error(
+        'Salary day was not saved.',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
+  }
+
   async onBudgetWarningsToggle(): Promise<void> {
     const current = this.notificationPrefs();
     const updated = { ...current, budgetWarningsEnabled: !current.budgetWarningsEnabled };

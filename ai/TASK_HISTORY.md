@@ -1,5 +1,90 @@
 # Task History
 
+## 2026-07-03 (later-2) - CC bill-payment SMS auto-tally + salary detection/fallback reminder
+
+### Context
+- User: when the card bill is paid from the same phone, the debit SMS should tally the paying bank account AND settle the card; salary SMS should be treated distinctly, and if no salary notification arrives, the app should remind the user to enter it.
+
+### Key decisions and why
+- **CC payments are a first-class classifier type**, resolved before the income check — card-side confirmations ("payment received on your credit card") would otherwise classify as income and bank-side debits ("debited towards your credit card") as CC spends, both of which would corrupt balances in opposite directions.
+- **Payments never sync through the WorkManager worker.** A debt payment mutates four linked pieces of state (account, card, expense entry, audit record); per the existing AI rule that stays centralized in `ExpenseStore.recordDebtPayment`. The queue item kind `cc-payment` is explicitly requeued by the worker and excluded from the family Firestore push (partner receives it via Drive polling after the app resolves it).
+- **Dedup by card+amount+date** at flush: one real-world payment produces up to two SMS (bank-side + card-side); the second prompt, if saved, must not double-pay. Amount is capped at the tracked outstanding (SMS amount can exceed it when older spends were never logged); zero-outstanding payments are skipped.
+- **Last-4 extraction prefers digits after the "credit card" mention** — bank-side payment SMS name the debited bank a/c (XX1234) before the card (XX7788); matching the first masked number picked the wrong instrument.
+- **Salary reminder is a fallback, not the primary path.** Primary capture is the salary SMS prompt (income classified with new `isSalary` flag → widget credit mode tags the adjustment reason "Salary"). The reminder (pure planner, one-shot at salaryDay 20:00, ID 30001) is suppressed when a salary-tagged increase adjustment exists within a 5-day grace window before the occurrence, and is rescheduled from the store effect on every adjustment change — so recording salary through ANY path silences it. Prefs (`salaryReminderEnabled`, `salaryDay` 1–28) are optional fields on `NotificationPreferences` with backward-compatible defaults; Settings UI is native-only since web cannot deliver closed-app local notifications.
+
+### Verification
+- `ng build` development clean; `salary-reminder.spec.ts` (8) + `credit-card-reminders.spec.ts` (14) green; 6 new Java classifier tests (bank-side, card-side, purchase-not-payment, salary, non-salary, last-4 scoping) — Gradle not run in env, build natively.
+
+## 2026-07-03 (later) - Credit cards get their own creation flow, split from debts
+
+### Context
+- User hit "Remaining balance cannot be higher than the borrowed amount" when adding a card via Add Debt and correctly pointed out the mental-model mismatch: cards are limit + revolving outstanding, not borrowed + remaining. They asked for credit card to be removed from Add Debt and given its own Add button, account-creation style.
+
+### Decisions
+- **UI split, storage unchanged.** Cards stay `DebtAccount(type 'credit-card')` so payments, reminders, widget capture, Daily selector, family sync, and backup compatibility all keep working with zero migration. Only Finances presents them differently: dedicated modal (`cardForm`: limit, outstanding, bill/due days, min payment, bank, last-4) and a separate Credit Cards section; the Debts modal/section is loans-only.
+- **Schema mapping:** `principalAmount` mirrors `creditLimit` when set (else `max(outstanding, 1)` to satisfy the >0 rule); `remainingBalance` = current outstanding. `startDebtEdit` routes card debts to the card modal defensively.
+- **Store rules made type-aware:** "remaining ≤ principal" validation is loan-only (card spending can exceed the limit); zero balance no longer sets `status: 'paid'` for cards in any of the five derivation sites — a fully paid bill previously archived the card out of every payment selector (found while fixing the form; classic churn bug); deleteDebtPayment's `min(principal, restored)` cap is loan-only.
+
+### Verification
+- `ng build` development clean; planner + account-totals specs green (19/19). Native code untouched in this pass.
+
+## 2026-07-03 - Credit-card capture + bill reminder overhaul (BA analysis → implementation)
+
+### Context
+- User expected: add-credit-card in Add Debt (already existed), notification-detected CC spends preselecting the card in the widget with cards visible in the account selector (missing), and a "meaningful" 3-days-before due reminder (existed but buggy/stale). Full analysis and retention ideas in `docs/credit-card-feature-spec.md`.
+
+### Key decisions and why
+- **One-shot notifications rescheduled on every mutation, not monthly-repeating.** Repeating notifications freeze body text (stale amounts) and drift on short months. The reschedule trigger is a debounced effect in `ExpenseStore` over debts+entries+debtPayments — chosen over per-mutation calls because widget flushes and Drive loads patch state at multiple points, and over the FinancesComponent effect because that only ran when the user visited /finances (reinstall/widget-only users got no reminders).
+- **Reminder content computed by a pure planner** (`utils/credit-card-reminders.ts`) per the "scheduler utilities must remain pure" rule; the service only maps plan→Capacitor calls. Statement due = remainingBalance − charges after the last bill date (payments implicitly netted). Due-day/overdue steps are suppressed when a `DebtPayment` exists in the current cycle — reminders must never nag someone who already paid; that is the #1 churn driver for reminder features. Notification IDs moved to 20000–29599 (8 slots/card); legacy 10000-range IDs are cancelled on reschedule.
+- **Explicit card choice at capture beats deferred resolution.** Widget selector now lists credit cards (`debt:` prefixed values); a detected CC spend preselects the matched card. Entries carry explicit `debtId`; the flush's silent accountId→card override was removed for entries where cards were offered (classifier false positives were charging ledgers the user never chose). The in-app picker remains only as fallback for devices whose cached backup has no cards.
+- **Bug found during analysis:** the widget writes `isCreditCard` inside `entry`, but the Angular queue normalizer read it from the wrapper only — the entire CC auto-assign/picker path never fired for real widget items, and `WidgetExpenseSyncWorker` synced flagged entries straight to Drive charging the default asset account. Worker now keeps flagged-but-unresolved entries queued for the app; both worker and Angular flush charge `debtId` entries against the card; transport-only props (`isCreditCard`, `ccLast4`) are stripped before persist.
+- **`cardLast4` matching** (new optional `DebtAccount` field): bank SMS almost always names the card ("ending 1234"/"xx1234"); classifier extracts it, widget/flush match the exact card among many — removes the picker dialog for multi-card users. `creditLimit` (optional) powers a Finances utilization bar (green <30 / amber <70 / red).
+- Daily form: cards selectable on create only; edit of `debtId` entries stays blocked (existing product rule; attaching a card during edit would need reverse/apply in `updateEntry`). `addEntry`/`addEntries` charge cards via `applyDebtCharges` (validates active card before mutating, consistent with `applyAccountDeltas`).
+
+### Verification
+- `ng build` (development) clean; new planner spec 14/14 green; expense-store, account-totals, backup/storage contract specs green; 3 new Java classifier tests written (Gradle not run — no Android SDK in env, **build natively before shipping**).
+- Fixed pre-existing TS compile errors blocking `ng test` in three spec files. Known remaining: `local-notification.service.spec.ts` fails at runtime under the Angular vitest builder (`vi.mock` relative-import unsupported) — pre-existing, needs a TestBed rewrite.
+
+### Rejected approaches
+- FCM/server-scheduled CC reminders — debt data lives only in the user's Drive JSON; local notifications need no backend and respect the offline-first rule.
+- Widget-side statement math — the widget's cached doc can be stale; app-side planner recomputes on every open; the widget only captures.
+
+## 2026-07-02 - Free/Pro tier gating audit + server-side enforcement fixes
+
+### Context
+- User asked for a business-analyst-style audit of free vs Pro tier restrictions across the app, and to verify every Pro-only area is actually guarded, not just gated in the UI.
+
+### Findings
+- All Pro feature checks (`SubscriptionService.isPro()`) live only in the Angular client — button visibility, route guards, redirects. None of the Firebase Functions or Firestore rules behind those features checked subscription tier at all. Two of the leaks were direct cost exposure (hosted Groq/Gemini API quota callable by any signed-in free user).
+
+### What was changed
+- `functions/src/auth.ts`: new `requireProTier(uid)` helper (Firestore read of `users/{uid}/subscription/status`, same tier+expiry logic as the client).
+- `functions/src/ai-insights.ts` (`generateInsights`), `functions/src/ai-voice.ts` (`parseVoiceExpense`), `functions/src/ai-receipt.ts`: hosted (server-key) path now calls `requireProTier` after `requireFirebaseUid`, returns 403 for non-Pro. BYOK path untouched (not a cost leak).
+- `functions/src/family.ts` (`createFamily`): now requires Pro for the caller (becomes owner). `redeemFamilyInvite`/`createFamilyInvite`/`dissolveFamily`/`leaveFamily` intentionally left ungated.
+- `firestore.rules`: `users/{uid}/reminders` split into `read, delete` (unchanged) vs `create, update` (now requires new `isProUser(uid)` helper when `type == 'location'`).
+- Verified via `npx tsc --noEmit` after each individual edit, then a full `npm run build` in `functions/` at the end — all clean.
+
+### Not changed (flagged as residual risk, not fixed)
+- Finances (accounts/debts/net worth): only an Angular route guard; data lives in the user's own Drive JSON with no Cloud Function in the write path, so there's no natural server boundary to add without a bigger architecture change. Low severity — costs Spenza nothing, needs devtools access to exploit.
+- Native Android widget/budget-warnings/spend-prompt toggles: gated by a locally-cached `spenza_pro_tier` flag only; not investigated at the native Kotlin/Java layer this pass.
+
+### Pending action
+- Deploy: `firebase deploy --only firestore:rules,functions:generateInsights,functions:parseVoiceExpense,functions:createFamily --project spenza-notifications` (confirm the receipt-extraction function's export name before including it — CI does not auto-deploy rules).
+- Full report (feature matrix, gaps, fixes, growth ideas) delivered as `Spenza_Tier_Gating_Audit.md` in repo root.
+
+## 2026-06-30 - Widget UX: haptic confirm, smart category prediction, partner-aware header
+
+### Context
+- Reviewed five proposed "attractive ideas" for the widget. Two were already shipped and need no work: **instant family sync from the widget** (`WidgetExpenseSyncWorker.pushFamilyWidgetExpenses` → `syncWidgetExpenseToFamily` CF, Firestore-from-widget) and **background refresh-token auth** (`exchangeRefreshToken` via securetoken; plus 2026-06-22 silent Google refresh). The remaining three were genuinely missing and were implemented.
+
+### What was changed (native Android only)
+- **Haptic confirm on save** — `AndroidManifest.xml` adds `android.permission.VIBRATE`; `ExpenseWidgetActivity.confirmHaptic()` fires a short click vibration on successful expense and credit save (VibratorManager on API 31+, EFFECT_CLICK on Q+, one-shot on O+, legacy fallback). Best-effort/try-guarded so it never blocks saving. Toast already existed.
+- **Smart category prediction** — new `WidgetCategoryPredictor.java`: local, read-only score over snapshot `doc.expenses` + current-account widget queue, weighting recency (half-life 21d), time-of-day (±hours from now), and same weekday; returns most-likely type or null below `MIN_CONFIDENCE`. `ExpenseWidgetActivity.resolveInitialType()` opens the More/generic form pre-selected to the prediction (not Misc), shows a "Suggested … from your recent habits" hint, and clears the flag on manual/voice type change. `ExpenseWidgetProvider.applyPredictedHighlight()` highlights the matching quick-action button (or More) via new drawable `widget_predicted_highlight.xml`. Spend-prompt and explicit-category opens are untouched.
+- **Partner-aware header** — `ExpenseWidgetProvider.DailyInsight.familySubtitle()` repurposes the existing `expense_widget_subtitle` TextView (no new layout id) to read "FAMILY · YOU/<NAME> LOGGED LAST" in family mode. Today's spend total was already combined (partner deltas merge into the local backup), so the subtitle just frames it. Single mode keeps "DAILY INSIGHT". Avatar simplified to a text name/initials (RemoteViews can't do per-user bitmaps cheaply).
+
+### Verification
+- **Not built**: no Android SDK/Gradle in the work environment. Brace balance, symbol resolution, resource refs (`R.id.expense_widget_subtitle`, `R.drawable.widget_predicted_highlight`), and API-level guards checked by hand. **Run a local Gradle build / on-device smoke test before shipping** (per the project's standing native-build caveat).
+
 ## 2026-06-28 - Playwright E2E: final 7 failures fixed (suite green) + CI gating
 
 ### What was changed (test code only — no app behavior change)
@@ -2580,3 +2665,50 @@ Full cancel-at-cycle-end subscription flow for Razorpay Pro users.
   - `app.ts` bootstrap: attempts `getTokenSilent()` before the `needsInteractiveWebToken()` → `/auth/callback` routing, so a returning web user with a live Google session enters uninterrupted.
 - Not done (optional follow-ups): make Firebase Auth the session of record; soften the auth interceptor 401 path to try silent before interactive. Left to limit blast radius.
 - Verified: `npx tsc --noEmit -p tsconfig.app.json` clean; `npx vitest run auth.service` 11/11 pass. Production build NOT run; native autoSelect behavior needs a real Android device test before shipping.
+
+## 2026-06-29 — Android: sign-in popups, session persistence, widget live-sync, family instant sync
+- Four reported Android bugs fixed across web (Angular), native (Java), and a new Cloud Function.
+- **#1 Multiple Google sign-in popups + stray bottom-sheet.** Root cause: `getTokenSilent()` called `#nativeSignIn({silent:true})` OUTSIDE the `#nativeSignInPromise` dedup guard used by `signIn()`/`ensureToken()`, so a silent refresh could run concurrently with an interactive sign-in → two pickers. The bottom-sheet was the silent path's `style:'bottom'` (added 2026-06-22). Fix: new `#requestNativeSignIn(opts)` funnels ALL native sign-in (silent + interactive) through the single shared promise; removed `style:'bottom'` from silent options so a silent refresh no longer pops the Credential Manager menu. (Reverses part of the 2026-06-22 decision — `style:'bottom'` was the visible "lower menu" popup.)
+- **#2 Re-sign-in on every app open within token life.** Native cold start hit an interactive picker because the first Drive read (`ensureToken`) ran before any silent renewal. Fix: `app.ts` bootstrap now calls `authService.getTokenSilent()` on native (authenticated) BEFORE Drive bootstrap, renewing the ~1h access token invisibly. Pairs with the existing resume-time silent refresh.
+- **#3 Widget expense not visible in an already-open app.** `flushPendingWidgetExpenses()` only ran on cold start / when Drive `modifiedTime` changed (a local widget entry changes neither), and the plugin had no native→JS event. Fix: `ExpenseWidgetPlugin` keeps a static WeakReference + `notifyExpenseQueued()` → `notifyListeners('widgetExpenseQueued')`; `WidgetExpenseQueue.enqueueExpense/Adjustment` call it; web `expenseStore.listenForWidgetExpenses()` (registered in `app.ts`, native only) flushes on the event; resume handler also calls `flushPendingWidgetExpenses()`. Single-process app (no `android:process` on provider) so the static ref works while the app is alive.
+- **#4 Family partner didn't get widget expense until app opened.** `WidgetExpenseSyncWorker` only wrote Google Drive; the modern Firestore-based family mode reaches the partner via `families/{id}/state/current`, which lived only in the web layer. Fix:
+  - New Cloud Function `syncWidgetExpenseToFamily` (`functions/src/widget-sync.ts`): Bearer Firebase-ID-token auth, verifies family membership, transactionally merges new expenses/adjustments into the state doc (idempotent by id), applies account balance deltas, increments revision, sets `lastWriter` — same envelope the web `pushState` writes, so the partner's existing listener applies it unchanged.
+  - `auth.service.ts` persists the Firebase **refresh token** (`firebase_refresh_token`) on Firebase sign-in / silent re-auth so the worker can mint ID tokens long after the app was last open; cleared on sign-out.
+  - Worker: `resolveBackupFileId` now resolves the user's PERSONAL file for Firestore-family (was returning null → no-op); collects the new items; after the Drive write it mints an ID token via securetoken API (`exchangeRefreshToken`) and POSTs them to the function (`pushFamilyWidgetExpenses`). Push happens before clearing the queue; on failure → `Result.retry()` (Drive merge is idempotent).
+- KNOWN LIMITATION (#4): the worker still writes Drive first, which needs a valid Google access token; if it's expired (app not foregrounded in ~1h) the whole run retries and the partner push waits until the token refreshes. Follow-up: push to Firestore independently of the Drive token for true app-never-opened instant sync.
+- Verified: `tsc --noEmit -p tsconfig.app.json` (web) and `tsc --noEmit` (functions) both clean. NOT verified here: Android Gradle/APK build and Cloud Function deploy — must run on the user's machine (no Android SDK in this env). Needs a real two-device family test.
+
+## 2026-06-29 — Refresh-token auth rework (native): stop hourly Google re-sign-in
+- Goal: make returning native users never see a Google sign-in screen again (idea #2). Root cause recap: app used the ~1h Google OAuth access token as the session and held NO refresh token, so expiry forced interactive re-auth.
+- Plugin constraint discovered: `@capgo/capacitor-social-login` v8 does NOT return an authorization code in online mode for Google (`useProperTokenExchange` is Apple-only). The only way to get a Google refresh token is OFFLINE mode (`mode` set at `initialize()` time, NOT per-login) which returns just a `serverAuthCode` to exchange on a backend.
+- Scope chosen (asked user): FULL rework, NATIVE (Android) only; web keeps its existing silent GSI refresh.
+- Backend (`functions/src/google-tokens.ts`, registered in index.ts):
+  - `exchangeGoogleAuthCode`: no Firebase auth required (a valid serverAuthCode is the authorization). Exchanges code+client_secret at oauth2.googleapis.com/token → stores `refresh_token` in `googleTokens/{googleSub}` (keyed by Google `sub` so the first-ever sign-in, which has no Firebase session yet, can persist it). Returns accessToken + idToken + email.
+  - `getGoogleAccessToken`: Bearer Firebase ID token → extracts Google sub from `firebase.identities['google.com']` → mints a fresh access token from the stored refresh token. 404 = none on file, 410 = revoked (deletes it). Never shows UI.
+  - Secret: `GOOGLE_OAUTH_CLIENT_SECRET` (firebase functions:secrets:set) — the WEB client secret for 663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.
+- `firestore.rules`: explicit `googleTokens/{uid}` deny-all (server/Admin only). (Catch-all already denied; made intent explicit.)
+- Client (`auth.service.ts`):
+  - Plugin mode is now switched on demand via `#ensureSocialLoginMode('online'|'offline')` (re-inits the plugin) since mode is an initialize() option. Removed the eager constructor init.
+  - `#nativeSignIn` dispatcher: interactive → `#nativeOfflineSignIn` (serverAuthCode → `#exchangeServerAuthCode` → set token + Firebase sign-in from returned id_token); on ANY failure falls back to legacy `#nativeOnlineSignIn` so sign-in never breaks pre-deploy. Silent → `#mintGoogleTokenFromServer` (uses Firebase ID token to call getGoogleAccessToken, zero UI) then falls back to Credential Manager silent.
+  - `ensureToken()` native now tries `#mintGoogleTokenFromServer()` before any interactive prompt.
+  - Anchor of the no-resignin guarantee: the PERSISTENT Firebase session (auto-refreshes its own ID token) authorizes silent Google-token minting indefinitely.
+- Verified: web `tsc --noEmit` clean, functions `tsc --noEmit` clean, `vitest run auth.service.spec` 11/11 pass. NOT verified: device sign-in, Cloud Function deploy, real refresh-token issuance.
+- DEPLOY/CONFIG required (user machine): (1) `firebase functions:secrets:set GOOGLE_OAUTH_CLIENT_SECRET` with the Web client secret; (2) deploy functions (exchangeGoogleAuthCode, getGoogleAccessToken) + `firebase deploy --only firestore:rules`; (3) build APK (`cap sync android`). NOTE: Google returns a refresh token only on first consent / when forced — existing users may need to revoke prior access once (myaccount.google.com → Security → third-party access) so consent re-prompts and a refresh token is issued; until then getGoogleAccessToken 404s and the app falls back to interactive offline sign-in (which should capture it).
+
+## 2026-06-29 (fix) — Family widget sync was gated behind the expired Drive token
+- Bug report: kill app → log via widget → "queued for drive sync" toast → partner never receives it.
+- Root cause: in WidgetExpenseSyncWorker.doWork the Firestore family push ran AFTER `validAccessToken` (Google Drive token). With the app killed for a while the cached Google access token is expired, so the worker returned `Result.retry()` at the token check and never reached the push.
+- Fix: moved the family Firestore push to run FIRST, before the token check, independent of the Google access token (it only needs the long-lived Firebase refresh token via securetoken). Queue is still kept for the later Drive write (user's own device catches up on next app open). Removed the redundant post-Drive push block + dead newFamily* arrays.
+- Still required for it to work end-to-end: (1) `syncWidgetExpenseToFamily` actually deployed (the earlier deploy errored with "No function matches filter" because functions/lib was stale — added a predeploy build hook to firebase.json); (2) `firebase_refresh_token` present in CapacitorStorage (persisted by auth.service on Firebase sign-in/silent); (3) family state doc exists (owner pushes on app open); (4) rebuilt APK with this worker change. Verify via `firebase functions:list`, `firebase functions:log --only syncWidgetExpenseToFamily`, and Android logcat tag "WidgetExpenseSync" (logs push result).
+
+## 2026-06-29 (regression fix) — Offline-mode sign-in broke login; gated behind flag
+- Symptom: native sign-in showed TWO Google account pickers and ended in "Sign-in cancelled by user". Cause: the offline serverAuthCode → backend-exchange flow failed (likely exchange function/secret/OAuth config), and the catch fell back to online mode → a second popup.
+- Fix: added `ENABLE_NATIVE_OFFLINE_REFRESH` master switch in auth.service.ts, default FALSE. While off, `#nativeSignIn` (interactive + silent) and `ensureToken` use ONLY the proven online-mode flow + Credential Manager silent refresh — restoring the known-good single-popup sign-in. Offline `#nativeOfflineSignIn` / `#mintGoogleTokenFromServer` / `#exchangeServerAuthCode` remain in code for later on-device validation; flip the flag to re-enable.
+- Unaffected: Family widget→partner Firestore sync (#4) does NOT depend on this flag — it uses the Firebase refresh token, still persisted by `#signIntoFirebase` during the online flow.
+- Verified: web tsc clean, auth.service.spec 11/11 pass. Re-enable plan: deploy exchangeGoogleAuthCode/getGoogleAccessToken, set GOOGLE_OAUTH_CLIENT_SECRET, confirm the Android OAuth client + serverAuthCode config, then test with the flag on while watching logcat.
+
+## 2026-07-03 (crash fix) — Android crash on enabling push-notification toggle in Settings
+- Symptom: native app crashed the moment the Settings push toggle was enabled.
+- Root cause: commit b870d5d (2026-06-03) removed `android/app/google-services.json` with plain `git rm` (instead of `--cached`), deleting it from disk too. `app/build.gradle` silently skipped the google-services plugin when the file was absent, so APKs built with NO Firebase config. On toggle → `PushNotifications.register()` → `FirebaseMessaging.getInstance()` → `IllegalStateException: Default FirebaseApp is not initialized`; Capacitor Bridge rethrows plugin exceptions as RuntimeException → process crash.
+- Fix: restored `google-services.json` locally from git history (`git show b870d5d^:...`); it stays gitignored per the original security decision. Hardened `app/build.gradle`: missing file now throws GradleException with restore instructions instead of silently building a crashing APK.
+- Rule: never `git rm` a config that must exist locally — use `git rm --cached`. Rebuild required (rebuild-android.sh) for the fix to take effect on device.

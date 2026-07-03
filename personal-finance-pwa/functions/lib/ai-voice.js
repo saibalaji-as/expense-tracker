@@ -33,13 +33,24 @@ exports.parseVoiceExpense = (0, https_1.onRequest)({ cors: true, secrets: ['GROQ
         res.status(503).json({ error: 'AI voice parsing unavailable: no API key configured on server.' });
         return;
     }
-    // Hosted path spends server-side API quota — only signed-in Spenza users may use it.
+    // Hosted path spends server-side API quota and is a Pro-only feature in the
+    // client UI (Daily Expense 'Speak expense' smart-fill is gated behind isPro()) —
+    // enforce both here, since a signed-in free user could otherwise call this
+    // endpoint directly.
     if (!userApiKey) {
+        let uid;
         try {
-            await (0, auth_1.requireFirebaseUid)(req);
+            uid = await (0, auth_1.requireFirebaseUid)(req);
         }
         catch {
             res.status(401).json({ error: 'Unauthorized: sign in to use hosted AI voice parsing.' });
+            return;
+        }
+        try {
+            await (0, auth_1.requireProTier)(uid);
+        }
+        catch {
+            res.status(403).json({ error: 'Pro subscription required for hosted AI voice parsing.' });
             return;
         }
     }

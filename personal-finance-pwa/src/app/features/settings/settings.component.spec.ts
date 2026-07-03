@@ -199,7 +199,7 @@ describe('Property 19: Backup JSON Export Completeness', () => {
 
   it('backup JSON handles empty entries and limits arrays', () => {
     fc.assert(
-      fc.property(fc.constant([]), (entries: ExpenseEntry[]) => {
+      fc.property(fc.constant([] as ExpenseEntry[]), (entries: ExpenseEntry[]) => {
         const parsed = JSON.parse(buildBackupJson(entries, [], 0, 'USD', null));
         expect(parsed.expenses).toEqual([]);
         expect(parsed.limits).toEqual([]);

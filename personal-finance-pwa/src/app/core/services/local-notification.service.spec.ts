@@ -29,6 +29,9 @@ vi.mock('./budget-events', () => ({
   }
 }));
 
+// Shared CurrencyService mock (used only by credit-card bill notifications)
+const mockCurrencyService = { format: (value: number) => `₹${value}` } as any;
+
 describe('LocalNotificationService - scheduleDailyReminder', () => {
   let service: LocalNotificationService;
   let mockStorageService: any;
@@ -49,7 +52,7 @@ describe('LocalNotificationService - scheduleDailyReminder', () => {
       navigate: vi.fn().mockResolvedValue(true)
     };
 
-    service = new LocalNotificationService(mockStorageService, mockRouter);
+    service = new LocalNotificationService(mockStorageService, mockRouter, mockCurrencyService);
   });
 
   afterEach(() => {
@@ -61,7 +64,7 @@ describe('LocalNotificationService - scheduleDailyReminder', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 4, 20, 10, 0, 0));
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined);
+    vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined as any);
 
     await service.scheduleDailyReminder(21, 0);
 
@@ -103,7 +106,7 @@ describe('LocalNotificationService - cancelMonthlyNudge', () => {
     };
 
     // Create service instance directly without TestBed
-    service = new LocalNotificationService(mockStorageService, mockRouter);
+    service = new LocalNotificationService(mockStorageService, mockRouter, mockCurrencyService);
   });
 
   afterEach(() => {
@@ -240,7 +243,7 @@ describe('LocalNotificationService - scheduleOverspendAlert', () => {
     };
 
     // Create service instance
-    service = new LocalNotificationService(mockStorageService, mockRouter);
+    service = new LocalNotificationService(mockStorageService, mockRouter, mockCurrencyService);
   });
 
   afterEach(() => {
@@ -250,7 +253,7 @@ describe('LocalNotificationService - scheduleOverspendAlert', () => {
   describe('Native Platform', () => {
     beforeEach(() => {
       vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-      vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined);
+      vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined as any);
     });
 
     it('should schedule budget alert with correct parameters on native platform', async () => {
@@ -312,7 +315,7 @@ describe('LocalNotificationService - scheduleOverspendAlert', () => {
   describe('Deduplication', () => {
     beforeEach(() => {
       vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-      vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined);
+      vi.mocked(LocalNotifications.schedule).mockResolvedValue(undefined as any);
     });
 
     it('should prevent duplicate alerts for same category within 1 hour', async () => {
@@ -543,7 +546,7 @@ describe('LocalNotificationService - setupNotificationListener', () => {
     };
 
     // Create service instance
-    service = new LocalNotificationService(mockStorageService, mockRouter);
+    service = new LocalNotificationService(mockStorageService, mockRouter, mockCurrencyService);
   });
 
   afterEach(() => {
@@ -553,7 +556,7 @@ describe('LocalNotificationService - setupNotificationListener', () => {
   describe('Native Platform', () => {
     beforeEach(() => {
       vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-      vi.mocked(LocalNotifications.addListener).mockReturnValue(Promise.resolve());
+      vi.mocked(LocalNotifications.addListener).mockReturnValue(Promise.resolve({ remove: () => Promise.resolve() } as any));
     });
 
     it('should register listener for localNotificationActionPerformed event on native platform', () => {
@@ -579,10 +582,10 @@ describe('LocalNotificationService - setupNotificationListener', () => {
 
     it('should call handleNotificationTap when notification is tapped', () => {
       let eventHandler: any;
-      vi.mocked(LocalNotifications.addListener).mockImplementation((event, handler) => {
+      vi.mocked(LocalNotifications.addListener).mockImplementation(((event: string, handler: unknown) => {
         eventHandler = handler;
-        return Promise.resolve();
-      });
+        return Promise.resolve({ remove: () => Promise.resolve() });
+      }) as any);
 
       service.setupNotificationListener();
 
@@ -604,10 +607,10 @@ describe('LocalNotificationService - setupNotificationListener', () => {
 
     it('should log notification tap event', () => {
       let eventHandler: any;
-      vi.mocked(LocalNotifications.addListener).mockImplementation((event, handler) => {
+      vi.mocked(LocalNotifications.addListener).mockImplementation(((event: string, handler: unknown) => {
         eventHandler = handler;
-        return Promise.resolve();
-      });
+        return Promise.resolve({ remove: () => Promise.resolve() });
+      }) as any);
 
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -633,10 +636,10 @@ describe('LocalNotificationService - setupNotificationListener', () => {
 
     it('should not call handleNotificationTap if notification is missing in event', () => {
       let eventHandler: any;
-      vi.mocked(LocalNotifications.addListener).mockImplementation((event, handler) => {
+      vi.mocked(LocalNotifications.addListener).mockImplementation(((event: string, handler: unknown) => {
         eventHandler = handler;
-        return Promise.resolve();
-      });
+        return Promise.resolve({ remove: () => Promise.resolve() });
+      }) as any);
 
       service.setupNotificationListener();
 
@@ -698,7 +701,7 @@ describe('LocalNotificationService - handleNotificationTap', () => {
     };
 
     // Create service instance
-    service = new LocalNotificationService(mockStorageService, mockRouter);
+    service = new LocalNotificationService(mockStorageService, mockRouter, mockCurrencyService);
   });
 
   afterEach(() => {

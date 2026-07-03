@@ -14,6 +14,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -67,14 +70,20 @@ public class ExpenseWidgetActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
     private SpeechRecognizer speechRecognizer;
+    private static final String PAYMENT_VALUE_DEBT_PREFIX = "debt:";
+
     private String selectedType;
     private String selectedAmountKind;
     private String selectedAccountId;
+    private String selectedDebtId;
     private String parsedDate;
     private double prefillAmount;
     private String prefillComment;
     private boolean openedFromSpendPrompt;
     private boolean isCreditCardExpense;
+    private boolean isSalaryCredit;
+    private String detectedCardLast4;
+    private boolean usedPrediction;
     private EditText amountInput;
     private EditText commentInput;
     private TextView titleText;
@@ -84,7 +93,9 @@ public class ExpenseWidgetActivity extends Activity {
     private TextView statusText;
     private LinearLayout typeSelectorContainer;
     private LinearLayout accountSelectorContainer;
+    private LinearLayout cardSelectorContainer;
     private TextView accountLabel;
+    private TextView cardLabel;
     private ProgressBar progressBar;
     private LinearLayout smartFillContainer;
     private Button smartFillButton;
@@ -93,6 +104,7 @@ public class ExpenseWidgetActivity extends Activity {
     private ThemedDropdown typeDropdown;
     private Palette palette;
     private final ArrayList<JSONObject> activeAccounts = new ArrayList<>();
+    private final ArrayList<JSONObject> activeCreditCards = new ArrayList<>();
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -114,18 +126,20 @@ public class ExpenseWidgetActivity extends Activity {
         String requestedType = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_CATEGORY_EXTRA);
         prefillAmount = getIntent().getDoubleExtra(WidgetExpenseConstants.WIDGET_AMOUNT_EXTRA, 0);
         prefillComment = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA);
-        selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(
-            getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA)
-        )
-            ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
-            : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+        String requestedKind = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA);
+        if (WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(requestedKind)
+            || WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(requestedKind)) {
+            selectedAmountKind = requestedKind;
+        } else {
+            selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+        }
         openedFromSpendPrompt = WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT.equals(
             getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA)
         );
         isCreditCardExpense = getIntent().getBooleanExtra(WidgetExpenseConstants.WIDGET_IS_CREDIT_CARD_EXTRA, false);
-        selectedType = WidgetExpenseConstants.TYPE_MORE.equals(requestedType)
-            ? WidgetExpenseConstants.TYPE_MISC
-            : WidgetExpenseUtils.normalizeWidgetType(requestedType);
+        isSalaryCredit = getIntent().getBooleanExtra(WidgetExpenseConstants.WIDGET_IS_SALARY_EXTRA, false);
+        detectedCardLast4 = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_CC_LAST4_EXTRA);
+        selectedType = resolveInitialType(requestedType);
         loadActiveAccounts();
         parsedDate = WidgetExpenseUtils.localDateToday();
         configureWindow();
@@ -281,6 +295,12 @@ public class ExpenseWidgetActivity extends Activity {
         accountSelectorContainer.addView(buildAccountSelector());
         root.addView(accountSelectorContainer, marginTop(matchWrap(), 22));
 
+        cardSelectorContainer = new LinearLayout(this);
+        cardSelectorContainer.setOrientation(LinearLayout.VERTICAL);
+        cardSelectorContainer.addView(buildCardSelector());
+        cardSelectorContainer.setVisibility(isCcPaymentMode() ? View.VISIBLE : View.GONE);
+        root.addView(cardSelectorContainer, marginTop(matchWrap(), 14));
+
         amountInput = new EditText(this);
         amountInput.setHint("Amount");
         amountInput.setSingleLine(true);
@@ -386,6 +406,7 @@ public class ExpenseWidgetActivity extends Activity {
         }
         typeDropdown = new ThemedDropdown(options, selectedType, value -> {
             selectedType = value;
+            usedPrediction = false;
             parsedDate = WidgetExpenseUtils.localDateToday();
             updateSelectedTypeUi();
         });
@@ -413,13 +434,76 @@ public class ExpenseWidgetActivity extends Activity {
                 palette.account
             ));
         }
+        // In cc-payment mode the card is chosen in its own selector below —
+        // this dropdown is strictly the paying (asset) account.
+        if (!isCcPaymentMode()) {
+            for (JSONObject card : activeCreditCards) {
+                String cardId = card.optString("id", "");
+                String bank = card.optString("cardNetworkOrBank", "").trim();
+                String label = card.optString("name", "Credit card") + (bank.isEmpty() ? " · Credit card" : " · " + bank);
+                options.add(new DropdownOption(
+                    PAYMENT_VALUE_DEBT_PREFIX + cardId,
+                    label,
+                    R.drawable.ic_widget_credit,
+                    palette.accountSoft,
+                    palette.account
+                ));
+            }
+        }
         if (options.isEmpty()) {
             options.add(new DropdownOption("", "No active accounts", R.drawable.ic_widget_misc, palette.disabledSoft, palette.muted));
         }
-        ThemedDropdown dropdown = new ThemedDropdown(options, selectedAccountId == null ? "" : selectedAccountId, value -> {
-            selectedAccountId = value == null || value.trim().isEmpty() ? null : value;
+        String initialValue = !isCcPaymentMode() && selectedDebtId != null
+            ? PAYMENT_VALUE_DEBT_PREFIX + selectedDebtId
+            : (selectedAccountId == null ? "" : selectedAccountId);
+        ThemedDropdown dropdown = new ThemedDropdown(options, initialValue, value -> {
+            if (value != null && value.startsWith(PAYMENT_VALUE_DEBT_PREFIX)) {
+                String debtId = value.substring(PAYMENT_VALUE_DEBT_PREFIX.length()).trim();
+                selectedDebtId = debtId.isEmpty() ? null : debtId;
+            } else {
+                if (!isCcPaymentMode()) selectedDebtId = null;
+                selectedAccountId = value == null || value.trim().isEmpty() ? null : value;
+            }
         });
-        dropdown.setEnabled(!activeAccounts.isEmpty());
+        dropdown.setEnabled(!activeAccounts.isEmpty() || (!isCcPaymentMode() && !activeCreditCards.isEmpty()));
+        container.addView(dropdown.view(), marginTop(matchWrap(), 8));
+        return container;
+    }
+
+    /** Card selector shown only in cc-payment mode: which card's bill was paid. */
+    private View buildCardSelector() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+
+        cardLabel = new TextView(this);
+        cardLabel.setText("Credit card paid");
+        cardLabel.setTextColor(palette.muted);
+        cardLabel.setTextSize(13);
+        cardLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        container.addView(cardLabel, matchWrap());
+
+        ArrayList<DropdownOption> options = new ArrayList<>();
+        for (JSONObject card : activeCreditCards) {
+            String bank = card.optString("cardNetworkOrBank", "").trim();
+            String last4 = card.optString("cardLast4", "").trim();
+            String label = card.optString("name", "Credit card")
+                + (last4.isEmpty() ? "" : " ····" + last4)
+                + (bank.isEmpty() ? "" : " · " + bank);
+            options.add(new DropdownOption(
+                card.optString("id", ""),
+                label,
+                R.drawable.ic_widget_credit,
+                palette.accountSoft,
+                palette.account
+            ));
+        }
+        if (options.isEmpty()) {
+            options.add(new DropdownOption("", "No credit cards in Finances", R.drawable.ic_widget_credit, palette.disabledSoft, palette.muted));
+        }
+        ThemedDropdown dropdown = new ThemedDropdown(options, selectedDebtId == null ? "" : selectedDebtId, value -> {
+            selectedDebtId = value == null || value.trim().isEmpty() ? null : value;
+        });
+        dropdown.setEnabled(!activeCreditCards.isEmpty());
         container.addView(dropdown.view(), marginTop(matchWrap(), 8));
         return container;
     }
@@ -438,26 +522,67 @@ public class ExpenseWidgetActivity extends Activity {
         return -1;
     }
 
+    /**
+     * Picks the category the form opens on. For an explicit quick-action category we honor it.
+     * For the generic "More"/credit entry points (no specific category) we ask the local
+     * predictor for the most likely category from recent habits, falling back to Miscellaneous.
+     * Spend-prompt opens are left untouched so a detected SMS spend is not mislabeled.
+     */
+    private String resolveInitialType(String requestedType) {
+        boolean credit = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind);
+        boolean generic = requestedType == null
+            || requestedType.trim().isEmpty()
+            || WidgetExpenseConstants.TYPE_MORE.equals(requestedType);
+        if (!credit && !openedFromSpendPrompt && generic) {
+            String predicted = WidgetCategoryPredictor.predictType(this);
+            if (predicted != null) {
+                usedPrediction = true;
+                return predicted;
+            }
+        }
+        return WidgetExpenseConstants.TYPE_MORE.equals(requestedType)
+            ? WidgetExpenseConstants.TYPE_MISC
+            : WidgetExpenseUtils.normalizeWidgetType(requestedType);
+    }
+
     private void updateAmountKindUi() {
         boolean credit = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind);
+        boolean ccPayment = isCcPaymentMode();
         if (eyebrowText != null) {
-            eyebrowText.setText(openedFromSpendPrompt ? (credit ? "Detected credit" : "Detected spend") : "Quick amount");
+            eyebrowText.setText(openedFromSpendPrompt
+                ? (ccPayment ? "Detected bill payment" : (credit ? "Detected credit" : "Detected spend"))
+                : "Quick amount");
         }
         if (titleText != null) {
-            titleText.setText(credit ? "Add received money" : "Add " + displayType(selectedType));
+            titleText.setText(ccPayment
+                ? "Record card bill payment"
+                : (credit ? (isSalaryCredit ? "Add salary" : "Add received money") : "Add " + displayType(selectedType)));
         }
         if (helperText != null) {
-            helperText.setText(credit
-                ? "Choose the account to increase. This saves as a Finance adjustment."
-                : (openedFromSpendPrompt
-                    ? "Review the amount before saving. Nothing is logged until you tap Save."
-                    : "Saved locally first. Drive sync follows automatically."));
+            String defaultExpenseHelp = (usedPrediction && !openedFromSpendPrompt)
+                ? "Suggested " + displayType(selectedType) + " from your recent habits. Change it anytime."
+                : "Saved locally first. Drive sync follows automatically.";
+            helperText.setText(ccPayment
+                ? "Deducts the paying account and clears the card's outstanding in one step."
+                : (credit
+                    ? "Choose the account to increase. This saves as a Finance adjustment."
+                    : (openedFromSpendPrompt
+                        ? "Review the amount before saving. Nothing is logged until you tap Save."
+                        : defaultExpenseHelp)));
         }
-        if (typeLabel != null) typeLabel.setVisibility(credit ? View.GONE : View.VISIBLE);
-        if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
-        if (accountLabel != null) accountLabel.setText(credit ? "Receive into account" : "Pay from account");
+        boolean hideCategory = credit || ccPayment;
+        if (typeLabel != null) typeLabel.setVisibility(hideCategory ? View.GONE : View.VISIBLE);
+        if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(hideCategory ? View.GONE : View.VISIBLE);
+        if (accountLabel != null) {
+            accountLabel.setText(ccPayment
+                ? "Paid from account"
+                : (credit
+                    ? "Receive into account"
+                    : (activeCreditCards.isEmpty() ? "Pay from account" : "Pay with")));
+        }
         if (accountSelectorContainer != null) accountSelectorContainer.setVisibility(View.VISIBLE);
-        if (smartFillContainer != null) smartFillContainer.setVisibility(credit ? View.GONE : View.VISIBLE);
+        if (cardSelectorContainer != null) cardSelectorContainer.setVisibility(ccPayment ? View.VISIBLE : View.GONE);
+        if (smartFillContainer != null) smartFillContainer.setVisibility(hideCategory ? View.GONE : View.VISIBLE);
     }
 
     private Button actionButton(String label) {
@@ -893,6 +1018,7 @@ public class ExpenseWidgetActivity extends Activity {
 
         String parsedType = WidgetExpenseUtils.normalizeWidgetType(expense.optString("type", selectedType));
         selectedType = parsedType;
+        usedPrediction = false;
         parsedDate = expense.optString("date", WidgetExpenseUtils.localDateToday());
         updateSelectedTypeUi();
 
@@ -917,6 +1043,10 @@ public class ExpenseWidgetActivity extends Activity {
             return;
         }
 
+        if (isCcPaymentMode()) {
+            saveCcPayment(amount);
+            return;
+        }
         if (WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
             saveCredit(amount);
             return;
@@ -929,15 +1059,62 @@ public class ExpenseWidgetActivity extends Activity {
                 amount,
                 commentInput.getText().toString(),
                 parsedDate,
-                selectedAccountId
+                selectedDebtId != null ? null : selectedAccountId,
+                selectedDebtId
             );
-            if (isCreditCardExpense) entry.put("isCreditCard", true);
+            // Legacy flag only when we could not offer a card choice here (no cards
+            // in the cached backup): the app resolves it via its own picker/fallback.
+            // If cards WERE selectable and the user picked an asset account instead,
+            // that explicit choice wins — no silent override later.
+            if (isCreditCardExpense && selectedDebtId == null && activeCreditCards.isEmpty()) {
+                entry.put("isCreditCard", true);
+                if (detectedCardLast4 != null && !detectedCardLast4.trim().isEmpty()) {
+                    // Lets the app auto-match the right card if one exists there
+                    // even though this device's cached backup had none.
+                    entry.put("ccLast4", detectedCardLast4.trim());
+                }
+            }
             WidgetExpenseQueue.enqueue(this, entry);
             ExpenseWidgetProvider.updateAll(this);
+            confirmHaptic();
             toast("Expense queued for Drive sync.");
             finishWithAnimation();
         } catch (JSONException error) {
             toast("Could not queue expense.");
+        }
+    }
+
+    /** Queue a credit-card bill payment: deducts the paying account AND clears the card in the app. */
+    private void saveCcPayment(double amount) {
+        if (selectedAccountId == null || selectedAccountId.trim().isEmpty()) {
+            toast(activeAccounts.isEmpty() ? "Add an account in Finances first." : "Choose the paying account.");
+            return;
+        }
+        if (selectedDebtId == null && activeCreditCards.isEmpty() && (detectedCardLast4 == null || detectedCardLast4.trim().isEmpty())) {
+            toast("Add your credit card in Finances first.");
+            return;
+        }
+        if (selectedDebtId == null && !activeCreditCards.isEmpty()) {
+            toast("Choose the credit card that was paid.");
+            return;
+        }
+
+        try {
+            JSONObject payment = WidgetExpenseUtils.buildCcPayment(
+                prefs,
+                selectedDebtId,
+                selectedAccountId,
+                amount,
+                commentInput.getText().toString(),
+                detectedCardLast4
+            );
+            WidgetExpenseQueue.enqueueCcPayment(this, payment);
+            ExpenseWidgetProvider.updateAll(this);
+            confirmHaptic();
+            toast("Card payment queued for sync.");
+            finishWithAnimation();
+        } catch (JSONException error) {
+            toast("Could not queue card payment.");
         }
     }
 
@@ -948,14 +1125,21 @@ public class ExpenseWidgetActivity extends Activity {
         }
 
         try {
+            String reason = commentInput.getText().toString();
+            if (isSalaryCredit && (reason == null || !reason.toLowerCase(java.util.Locale.US).contains("salary"))) {
+                // Tag salary credits so the app's missing-salary reminder can
+                // detect that this month's salary was recorded.
+                reason = reason == null || reason.trim().isEmpty() ? "Salary" : "Salary · " + reason.trim();
+            }
             JSONObject adjustment = WidgetExpenseUtils.buildAccountAdjustment(
                 prefs,
                 selectedAccountId,
                 amount,
-                commentInput.getText().toString()
+                reason
             );
             WidgetExpenseQueue.enqueueAdjustment(this, adjustment);
             ExpenseWidgetProvider.updateAll(this);
+            confirmHaptic();
             toast("Credit queued for account adjustment.");
             finishWithAnimation();
         } catch (JSONException error) {
@@ -965,6 +1149,19 @@ public class ExpenseWidgetActivity extends Activity {
 
     private void loadActiveAccounts() {
         activeAccounts.clear();
+        activeCreditCards.clear();
+        selectedDebtId = null;
+
+        // Credit cards are valid payment methods for expenses and are the target
+        // of a bill payment (not for plain received money).
+        if (!WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
+            JSONArray cards = WidgetExpenseUtils.activeCreditCards(prefs);
+            for (int i = 0; i < cards.length(); i++) {
+                JSONObject card = cards.optJSONObject(i);
+                if (card != null) activeCreditCards.add(card);
+            }
+        }
+
         JSONArray accounts = WidgetExpenseUtils.activeAccounts(prefs);
         int defaultIndex = -1;
         for (int i = 0; i < accounts.length(); i++) {
@@ -975,10 +1172,32 @@ public class ExpenseWidgetActivity extends Activity {
         }
         if (activeAccounts.isEmpty()) {
             selectedAccountId = null;
-            return;
+        } else {
+            JSONObject selected = activeAccounts.get(defaultIndex >= 0 ? defaultIndex : 0);
+            selectedAccountId = selected.optString("id", null);
         }
-        JSONObject selected = activeAccounts.get(defaultIndex >= 0 ? defaultIndex : 0);
-        selectedAccountId = selected.optString("id", null);
+
+        // A detected credit-card spend (or bill payment) preselects the credit
+        // card so the user confirms the right card at the point of capture.
+        // Prefer the card whose stored last-4 matches the digits in the SMS.
+        boolean wantsCardPreselect = isCreditCardExpense || isCcPaymentMode();
+        if (wantsCardPreselect && !activeCreditCards.isEmpty()) {
+            JSONObject preselected = activeCreditCards.get(0);
+            if (detectedCardLast4 != null && !detectedCardLast4.trim().isEmpty()) {
+                for (JSONObject card : activeCreditCards) {
+                    if (detectedCardLast4.equals(card.optString("cardLast4", ""))) {
+                        preselected = card;
+                        break;
+                    }
+                }
+            }
+            selectedDebtId = preselected.optString("id", null);
+            if (selectedDebtId != null && selectedDebtId.trim().isEmpty()) selectedDebtId = null;
+        }
+    }
+
+    private boolean isCcPaymentMode() {
+        return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(selectedAmountKind);
     }
 
     private int selectedAccountIndex() {
@@ -1083,6 +1302,34 @@ public class ExpenseWidgetActivity extends Activity {
 
     private void toast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Short confirmation vibration so the user trusts the tap registered even though the
+     * widget Activity closes immediately and the expense only queues in the background.
+     * Best-effort: silently no-ops when the device has no vibrator or the permission is
+     * unavailable, so a missing haptic never blocks the save.
+     */
+    private void confirmHaptic() {
+        try {
+            Vibrator vibrator;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager manager = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+                vibrator = manager == null ? null : manager.getDefaultVibrator();
+            } else {
+                vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            }
+            if (vibrator == null || !vibrator.hasVibrator()) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(28, VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                vibrator.vibrate(28);
+            }
+        } catch (Exception ignored) {
+            // Haptics are a nice-to-have; never let them interfere with saving.
+        }
     }
 
     private String displayType(String type) {

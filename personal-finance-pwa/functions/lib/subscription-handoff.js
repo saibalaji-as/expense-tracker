@@ -41,7 +41,7 @@ const auth_1 = require("./auth");
 const HANDOFF_TTL_MS = 5 * 60 * 1000;
 const HANDOFF_REDEEM_RETRY_MS = 60 * 1000;
 const CORS_ORIGINS = [
-    'https://spenza-finance.web.app',
+    'https://spenza.site',
     'http://localhost:4200',
     'http://localhost',
     'https://localhost',

@@ -27,6 +27,21 @@ final class WidgetExpenseQueue {
         queue.put(queued);
         prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
         WidgetExpenseSyncWorker.schedule(context);
+        ExpenseWidgetPlugin.notifyExpenseQueued();
+    }
+
+    static synchronized void enqueueCcPayment(Context context, JSONObject payment) throws JSONException {
+        SharedPreferences prefs = prefs(context);
+        JSONArray queue = readQueue(context);
+        JSONObject queued = new JSONObject();
+        queued.put("userEmail", prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null));
+        queued.put("kind", "cc-payment");
+        queued.put("payment", payment);
+        queue.put(queued);
+        prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
+        // No WorkManager schedule: debt payments mutate four linked pieces of
+        // state and must go through ExpenseStore.recordDebtPayment in the app.
+        ExpenseWidgetPlugin.notifyExpenseQueued();
     }
 
     static synchronized void enqueueAdjustment(Context context, JSONObject adjustment) throws JSONException {
@@ -39,6 +54,7 @@ final class WidgetExpenseQueue {
         queue.put(queued);
         prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
         WidgetExpenseSyncWorker.schedule(context);
+        ExpenseWidgetPlugin.notifyExpenseQueued();
     }
 
     static synchronized JSONArray readQueue(Context context) {

@@ -13,6 +13,8 @@ import { parseVoiceReminder } from './ai-reminder';
 // It allowed unauthenticated callers to push notifications to every user.
 // Re-import locally only when testing with the Firebase emulator.
 import { createFamily, createFamilyInvite, redeemFamilyInvite, dissolveFamily, leaveFamily } from './family';
+import { syncWidgetExpenseToFamily } from './widget-sync';
+import { exchangeGoogleAuthCode, getGoogleAccessToken } from './google-tokens';
 
 admin.initializeApp();
 
@@ -38,4 +40,7 @@ export {
   redeemFamilyInvite,
   dissolveFamily,
   leaveFamily,
+  syncWidgetExpenseToFamily,
+  exchangeGoogleAuthCode,
+  getGoogleAccessToken,
 };

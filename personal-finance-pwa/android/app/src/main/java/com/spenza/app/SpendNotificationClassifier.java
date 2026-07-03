@@ -8,6 +8,8 @@ final class SpendNotificationClassifier {
     enum Type {
         EXPENSE_TRANSACTION,
         INCOME_OR_REFUND,
+        /** A payment TOWARDS a credit card bill (bank debit or card-side confirmation). */
+        CREDIT_CARD_PAYMENT,
         BALANCE_OR_STATEMENT,
         PAYMENT_REQUEST,
         FAILED_OR_PENDING,
@@ -22,17 +24,33 @@ final class SpendNotificationClassifier {
         final double amount;
         final String normalizedText;
         final boolean isCreditCard;
+        /** Last 4 digits of the card mentioned in the message ("ending 1234", "xx1234"), or null. */
+        final String cardLast4;
+        /** Income message that specifically looks like salary. */
+        final boolean isSalary;
 
         private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard) {
+            this(type, confidence, amount, normalizedText, isCreditCard, null, false);
+        }
+
+        private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard, String cardLast4) {
+            this(type, confidence, amount, normalizedText, isCreditCard, cardLast4, false);
+        }
+
+        private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard, String cardLast4, boolean isSalary) {
             this.type = type;
             this.confidence = confidence;
             this.amount = amount;
             this.normalizedText = normalizedText;
             this.isCreditCard = isCreditCard;
+            this.cardLast4 = cardLast4;
+            this.isSalary = isSalary;
         }
 
         boolean shouldPrompt() {
-            return (type == Type.EXPENSE_TRANSACTION || type == Type.INCOME_OR_REFUND) && confidence >= 0.68 && amount > 0;
+            return (type == Type.EXPENSE_TRANSACTION || type == Type.INCOME_OR_REFUND || type == Type.CREDIT_CARD_PAYMENT)
+                && confidence >= 0.68
+                && amount > 0;
         }
     }
 
@@ -117,6 +135,38 @@ final class SpendNotificationClassifier {
         "transaction",
         "ref no",
         "utr"
+    };
+
+    /**
+     * Phrases indicating money moving TOWARDS a credit card bill rather than a
+     * purchase made with the card. Covers both the bank-side debit SMS
+     * ("debited ... towards your credit card") and the card-side confirmation
+     * ("payment of Rs X received on your credit card").
+     */
+    private static final String[] CARD_PAYMENT_TERMS = {
+        "payment received",
+        "payment of",
+        "payment credited",
+        "payment successful",
+        "bill payment",
+        "bill paid",
+        // Direction words — safe because they are only checked when the message
+        // already mentions a credit card. Purchases say "spent/charged/used AT",
+        // payments say "towards/for your credit card".
+        "towards",
+        "credit card payment",
+        "creditcard payment",
+        "cc payment",
+        "thank you for your payment",
+        "thank you for paying"
+    };
+
+    private static final String[] SALARY_TERMS = {
+        "salary",
+        "sal credited",
+        "sal for",
+        "payroll",
+        "wages"
     };
 
     private static final String[] INCOME_TERMS = {
@@ -204,6 +254,18 @@ final class SpendNotificationClassifier {
         "outstanding"
     };
 
+    /** "ending 1234" / "ending in 1234" / "ending with 1234". */
+    private static final Pattern CARD_LAST4_ENDING = Pattern.compile(
+        "ending\\s*(?:in|with)?\\s*([0-9]{4})\\b",
+        Pattern.CASE_INSENSITIVE
+    );
+
+    /** Masked forms: "xx1234", "XX-1234", "**1234", "x1234". */
+    private static final Pattern CARD_LAST4_MASKED = Pattern.compile(
+        "[x*]{1,}[\\s-]?([0-9]{4})\\b",
+        Pattern.CASE_INSENSITIVE
+    );
+
     private static final Pattern AMOUNT_CANDIDATE = Pattern.compile(
         "(?:(rs\\.?|inr|₹|rupees?|usd|us\\$|\\$|dollars?|aed|د\\.إ|dh|dhs|dirhams?)\\s*)?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)(?:\\s*(rs\\.?|inr|₹|rupees?|usd|us\\$|\\$|dollars?|aed|د\\.إ|dh|dhs|dirhams?))?",
         Pattern.CASE_INSENSITIVE
@@ -242,9 +304,28 @@ final class SpendNotificationClassifier {
             return new Classification(Type.FAILED_OR_PENDING, 0.9, 0, normalized, false);
         }
         AmountResult amount = parseBestAmount(normalized, lower, currency);
+
+        // Credit-card BILL payments must be resolved before the income check:
+        // the card-side confirmation ("payment of Rs X received on your credit
+        // card") contains income terms, and the bank-side debit ("debited
+        // towards your credit card") contains expense terms. Both describe the
+        // same event: paying down the card, not spending or earning.
+        if (isCreditCard && containsAny(lower, CARD_PAYMENT_TERMS) && amount.amount > 0) {
+            String paymentCardLast4 = extractCardLast4(lower);
+            return new Classification(
+                Type.CREDIT_CARD_PAYMENT,
+                Math.min(0.98, amount.score + 0.5),
+                amount.amount,
+                normalized,
+                true,
+                paymentCardLast4
+            );
+        }
+
         if (containsAny(lower, INCOME_TERMS)) {
             double confidence = amount.amount > 0 ? Math.min(0.98, amount.score + 0.5) : 0.9;
-            return new Classification(Type.INCOME_OR_REFUND, confidence, amount.amount, normalized, false);
+            boolean isSalary = containsAny(lower, SALARY_TERMS);
+            return new Classification(Type.INCOME_OR_REFUND, confidence, amount.amount, normalized, false, null, isSalary);
         }
 
         boolean hasExpenseAction = containsAny(lower, EXPENSE_ACTION_TERMS);
@@ -262,10 +343,37 @@ final class SpendNotificationClassifier {
         if (containsAny(lower, BALANCE_TERMS)) score -= 0.16;
 
         if (amount.amount > 0 && score >= 0.68) {
-            return new Classification(Type.EXPENSE_TRANSACTION, Math.min(0.98, score), amount.amount, normalized, isCreditCard);
+            String cardLast4 = isCreditCard ? extractCardLast4(lower) : null;
+            return new Classification(Type.EXPENSE_TRANSACTION, Math.min(0.98, score), amount.amount, normalized, isCreditCard, cardLast4);
         }
 
         return new Classification(Type.UNKNOWN, Math.max(0, Math.min(0.5, score)), 0, normalized, false);
+    }
+
+    /**
+     * Best-effort last-4 extraction from bank SMS card references. When the
+     * message mentions "credit card", digits AFTER that mention are preferred —
+     * bank-side payment SMS list the debited bank a/c (XX1234) before the card
+     * (XX7788), and the card is what we want to match.
+     */
+    static String extractCardLast4(String lowerText) {
+        if (isBlank(lowerText)) return null;
+        int cardIndex = lowerText.indexOf("credit card");
+        if (cardIndex < 0) cardIndex = lowerText.indexOf("creditcard");
+        if (cardIndex >= 0) {
+            String afterCardMention = lowerText.substring(cardIndex);
+            String scoped = extractCardLast4Raw(afterCardMention);
+            if (scoped != null) return scoped;
+        }
+        return extractCardLast4Raw(lowerText);
+    }
+
+    private static String extractCardLast4Raw(String lowerText) {
+        Matcher ending = CARD_LAST4_ENDING.matcher(lowerText);
+        if (ending.find()) return ending.group(1);
+        Matcher masked = CARD_LAST4_MASKED.matcher(lowerText);
+        if (masked.find()) return masked.group(1);
+        return null;
     }
 
     private static boolean looksLikeAppUpdateOrSystem(String lower) {

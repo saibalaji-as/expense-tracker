@@ -58,7 +58,7 @@ function resolvePlanId(planType) {
         throw new Error(`Plan ID not configured for type: ${planType}`);
     return id;
 }
-const CORS_ORIGINS = ['https://spenza-finance.web.app', 'http://localhost:4200'];
+const CORS_ORIGINS = ['https://spenza.site', 'http://localhost:4200'];
 /**
  * Creates a Razorpay subscription.
  * Accepts { planType: 'monthly' | 'yearly' } — resolves the actual plan ID

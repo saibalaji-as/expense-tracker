@@ -59,11 +59,17 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+// google-services.json is gitignored (contains Firebase API key — removed from git in
+// commit b870d5d). It MUST exist locally: without it FirebaseApp is never initialized and
+// PushNotifications.register() throws IllegalStateException, crashing the app when the
+// user enables the push toggle in Settings. Fail the build instead of shipping that crash.
+def servicesJSON = file('google-services.json')
+if (servicesJSON.exists() && servicesJSON.text) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    throw new GradleException(
+        "android/app/google-services.json is missing. It is gitignored on purpose — " +
+        "download it from Firebase console (project: spenza-notifications, app: com.spenza.app) " +
+        "or restore it with: git show b870d5d^:personal-finance-pwa/android/app/google-services.json > android/app/google-services.json"
+    )
 }

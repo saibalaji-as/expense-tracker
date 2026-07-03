@@ -38,6 +38,18 @@ final class WidgetExpenseUtils {
         String date,
         String accountId
     ) throws JSONException {
+        return buildExpenseEntry(prefs, type, amount, comment, date, accountId, null);
+    }
+
+    static JSONObject buildExpenseEntry(
+        SharedPreferences prefs,
+        String type,
+        double amount,
+        String comment,
+        String date,
+        String accountId,
+        String debtId
+    ) throws JSONException {
         JSONObject entry = new JSONObject();
         double limit = calculateDailyLimit(prefs, type, date);
         String email = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
@@ -51,10 +63,45 @@ final class WidgetExpenseUtils {
         entry.put("savings", roundMoney(limit - amount));
         entry.put("timestamp", isoNow());
         if (comment != null && !comment.trim().isEmpty()) entry.put("comment", comment.trim());
-        if (accountId != null && !accountId.trim().isEmpty()) entry.put("accountId", accountId.trim());
+        if (debtId != null && !debtId.trim().isEmpty()) {
+            // Credit-card purchase: linked to the card, never to an asset account.
+            entry.put("debtId", debtId.trim());
+        } else if (accountId != null && !accountId.trim().isEmpty()) {
+            entry.put("accountId", accountId.trim());
+        }
         if (email != null && !email.trim().isEmpty()) entry.put("createdByEmail", email);
         if (role != null && !role.trim().isEmpty()) entry.put("createdByRole", role);
         return entry;
+    }
+
+    /**
+     * A queued credit-card bill payment. The app resolves it through
+     * ExpenseStore.recordDebtPayment so the account deduction, card outstanding
+     * reduction, expense entry, and payment audit record stay atomic.
+     */
+    static JSONObject buildCcPayment(
+        SharedPreferences prefs,
+        String debtId,
+        String accountId,
+        double amount,
+        String comment,
+        String detectedCardLast4
+    ) throws JSONException {
+        JSONObject payment = new JSONObject();
+        String email = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+        String role = prefs.getString(WidgetExpenseConstants.OWNER_ROLE_KEY, null);
+
+        payment.put("id", UUID.randomUUID().toString());
+        if (debtId != null && !debtId.trim().isEmpty()) payment.put("debtId", debtId.trim());
+        payment.put("accountId", accountId);
+        payment.put("amount", roundMoney(amount));
+        payment.put("date", localDateToday());
+        if (comment != null && !comment.trim().isEmpty()) payment.put("comment", comment.trim());
+        if (detectedCardLast4 != null && !detectedCardLast4.trim().isEmpty()) payment.put("ccLast4", detectedCardLast4.trim());
+        payment.put("createdAt", isoNow());
+        if (email != null && !email.trim().isEmpty()) payment.put("createdByEmail", email);
+        if (role != null && !role.trim().isEmpty()) payment.put("createdByRole", role);
+        return payment;
     }
 
     static JSONObject buildAccountAdjustment(
@@ -88,6 +135,22 @@ final class WidgetExpenseUtils {
             if (account != null && !account.optBoolean("archived", false)) {
                 active.put(account);
             }
+        }
+        return active;
+    }
+
+    /** Active credit-card debt accounts from the cached backup document. */
+    static JSONArray activeCreditCards(SharedPreferences prefs) {
+        JSONObject doc = localBackupDocument(prefs);
+        JSONArray debts = doc == null ? null : doc.optJSONArray("debts");
+        JSONArray active = new JSONArray();
+        if (debts == null) return active;
+        for (int i = 0; i < debts.length(); i++) {
+            JSONObject debt = debts.optJSONObject(i);
+            if (debt == null) continue;
+            if (!"credit-card".equals(debt.optString("type", ""))) continue;
+            if (!"active".equals(debt.optString("status", "active"))) continue;
+            active.put(debt);
         }
         return active;
     }

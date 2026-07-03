@@ -121,6 +121,10 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         intent.putExtra(WidgetExpenseConstants.WIDGET_SOURCE_EXTRA, WidgetExpenseConstants.WIDGET_SOURCE_NOTIFICATION_PROMPT);
         intent.putExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA, candidate.amountKind);
         intent.putExtra(WidgetExpenseConstants.WIDGET_IS_CREDIT_CARD_EXTRA, candidate.isCreditCard);
+        if (candidate.cardLast4 != null) {
+            intent.putExtra(WidgetExpenseConstants.WIDGET_CC_LAST4_EXTRA, candidate.cardLast4);
+        }
+        intent.putExtra(WidgetExpenseConstants.WIDGET_IS_SALARY_EXTRA, candidate.isSalary);
 
         int requestCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -135,11 +139,9 @@ public class SpendNotificationListenerService extends NotificationListenerServic
             NotificationChannelManager.CHANNEL_ID_SPEND_PROMPTS
         )
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(candidate.isCredit() ? "Record received money?" : "Log this expense?")
-            .setContentText("Detected " + candidate.displayAmount() + (candidate.isCredit() ? " received." : " spent.") + " Tap to review and save.")
-            .setStyle(new NotificationCompat.BigTextStyle().bigText(
-                "Detected " + candidate.displayAmount() + (candidate.isCredit() ? " received." : " spent.") + " Tap to review and save."
-            ))
+            .setContentTitle(promptTitle(candidate))
+            .setContentText(promptBody(candidate))
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(promptBody(candidate)))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -150,6 +152,24 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         if (manager != null) {
             manager.notify(42_200 + Math.abs(candidate.dedupeKey().hashCode() % 500), builder.build());
         }
+    }
+
+    private String promptTitle(SpendCandidate candidate) {
+        if (candidate.isCcPayment()) return "Credit card bill paid?";
+        if (candidate.isCredit()) return candidate.isSalary ? "Salary received?" : "Record received money?";
+        return "Log this expense?";
+    }
+
+    private String promptBody(SpendCandidate candidate) {
+        if (candidate.isCcPayment()) {
+            return "Detected a " + candidate.displayAmount() + " credit card payment. Tap to update your card and account.";
+        }
+        if (candidate.isCredit()) {
+            return candidate.isSalary
+                ? "Detected " + candidate.displayAmount() + " salary credited. Tap to add it to your account."
+                : "Detected " + candidate.displayAmount() + " received. Tap to review and save.";
+        }
+        return "Detected " + candidate.displayAmount() + " spent. Tap to review and save.";
     }
 
     private String currentCurrency() {
@@ -183,16 +203,21 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         final String currency;
         final String amountKind;
         final boolean isCreditCard;
+        final String cardLast4;
+        final boolean isSalary;
 
-        private SpendCandidate(double amount, String comment, String sourcePackage, String currency, String amountKind, boolean isCreditCard) {
+        private SpendCandidate(double amount, String comment, String sourcePackage, String currency, String amountKind, boolean isCreditCard, String cardLast4, boolean isSalary) {
             this.amount = amount;
             this.comment = comment;
             this.sourcePackage = sourcePackage == null ? "" : sourcePackage;
             this.currency = normalizeCurrency(currency);
             this.amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(amountKind)
-                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
+                || WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(amountKind)
+                ? amountKind
                 : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
             this.isCreditCard = isCreditCard;
+            this.cardLast4 = cardLast4;
+            this.isSalary = isSalary;
         }
 
         static SpendCandidate from(String rawText, String sourcePackage, String currency) {
@@ -203,14 +228,23 @@ public class SpendNotificationListenerService extends NotificationListenerServic
 
             String normalized = classification.normalizedText;
             String comment = normalized.length() > 90 ? normalized.substring(0, 87).trim() + "..." : normalized;
-            String amountKind = classification.type == SpendNotificationClassifier.Type.INCOME_OR_REFUND
-                ? WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT
-                : WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
-            return new SpendCandidate(classification.amount, comment, sourcePackage, currency, amountKind, classification.isCreditCard);
+            String amountKind;
+            if (classification.type == SpendNotificationClassifier.Type.INCOME_OR_REFUND) {
+                amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT;
+            } else if (classification.type == SpendNotificationClassifier.Type.CREDIT_CARD_PAYMENT) {
+                amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT;
+            } else {
+                amountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
+            }
+            return new SpendCandidate(classification.amount, comment, sourcePackage, currency, amountKind, classification.isCreditCard, classification.cardLast4, classification.isSalary);
         }
 
         boolean isCredit() {
             return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(amountKind);
+        }
+
+        boolean isCcPayment() {
+            return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(amountKind);
         }
 
         String displayAmount() {
