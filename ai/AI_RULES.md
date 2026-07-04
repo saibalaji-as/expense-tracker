@@ -47,6 +47,12 @@
 - Keep family mode folder-based:
   - Shared user-facing folder ID is preferred.
   - Direct file ID support is backward compatibility only.
+- CSP × service worker rule: on the ngsw-controlled origin (spenza.site), every cross-origin
+  subresource is re-fetched INSIDE the service worker, and that fetch is governed by the
+  worker's own CSP `connect-src` (same `/**` header in firebase.json). Therefore any host
+  added to `script-src`/`style-src`/`font-src` for runtime-loaded resources MUST also be in
+  `connect-src`, or the resource fails only in production with a bare onerror (2026-07-04:
+  this silently broke Razorpay checkout for all users).
 
 ## State Management Rules
 - Use Angular signals/computed/effect and `@ngrx/signals` patterns already present.

@@ -16,11 +16,15 @@ const CLIENT_ID = (window as any).__GOOGLE_CLIENT_ID__ ?? '';
 const GOOGLE_WEB_CLIENT_ID = '663004583066-vu5c3p5pcsg86thjftfts1t45690kll3.apps.googleusercontent.com';
 
 // Master switch for the offline-mode "never sign in again" refresh-token flow.
-// OFF by default: the offline serverAuthCode → backend-exchange path needs on-device
-// validation (a failed exchange caused a double sign-in popup + "cancelled by user").
-// While OFF, native sign-in uses the proven online-mode flow + Credential Manager
-// silent refresh. Flip to true only when testing the refresh-token path on a device.
-const ENABLE_NATIVE_OFFLINE_REFRESH = false;
+// ON: interactive sign-in uses the offline serverAuthCode → backend-exchange path so a
+// Google refresh token is stored server-side and tokens renew silently forever after.
+// Guarded by a backend preflight (#offlineExchangeReady): the offline account picker is
+// only shown when exchangeGoogleAuthCode is deployed AND configured with the client
+// secret — otherwise sign-in transparently uses the proven online-mode flow. This is
+// what prevents the historical double-popup ("cancelled by user") failure mode.
+// Prerequisites: GOOGLE_OAUTH_CLIENT_SECRET secret set + exchangeGoogleAuthCode /
+// getGoogleAccessToken functions deployed (see ai/CURRENT_STATE.md deploy checklist).
+const ENABLE_NATIVE_OFFLINE_REFRESH = true;
 
 // Always request all required scopes — openid/email/profile for Firebase Auth identity
 // verification (userinfo endpoint), drive.appdata for private config/backup file.
@@ -292,7 +296,11 @@ export class AuthService {
    * On web, a popup is opened only when the token is missing/expired.
    */
   ensureToken(): Promise<string> {
-    if (this.#accessToken) return Promise.resolve(this.#accessToken);
+    // Expiry-aware: an expired/near-expiry in-memory token is NOT handed out — it would
+    // 401 on the next Drive call. Instead fall through so native mints a fresh token
+    // from the server-stored refresh token (silent) and web does a silent GSI request,
+    // refreshing BEFORE the failure instead of relying on the 401-retry path.
+    if (this.#hasValidCachedToken()) return Promise.resolve(this.#accessToken!);
 
     if (this.#isNative) {
       const interactiveSignIn = () =>
@@ -627,16 +635,65 @@ export class AuthService {
       return this.#nativeOnlineSignIn({ silent: true });
     }
 
-    if (ENABLE_NATIVE_OFFLINE_REFRESH) {
+    // Only enter the offline flow when the backend preflight confirms the exchange
+    // function is deployed AND configured. This guarantees the user is never shown
+    // TWO account pickers (offline picker → exchange fails → online picker), which
+    // is the failure mode that originally forced this flag off.
+    if (ENABLE_NATIVE_OFFLINE_REFRESH && (await this.#offlineExchangeReady())) {
       try {
         return await this.#nativeOfflineSignIn();
       } catch (err) {
         console.warn('[AuthService] Offline sign-in failed; falling back to online mode:', err);
+        // The user likely JUST completed the offline account picker (the failure was
+        // the backend exchange, not the picker). Credential Manager therefore has an
+        // authorized credential — a silent auto-select reuses it with ZERO UI. Only
+        // show an interactive picker if the silent path also fails (e.g. the user
+        // cancelled the offline picker itself).
+        try {
+          const silentResult = await this.#nativeOnlineSignIn({ silent: true });
+          if (this.#hasValidCachedToken()) return silentResult;
+        } catch {
+          // fall through to interactive
+        }
         return this.#nativeOnlineSignIn({});
       }
     }
 
     return this.#nativeOnlineSignIn({});
+  }
+
+  /** Cached positive preflight result — the backend does not un-deploy mid-session. */
+  #offlineExchangeReadyCache: boolean | null = null;
+
+  /**
+   * Preflight probe for the offline sign-in backend. POSTs an empty body to
+   * exchangeGoogleAuthCode: HTTP 400 ("serverAuthCode is required") proves the function
+   * is deployed AND the OAuth client secret is configured (the function checks the
+   * secret first and returns 500 when missing). Anything else — 404/500/timeout —
+   * means the offline flow would fail AFTER the account picker, so the caller must
+   * use the single-popup online flow instead. Positive results are cached for the
+   * session; failures are re-probed on the next sign-in attempt (transient network).
+   */
+  async #offlineExchangeReady(): Promise<boolean> {
+    if (this.#offlineExchangeReadyCache === true) return true;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${environment.firebaseFunctionsUrl}/exchangeGoogleAuthCode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const ready = res.status === 400;
+      if (ready) this.#offlineExchangeReadyCache = true;
+      else console.warn('[AuthService] Offline-exchange preflight not ready: HTTP', res.status);
+      return ready;
+    } catch (err) {
+      console.warn('[AuthService] Offline-exchange preflight failed:', err);
+      return false;
+    }
   }
 
   /**
@@ -648,10 +705,27 @@ export class AuthService {
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 
-    const result = await SocialLogin.login({
-      provider: 'google',
-      options: { scopes: ['openid', 'email', 'profile', DRIVE_APPDATA_SCOPE] },
-    });
+    // Same Credential Manager workaround as the online flow: the first login() call
+    // can throw "No credentials found" on a cold launch; a second call reliably shows
+    // the account picker. Without this retry, the throw aborts the offline flow and
+    // the online fallback shows a SECOND picker — the double-popup users report.
+    let result;
+    try {
+      result = await SocialLogin.login({
+        provider: 'google',
+        options: { scopes: ['openid', 'email', 'profile', DRIVE_APPDATA_SCOPE] },
+      });
+    } catch (err: any) {
+      const msg: string = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+      if (msg.includes('no credentials') || msg.includes('no account')) {
+        result = await SocialLogin.login({
+          provider: 'google',
+          options: { scopes: ['openid', 'email', 'profile', DRIVE_APPDATA_SCOPE] },
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const offline = result.result as { responseType?: string; serverAuthCode?: string };
     const serverAuthCode = offline?.serverAuthCode ?? null;
@@ -662,6 +736,14 @@ export class AuthService {
     const exchange = await this.#exchangeServerAuthCode(serverAuthCode);
     if (!exchange?.accessToken) {
       throw new Error('Auth code exchange did not return an access token.');
+    }
+
+    // No refresh token server-side means silent renewal will 404 and the user will
+    // still be re-prompted after ~1h. Google only issues one on first consent — the
+    // user may need to revoke Spenza at myaccount.google.com → Security so the next
+    // sign-in re-consents. Loud log for device testing (adb logcat).
+    if (!exchange.hasRefreshToken) {
+      console.warn('[AuthService] Offline sign-in OK but NO refresh token on file — silent renewal unavailable until re-consent.');
     }
 
     // Same granular-consent guard as the online flow: a token without drive.appdata
@@ -696,7 +778,7 @@ export class AuthService {
   /** POSTs a serverAuthCode to the backend exchange endpoint. Returns null on failure. */
   async #exchangeServerAuthCode(
     serverAuthCode: string
-  ): Promise<{ accessToken: string; expiresIn: number; idToken: string | null; email: string | null } | null> {
+  ): Promise<{ accessToken: string; expiresIn: number; idToken: string | null; email: string | null; hasRefreshToken: boolean } | null> {
     try {
       const res = await fetch(`${environment.firebaseFunctionsUrl}/exchangeGoogleAuthCode`, {
         method: 'POST',
@@ -704,7 +786,8 @@ export class AuthService {
         body: JSON.stringify({ serverAuthCode }),
       });
       if (!res.ok) {
-        console.warn('[AuthService] exchangeGoogleAuthCode HTTP', res.status);
+        const detail = await res.text().catch(() => '');
+        console.warn('[AuthService] exchangeGoogleAuthCode HTTP', res.status, detail);
         return null;
       }
       const body = await res.json();
@@ -714,6 +797,7 @@ export class AuthService {
         expiresIn: Number(body.expiresIn) || 3300,
         idToken: body.idToken ?? null,
         email: body.email ?? null,
+        hasRefreshToken: body.hasRefreshToken === true,
       };
     } catch (err) {
       console.warn('[AuthService] exchangeGoogleAuthCode request failed:', err);
@@ -758,7 +842,11 @@ export class AuthService {
   /** Legacy online-mode native sign-in. Used as a fallback when the offline/backend
    *  refresh-token flow is unavailable (e.g. functions not yet deployed). */
   async #nativeOnlineSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
-    await this.#nativeInitPromise;
+    // MUST re-init to online mode: if a preceding offline attempt switched the plugin
+    // to offline mode (serverAuthCode responses), login() here would return an offline
+    // response and throw "Expected online Google login response." The plugin's mode is
+    // set at initialize() time, not per-login.
+    await this.#ensureSocialLoginMode('online');
     const { SocialLogin } = await import('@capgo/capacitor-social-login');
     const previousEmail = await this.storageService.get('gapi_user_email');
 

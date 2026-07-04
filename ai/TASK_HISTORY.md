@@ -1,5 +1,36 @@
 # Task History
 
+## 2026-07-04 - Enable native refresh-token auth (fixes hourly re-login) with preflight hardening
+
+### Context
+- User's top concern: forced sign-in on every app open (~1h Google access-token life). The complete offline serverAuthCode → backend refresh-token flow existed since 2026-06 but was disabled (`ENABLE_NATIVE_OFFLINE_REFRESH = false`) after a device test showed a double account-picker + "cancelled by user" — root-caused to the exchange backend not being deployed/configured, with the catch-block falling back to a second interactive online sign-in.
+
+### Key decisions and why
+- **Preflight probe instead of trust-then-fallback.** `#offlineExchangeReady()` POSTs an empty body to `exchangeGoogleAuthCode` before showing ANY offline sign-in UI; only HTTP 400 (deployed + secret configured) enters the offline flow. This makes the double-popup structurally impossible — a not-ready backend routes to the proven single-popup online flow. Positive result cached per session; failures re-probed next attempt.
+- **Secret check moved before param check in the function** so the empty-body probe can distinguish 500 (secret missing) from 400 (ready). Behavior for real exchanges unchanged.
+- **`ensureToken()` made expiry-aware** (`#hasValidCachedToken()` instead of truthy `#accessToken`): expired in-memory tokens now refresh proactively (native: silent server mint; web: silent GSI) instead of being handed out to fail with 401 first. The 401-retry interceptor path remains as safety net.
+- **Accurate `hasRefreshToken` in the exchange response** (falls back to checking the existing `googleTokens/{sub}` doc, since Google omits refresh_token on repeat consent) + a loud client logcat warning when none is on file — the flow "works" without one but silent renewal 404s, so device testing must catch it. Existing users may need to revoke Spenza at myaccount.google.com once to force refresh-token issuance.
+- Receipt-upload and widget Drive-sync failures were diagnosed as symptoms of the same expired-token root cause; no separate fix shipped this session. Follow-ups noted: receipt-upload retry queue; verify `syncWidgetExpenseToFamily` deployment + ship current APK for widget partner sync.
+
+### Verification
+- `npx tsc --noEmit -p tsconfig.app.json` clean; functions `tsc --noEmit` clean; `auth.service.spec.ts` 11/11. NOT verified: device sign-in, function deploy (see CURRENT_STATE deploy checklist), production build.
+
+### Follow-up (same day): "Expected online Google login response" on device
+- Cause: plugin mode is set at `SocialLogin.initialize()` time; after a failed offline attempt switched the plugin to offline mode, the fallback `#nativeOnlineSignIn` only awaited the original init promise and received an offline (serverAuthCode) response. Fix: `#nativeOnlineSignIn` now awaits `#ensureSocialLoginMode('online')` — every online sign-in (fallback AND silent) re-inits to online mode when needed.
+- Exchange hardening: `redirect_uri` param now OMITTED in `exchangeGoogleAuthCode` (was `''`; empty string can make Google reject native serverAuthCode exchanges with invalid_request/redirect_uri_mismatch). Function 400 response now includes `googleError`, and the client logs the response body, so the real Google error is visible in adb logcat without function logs.
+- Reaching this error implies preflight passed (functions deployed + secret set) and the exchange itself failed — after redeploying functions + rebuilding the APK, check logcat for `exchangeGoogleAuthCode HTTP 400 {"googleError":...}` if sign-in still lands on the online fallback.
+
+### Follow-up 2 (same day): double sign-in picker
+- Symptom: two pickers, second succeeds — the offline attempt fails, then the interactive online fallback shows a second picker. Two fixes: (1) `#nativeOfflineSignIn` now has the same "No credentials found → retry once" Credential Manager workaround the online flow always had (a cold-launch throw was aborting the offline flow before the exchange even ran); (2) when the offline flow fails AFTER the picker (backend exchange failure), the fallback now tries a SILENT online auto-select first — Credential Manager reuses the just-authorized credential with zero UI — and only goes interactive if silent also fails (user cancelled the picker itself). Verified tsc + auth spec 11/11.
+- Concurrent report of Razorpay "failed to open" on subscribe: root-caused separately (see follow-up 3).
+
+### Follow-up 3 (same day): "Failed to load Razorpay SDK" — CSP × service worker interaction
+- Reproduced live on spenza.site (desktop Chrome, via browser tooling): `checkout.razorpay.com/v1/checkout.js` script tag fails with onerror and NO page-level CSP violation, page is controlled by `ngsw-worker.js`.
+- Root cause: on an ngsw-controlled page, every cross-origin subresource request is intercepted by the service worker and re-issued as a pass-through `fetch()` INSIDE the worker. That fetch is governed by the WORKER's own CSP — which comes from the same `/**` `Content-Security-Policy` header in firebase.json. Its `connect-src` listed only `api.razorpay.com`, so the worker's fetch of `checkout.razorpay.com` was blocked → checkout broken for ALL users on ALL devices. `script-src` allowing checkout.razorpay.com is irrelevant on SW-controlled pages.
+- Fix in firebase.json CSP `connect-src`: `api.razorpay.com` → `*.razorpay.com` (checkout.js + lumberjack analytics + api), added `*.gstatic.com` (www.gstatic.com Firebase/recaptcha scripts and fonts.gstatic.com fonts route through the SW the same way — same latent bug class).
+- Durable rule: on a service-worker-controlled origin, every host in `script-src`/`font-src`/`style-src` that is fetched at runtime must ALSO be in `connect-src`.
+- Deploy: hosting redeploy required (`firebase deploy --only hosting:spenza-site` or push to main). ngsw-worker.js is served no-cache, so clients pick up the new worker CSP on next load.
+
 ## 2026-07-03 (later-2) - CC bill-payment SMS auto-tally + salary detection/fallback reminder
 
 ### Context

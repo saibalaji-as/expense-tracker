@@ -100,13 +100,10 @@ export const exchangeGoogleAuthCode = functions.onRequest(
       return;
     }
 
-    const serverAuthCode =
-      typeof req.body?.serverAuthCode === 'string' ? req.body.serverAuthCode.trim() : '';
-    if (!serverAuthCode) {
-      res.status(400).json({ error: 'serverAuthCode is required' });
-      return;
-    }
-
+    // Secret check runs FIRST so the client's preflight probe (empty-body POST) can
+    // distinguish "deployed and configured" (400) from "secret missing" (500). The
+    // client only starts the offline sign-in UI after a 400 probe response — this is
+    // what prevents the double account-picker when the backend isn't ready.
     const clientSecret = process.env[CLIENT_SECRET_NAME]?.trim();
     if (!clientSecret) {
       console.error('GOOGLE_OAUTH_CLIENT_SECRET not configured');
@@ -114,19 +111,32 @@ export const exchangeGoogleAuthCode = functions.onRequest(
       return;
     }
 
+    const serverAuthCode =
+      typeof req.body?.serverAuthCode === 'string' ? req.body.serverAuthCode.trim() : '';
+    if (!serverAuthCode) {
+      res.status(400).json({ error: 'serverAuthCode is required' });
+      return;
+    }
+
     try {
+      // Native serverAuthCode exchange: redirect_uri must be OMITTED (codes from the
+      // Android sign-in flow are not bound to a redirect). Sending redirect_uri: ''
+      // makes Google reject some exchanges with invalid_request/redirect_uri_mismatch.
       const token = await postForm({
         code: serverAuthCode,
         client_id: GOOGLE_WEB_CLIENT_ID,
         client_secret: clientSecret,
         grant_type: 'authorization_code',
-        // Native serverAuthCode exchange uses an empty redirect URI.
-        redirect_uri: '',
       });
 
       if (token.error || !token.access_token) {
         console.warn('Auth code exchange failed:', token.error, token.error_description);
-        res.status(400).json({ error: 'Auth code exchange failed' });
+        res.status(400).json({
+          error: 'Auth code exchange failed',
+          // Google's error code (e.g. invalid_grant, redirect_uri_mismatch) is safe to
+          // surface and makes on-device debugging possible without function logs.
+          googleError: token.error ?? null,
+        });
         return;
       }
 
@@ -136,6 +146,7 @@ export const exchangeGoogleAuthCode = functions.onRequest(
 
       // Persist the refresh token (only present on first consent / when offline access
       // is granted). If Google omits it, keep any existing one for this account.
+      let hasRefreshToken = !!token.refresh_token;
       if (googleSub && token.refresh_token) {
         await tokenDocRef(googleSub).set(
           {
@@ -147,6 +158,16 @@ export const exchangeGoogleAuthCode = functions.onRequest(
           },
           { merge: true }
         );
+      } else if (googleSub) {
+        // Google omits refresh_token on repeat consent — an earlier one may already be
+        // on file, in which case silent refresh still works. Report that accurately so
+        // the client only warns/forces re-consent when NO refresh token exists at all.
+        try {
+          const existing = await tokenDocRef(googleSub).get();
+          hasRefreshToken = !!(existing.exists && existing.data()?.['refreshToken']);
+        } catch {
+          // Leave hasRefreshToken=false; client may force one extra consent, harmless.
+        }
       }
 
       res.json({
@@ -154,7 +175,7 @@ export const exchangeGoogleAuthCode = functions.onRequest(
         expiresIn: token.expires_in ?? 3600,
         idToken: token.id_token ?? null,
         email,
-        hasRefreshToken: !!token.refresh_token,
+        hasRefreshToken,
       });
     } catch (err) {
       console.warn('exchangeGoogleAuthCode failed:', err);
