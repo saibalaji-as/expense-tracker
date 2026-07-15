@@ -153,11 +153,50 @@ exports.syncWidgetExpenseToFamily = functions.onRequest({ cors: CORS_ORIGINS, in
         let appliedExpenses = 0;
         let appliedAdjustments = 0;
         const newRevision = await db.runTransaction(async (tx) => {
+            // Transactions can retry the callback — reset counters so `synced` is accurate.
+            appliedExpenses = 0;
+            appliedAdjustments = 0;
             const snap = await tx.get(stateRef);
             if (!snap.exists) {
-                // No baseline state yet — the owner must open the app once so the initial
-                // full document is published. Signal the caller to keep the items queued.
-                throw new Error('NO_STATE_DOC');
+                // Bootstrap: the very first family write came from the widget before either
+                // member opened the app. Previously this 409'd ("state not ready") and the
+                // items sat queued until the owner happened to open the app — the partner
+                // never received them. Instead, seed the envelope with just these items;
+                // account deltas can't be applied (no accounts yet) but both members' next
+                // boot pushState is merge-on-write (family-state-merge.ts), so accounts and
+                // balances converge without wiping these entries.
+                const seededExpenses = [];
+                const seededAdjustments = [];
+                const seenIds = new Set();
+                for (const entry of expenses) {
+                    const id = entry?.id ?? '';
+                    if (!id || seenIds.has(id))
+                        continue;
+                    seenIds.add(id);
+                    seededExpenses.push(entry);
+                    appliedExpenses++;
+                }
+                for (const adjustment of adjustments) {
+                    const id = adjustment?.id ?? '';
+                    if (!id || seenIds.has(id))
+                        continue;
+                    seenIds.add(id);
+                    seededAdjustments.push(adjustment);
+                    appliedAdjustments++;
+                }
+                tx.set(stateRef, {
+                    doc: {
+                        expenses: seededExpenses,
+                        accounts: [],
+                        accountAdjustments: seededAdjustments,
+                        lastUpdated: new Date().toISOString(),
+                    },
+                    lastWriter: { uid, email, role },
+                    updatedAt: new Date().toISOString(),
+                    revision: 1,
+                    deletedEntryIds: [],
+                });
+                return 1;
             }
             const data = snap.data();
             const doc = data.doc ?? {};
@@ -203,12 +242,6 @@ exports.syncWidgetExpenseToFamily = functions.onRequest({ cors: CORS_ORIGINS, in
         res.json({ synced: appliedExpenses + appliedAdjustments, revision: newRevision });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message === 'NO_STATE_DOC') {
-            // 409 → worker keeps the queue and retries after the owner next opens the app.
-            res.status(409).json({ error: 'Family state not initialized yet' });
-            return;
-        }
         console.warn('syncWidgetExpenseToFamily failed:', err);
         res.status(401).json({ error: 'Unauthorized' });
     }

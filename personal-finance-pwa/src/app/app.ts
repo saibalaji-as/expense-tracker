@@ -307,8 +307,12 @@ export class App implements OnInit, OnDestroy {
         await this.redirectAfterDataAvailable();
         // Owner proactively pushes current state so the Firestore document always exists
         // for any partner that joins or re-logs in before the owner makes a local change.
+        // Attach the listener FIRST: pushState is merge-on-write and the first snapshot
+        // is always applied, but starting the listener before pushing minimizes the
+        // window where a partner change could sit unseen in the state doc.
         if (this.backupModeService.getMode() === 'family' &&
             this.backupModeService.getOwnerRole() === 'owner') {
+          this.tryStartFamilySync();
           this.expenseStore.pushFamilyStateNow();
         }
       }

@@ -45,6 +45,14 @@
     <color name="spenza_streak_broken_soft">#E9EDF2</color>
     <color name="spenza_streak_dot_off">#E0DAF1</color>
 
+    <!-- Per-design-style widget element colors (glass chips, neu chips, neobrutalism ink) -->
+    <color name="widget_glass_chip">#B8FFFFFF</color>
+    <color name="widget_glass_chip_stroke">#E8FFFFFF</color>
+    <color name="widget_neu_chip">#ECEFF5</color>
+    <color name="widget_neu_stroke">#DCE1EC</color>
+    <color name="widget_brutal_ink">#111420</color>
+    <color name="widget_brutal_paper">#FFFDF6</color>
+
     <!-- App palette primary/glow pairs (light), mirroring ThemeService pf-palette -->
     <color name="widget_pal_violet_primary">#7C3AED</color>
     <color name="widget_pal_violet_glow">#A855F7</color>

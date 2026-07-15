@@ -13,12 +13,14 @@ import {
   LayoutDashboard,
   Settings,
   Bell,
+  Inbox,
 } from 'lucide-angular';
 import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
 import { CreditCardPickerComponent } from '../credit-card-picker/credit-card-picker.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { ExpenseStore, noCcAccountForExpense$ } from '../../../core/services/expense-store.service';
+import { NotificationInboxService } from '../../../core/services/notification-inbox.service';
 import { UserFeedbackService } from '../../../core/services/user-feedback.service';
 import { TranslatePipe } from '../../pipes';
 
@@ -38,7 +40,7 @@ interface NavItem {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, WalletCards, LayoutDashboard, Settings, Bell }),
+      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, WalletCards, LayoutDashboard, Settings, Bell, Inbox }),
     },
   ],
   styles: [`
@@ -252,6 +254,22 @@ interface NavItem {
           <div class="flex items-center gap-1">
             @if (showNavigation()) {
               <a
+                routerLink="/notifications"
+                routerLinkActive
+                #raInbox="routerLinkActive"
+                class="top-icon-btn relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                [class.active]="raInbox.isActive"
+                aria-label="Notifications"
+              >
+                <lucide-icon [img]="inboxIcon" class="h-5 w-5" style="stroke-width: 2.25;" aria-hidden="true" />
+                @if (notificationInbox.pendingCount() > 0) {
+                  <span
+                    class="absolute right-0.5 top-0.5 grid min-w-[16px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white"
+                    aria-hidden="true"
+                  >{{ notificationInbox.pendingCount() > 9 ? '9+' : notificationInbox.pendingCount() }}</span>
+                }
+              </a>
+              <a
                 routerLink="/reminders"
                 routerLinkActive
                 #raAlerts="routerLinkActive"
@@ -369,8 +387,11 @@ export class AppShellComponent {
   private readonly router = inject(Router);
   private readonly feedback = inject(UserFeedbackService);
 
+  readonly notificationInbox = inject(NotificationInboxService);
+
   readonly bellIcon = Bell;
   readonly settingsIcon = Settings;
+  readonly inboxIcon = Inbox;
 
 
 
@@ -381,6 +402,7 @@ export class AppShellComponent {
     { path: '/limits',    labelKey: 'nav.limits',    shortLabel: 'Limits',   icon: SlidersHorizontal },
     { path: '/finances',  labelKey: 'nav.finances',  shortLabel: 'Finance',  icon: WalletCards },
     { path: '/dashboard', labelKey: 'nav.dashboard', shortLabel: 'Dash',     icon: LayoutDashboard },
+    { path: '/notifications', labelKey: 'nav.notifications', shortLabel: 'Inbox', icon: Inbox },
     { path: '/reminders', labelKey: 'nav.reminders', shortLabel: 'Alerts',   icon: Bell },
     { path: '/settings',  labelKey: 'nav.settings',  shortLabel: 'Settings', icon: Settings },
   ];
@@ -400,6 +422,10 @@ export class AppShellComponent {
   readonly activeMobileIndex = signal(this.indexForUrl(this.router.url));
 
   constructor() {
+    // Populate the notification-inbox badge; the /notifications screen
+    // reloads on open, so this initial read keeps the count fresh enough.
+    void this.notificationInbox.load();
+
     this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
       if (event instanceof NavigationEnd) {
         this.activeMobileIndex.set(this.indexForUrl(event.urlAfterRedirects));

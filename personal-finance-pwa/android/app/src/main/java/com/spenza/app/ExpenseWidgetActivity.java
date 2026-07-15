@@ -83,6 +83,8 @@ public class ExpenseWidgetActivity extends Activity {
     private boolean isCreditCardExpense;
     private boolean isSalaryCredit;
     private String detectedCardLast4;
+    /** Notification-inbox item id when opened from a spend prompt; marked logged on save. */
+    private String inboxItemId;
     private boolean usedPrediction;
     private EditText amountInput;
     private EditText commentInput;
@@ -139,6 +141,7 @@ public class ExpenseWidgetActivity extends Activity {
         isCreditCardExpense = getIntent().getBooleanExtra(WidgetExpenseConstants.WIDGET_IS_CREDIT_CARD_EXTRA, false);
         isSalaryCredit = getIntent().getBooleanExtra(WidgetExpenseConstants.WIDGET_IS_SALARY_EXTRA, false);
         detectedCardLast4 = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_CC_LAST4_EXTRA);
+        inboxItemId = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_INBOX_ID_EXTRA);
         selectedType = resolveInitialType(requestedType);
         loadActiveAccounts();
         parsedDate = WidgetExpenseUtils.localDateToday();
@@ -1075,6 +1078,7 @@ public class ExpenseWidgetActivity extends Activity {
                 }
             }
             WidgetExpenseQueue.enqueue(this, entry);
+            NotificationInbox.markStatus(this, inboxItemId, NotificationInbox.STATUS_LOGGED, entry.optString("id", null));
             ExpenseWidgetProvider.updateAll(this);
             confirmHaptic();
             toast("Expense queued for Drive sync.");
@@ -1109,6 +1113,7 @@ public class ExpenseWidgetActivity extends Activity {
                 detectedCardLast4
             );
             WidgetExpenseQueue.enqueueCcPayment(this, payment);
+            NotificationInbox.markStatus(this, inboxItemId, NotificationInbox.STATUS_LOGGED, payment.optString("id", null));
             ExpenseWidgetProvider.updateAll(this);
             confirmHaptic();
             toast("Card payment queued for sync.");
@@ -1138,6 +1143,7 @@ public class ExpenseWidgetActivity extends Activity {
                 reason
             );
             WidgetExpenseQueue.enqueueAdjustment(this, adjustment);
+            NotificationInbox.markStatus(this, inboxItemId, NotificationInbox.STATUS_LOGGED, adjustment.optString("id", null));
             ExpenseWidgetProvider.updateAll(this);
             confirmHaptic();
             toast("Credit queued for account adjustment.");

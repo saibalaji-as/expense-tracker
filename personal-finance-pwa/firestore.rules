@@ -38,9 +38,20 @@ service cloud.firestore {
       allow update, delete: if false; // deltas are immutable
     }
 
-    // ── New: family state snapshot (full BackupDocument pushed by owner or partner) ──
+    // ── LEGACY: family state snapshot (full BackupDocument). Read-only since the
+    // Family Ledger migration — kept so clients can migrate it into the ledger.
+    // Remove (with the doc itself) after both members are on the ledger build. ──
     match /families/{familyId}/state/{docId} {
       allow read, write: if request.auth != null && isFamilyMember(familyId);
+    }
+
+    // ── Family Ledger: one document per shared record (expense/adjustment/
+    // debt-payment/account/debt + limits/meta singletons). Members read and
+    // write; deletions are tombstones (deleted: true), never document deletes.
+    // See docs/family-sync-centralization-plan.md. ──
+    match /families/{familyId}/ledger/{recordId} {
+      allow read, create, update: if request.auth != null && isFamilyMember(familyId);
+      allow delete: if false; // tombstones only — history must survive
     }
 
     // ── New: family invites (owner reads their own; redeemer reads by code) ──

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="90"
+        android:startColor="@color/spenza_flame_start"
+        android:endColor="@color/spenza_flame_end"
+        android:type="linear" />
+    <stroke
+        android:width="2dp"
+        android:color="@color/widget_brutal_ink" />
+    <corners android:radius="4dp" />
+</shape>

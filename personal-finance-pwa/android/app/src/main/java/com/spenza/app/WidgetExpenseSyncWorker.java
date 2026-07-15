@@ -63,25 +63,21 @@ public class WidgetExpenseSyncWorker extends Worker {
         // access token. This is how the partner receives the expense, and it must work even
         // when the app has been killed for hours and the cached Drive token is expired (it
         // uses the long-lived Firebase refresh token instead). Idempotent on the backend
-        // (dedupes by id), so re-running on later Drive retries is harmless. The queue is
-        // NOT cleared here — the Drive write below still owns clearing it so the user's own
-        // device gets the expense on next app open.
+        // (dedupes by id), so re-running on later Drive retries is harmless.
+        //
+        // SYNC TAG: each queue item that reached the family state doc is tagged
+        // `familySynced=true` (wrapper-level, never leaks into the backup schema — the
+        // Angular flush consumes only `entry`/`adjustment`). Untagged family-eligible
+        // items are NEVER dropped by the Drive leg below, and their presence forces
+        // Result.retry() — a failed family push can no longer be silently lost.
+        boolean familyPushPending = false;
         if (isFirestoreFamily(prefs)) {
-            String familyEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
             JSONArray familyExpenses = new JSONArray();
             JSONArray familyAdjustments = new JSONArray();
+            List<JSONObject> pushedItems = new ArrayList<>();
             for (JSONObject queuedItem : queuedEntries) {
-                String queuedEmail = queuedItem.optString("userEmail", null);
-                if ((familyEmail != null || queuedEmail != null)
-                    && !String.valueOf(familyEmail).equals(String.valueOf(queuedEmail))) {
-                    continue;
-                }
+                if (!requiresFamilyPush(prefs, queuedItem)) continue;
                 String familyKind = queuedItem.optString("kind", "expense");
-                if ("cc-payment".equals(familyKind)) {
-                    // Debt payments are resolved atomically by ExpenseStore in
-                    // the app; the family partner receives them via Drive polling.
-                    continue;
-                }
                 if ("adjustment".equals(familyKind)) {
                     JSONObject adjustment = queuedItem.optJSONObject("adjustment");
                     if (adjustment != null) familyAdjustments.put(adjustment);
@@ -90,11 +86,30 @@ public class WidgetExpenseSyncWorker extends Worker {
                     if (entry == null) entry = queuedItem;
                     familyExpenses.put(entry);
                 }
+                pushedItems.add(queuedItem);
             }
             if (familyExpenses.length() > 0 || familyAdjustments.length() > 0) {
                 boolean pushed = pushFamilyWidgetExpenses(prefs, familyExpenses, familyAdjustments);
                 Log.d(TAG, "Family Firestore push (pre-Drive) result=" + pushed
                     + " expenses=" + familyExpenses.length() + " adjustments=" + familyAdjustments.length());
+                if (pushed) {
+                    // Tag + persist immediately so a later crash/Drive retry doesn't
+                    // treat these as unpushed. Re-reads the queue by id, so entries
+                    // enqueued concurrently by the widget are never clobbered.
+                    Set<String> pushedIds = new HashSet<>();
+                    for (JSONObject item : pushedItems) {
+                        try {
+                            item.put("familySynced", true);
+                        } catch (JSONException ignored) {
+                            // In-memory tag only; the persisted tag below is authoritative.
+                        }
+                        String id = queueItemId(item);
+                        if (id != null) pushedIds.add(id);
+                    }
+                    WidgetExpenseQueue.markFamilySynced(context, pushedIds);
+                } else {
+                    familyPushPending = true;
+                }
             }
         }
 
@@ -149,32 +164,33 @@ public class WidgetExpenseSyncWorker extends Worker {
             JSONArray mergedExpenses = new JSONArray();
             JSONArray mergedAdjustments = new JSONArray();
             String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
-            List<JSONObject> remaining = new ArrayList<>();
+            // Ids of queue items fully consumed by this run (Drive-merged or duplicate),
+            // removed from the queue BY ID afterwards so concurrent widget enqueues
+            // during this network round-trip are never clobbered.
+            Set<String> consumedIds = new HashSet<>();
             int syncedCount = 0;
             for (JSONObject queuedItem : queuedEntries) {
                 String queuedEmail = queuedItem.optString("userEmail", null);
                 if ((activeEmail != null || queuedEmail != null) && !String.valueOf(activeEmail).equals(String.valueOf(queuedEmail))) {
-                    remaining.add(queuedItem);
-                    continue;
+                    continue; // other account's item — leave queued
                 }
-
                 String kind = queuedItem.optString("kind", "expense");
                 if ("cc-payment".equals(kind)) {
                     // Must go through ExpenseStore.recordDebtPayment in the app —
                     // syncing here would break account/card/audit atomicity.
-                    remaining.add(queuedItem);
                     continue;
                 }
                 if ("adjustment".equals(kind)) {
                     JSONObject adjustment = queuedItem.optJSONObject("adjustment");
                     if (adjustment == null) {
+                        // Malformed (no payload, no id) — removeConsumed drops id-less
+                        // items for the active user, so it won't be stuck forever.
                         syncedCount++;
                         continue;
                     }
                     String id = adjustment.optString("id", "");
                     if (!id.isEmpty() && !existingAdjustmentIds.contains(id)) {
                         if (!applyAccountAdjustment(accounts, adjustment)) {
-                            remaining.add(queuedItem);
                             continue;
                         }
                         mergedAdjustments.put(adjustment);
@@ -189,21 +205,26 @@ public class WidgetExpenseSyncWorker extends Worker {
                         // app's picker (single-card auto-assign / multi-card dialog).
                         // Syncing them here would silently deduct the wrong ledger.
                         if (entry.optBoolean("isCreditCard", false) && !entry.has("debtId")) {
-                            remaining.add(queuedItem);
                             continue;
                         }
                         if (entry.has("debtId")) {
                             if (!applyCreditCardCharge(debts, entry)) {
-                                remaining.add(queuedItem);
                                 continue;
                             }
                         } else if (!applyLinkedExpense(accounts, entry)) {
-                            remaining.add(queuedItem);
                             continue;
                         }
                         mergedExpenses.put(entry);
                         existingIds.add(id);
                     }
+                }
+                // A family-eligible item that hasn't reached the partner yet stays
+                // queued even after its Drive merge succeeds (Drive dedupes by id, so
+                // keeping it is harmless; consuming it would silently lose the partner
+                // sync — the exact "partner never knew" bug).
+                if (!requiresFamilyPush(prefs, queuedItem)) {
+                    String consumedId = queueItemId(queuedItem);
+                    if (consumedId != null) consumedIds.add(consumedId);
                 }
                 syncedCount++;
             }
@@ -219,12 +240,17 @@ public class WidgetExpenseSyncWorker extends Worker {
             doc.put("accountAdjustments", mergedAdjustments);
             doc.put("debts", debts);
             doc.put("lastUpdated", WidgetExpenseUtils.isoNow());
-            String modifiedTime = writeBackupFile(fileId, token, doc);
-            writeLocalBackupSnapshot(prefs, fileId, modifiedTime, doc);
+            if (mergedExpenses.length() > expenses.length() || mergedAdjustments.length() > accountAdjustments.length()) {
+                String modifiedTime = writeBackupFile(fileId, token, doc);
+                writeLocalBackupSnapshot(prefs, fileId, modifiedTime, doc);
+            }
             // (Family Firestore push already happened up-front, independent of this token.)
-            WidgetExpenseQueue.replaceQueue(context, remaining);
-            Log.d(TAG, "Synced " + syncedCount + " widget expenses to Drive.");
-            return Result.success();
+            WidgetExpenseQueue.removeConsumed(context, activeEmail, consumedIds);
+            Log.d(TAG, "Synced " + syncedCount + " widget expenses to Drive."
+                + (familyPushPending ? " Family push still pending — will retry." : ""));
+            // Items that reached Drive but not the family state doc stay queued and
+            // force a WorkManager retry (with backoff) until the partner has them.
+            return familyPushPending ? Result.retry() : Result.success();
         } catch (UnauthorizedException error) {
             Log.w(TAG, "Cached token rejected by Drive; keeping queue.", error);
             return Result.retry();
@@ -304,6 +330,42 @@ public class WidgetExpenseSyncWorker extends Worker {
             return true;
         }
         return false;
+    }
+
+    /**
+     * True when this queue item still owes a push to the family Firestore state doc:
+     * Firestore-family mode, belongs to the active user, is a family-synced kind
+     * (cc-payments resolve app-side only), and hasn't been tagged `familySynced` yet.
+     */
+    static boolean requiresFamilyPush(SharedPreferences prefs, JSONObject queuedItem) {
+        if (!isFirestoreFamily(prefs)) return false;
+        if (queuedItem.optBoolean("familySynced", false)) return false;
+        if ("cc-payment".equals(queuedItem.optString("kind", "expense"))) return false;
+        String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+        String queuedEmail = queuedItem.optString("userEmail", null);
+        if ((activeEmail != null || queuedEmail != null)
+            && !String.valueOf(activeEmail).equals(String.valueOf(queuedEmail))) {
+            return false;
+        }
+        return true;
+    }
+
+    /** Stable id of a queue item's payload (entry/adjustment/payment), or null if malformed. */
+    static String queueItemId(JSONObject queuedItem) {
+        if (queuedItem == null) return null;
+        String kind = queuedItem.optString("kind", "expense");
+        JSONObject payload;
+        if ("adjustment".equals(kind)) {
+            payload = queuedItem.optJSONObject("adjustment");
+        } else if ("cc-payment".equals(kind)) {
+            payload = queuedItem.optJSONObject("payment");
+        } else {
+            payload = queuedItem.optJSONObject("entry");
+            if (payload == null) payload = queuedItem; // legacy bare-entry item
+        }
+        if (payload == null) return null;
+        String id = payload.optString("id", "");
+        return id.isEmpty() ? null : id;
     }
 
     /** True only for the modern Firestore-based family mode (family mode with no shared Drive file). */

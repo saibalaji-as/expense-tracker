@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Expense Log widget, medium tier (~2 launcher rows).
+     Row 1: brand badge + "spent of budget" hero + trend pill.
+     Row 2: slim progress bar.
+     Row 3: quick-log chips, wrap_content so they hug their icons and stay
+     centered when the launcher gives the widget extra height.
+     A single launcher row uses expense_widget_quick instead; chip/pill/badge
+     backgrounds are swapped per app design style by ExpenseWidgetProvider. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -16,281 +23,281 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@android:color/transparent"
-        android:gravity="center_vertical"
         android:orientation="vertical"
-        android:padding="12dp">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <ImageView
-            android:id="@+id/expense_widget_brand"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_marginEnd="9dp"
-            android:background="@drawable/widget_brand_badge"
-            android:padding="7dp"
-            android:src="@drawable/ic_widget_spark" />
+        android:paddingLeft="14dp"
+        android:paddingTop="11dp"
+        android:paddingRight="14dp"
+        android:paddingBottom="9dp">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/expense_widget_brand"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/widget_brand_badge"
+                android:padding="7dp"
+                android:src="@drawable/ic_widget_spark" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_budget_amount"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="₹0 of ₹0"
+                    android:textColor="@color/spenza_primary_start"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/expense_widget_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.06"
+                    android:singleLine="true"
+                    android:text="TODAY'S SPEND"
+                    android:textColor="@color/spenza_widget_muted"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/expense_widget_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:id="@+id/widget_trend_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="26dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/expense_widget_trend_badge"
+                android:gravity="center"
+                android:minWidth="56dp"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp"
                 android:singleLine="true"
-                android:text="Spenza"
-                android:textColor="@color/spenza_primary_start"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/expense_widget_subtitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
-                android:letterSpacing="0.1"
-                android:singleLine="true"
-                android:text="DAILY INSIGHT"
-                android:textColor="@color/spenza_widget_muted"
+                android:text="0%"
+                android:textColor="@color/spenza_food"
                 android:textSize="12sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/widget_trend_badge"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:background="@drawable/expense_widget_trend_badge"
-            android:gravity="center"
-            android:minWidth="72dp"
-            android:paddingLeft="10dp"
-            android:paddingRight="10dp"
-            android:singleLine="true"
-            android:text="0%"
-            android:textColor="@color/spenza_food"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/widget_budget_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="9dp"
-        android:singleLine="true"
-        android:text="Daily Budget"
-        android:textColor="@color/spenza_widget_text"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/widget_budget_amount"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
-        android:singleLine="true"
-        android:text="₹0 spent of ₹0"
-        android:textColor="@color/spenza_widget_muted"
-        android:textSize="18sp" />
-
-    <ProgressBar
-        android:id="@+id/widget_budget_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="10dp"
-        android:layout_marginTop="8dp"
-        android:max="100"
-        android:progress="0"
-        android:progressDrawable="@drawable/expense_widget_progress" />
-
-    <TextView
-        android:id="@+id/widget_trend_text"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:gravity="end"
-        android:maxLines="1"
-        android:text="Ready to track today"
-        android:textColor="@color/spenza_widget_muted"
-        android:textSize="16sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:layout_marginTop="9dp"
-        android:gravity="center"
-        android:orientation="horizontal">
+        <ProgressBar
+            android:id="@+id/widget_budget_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_marginTop="8dp"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/expense_widget_progress" />
 
         <LinearLayout
-            android:id="@+id/widget_food"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
             android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical">
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_food_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_food" />
-
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_food"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="Food"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp">
 
-        <LinearLayout
-            android:id="@+id/widget_transport"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical">
+                <ImageView
+                    android:id="@+id/widget_food_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_food_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_food" />
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_transport_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_transport" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="Food"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_transport"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="Transport"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp">
 
-        <LinearLayout
-            android:id="@+id/widget_entertainment"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical">
+                <ImageView
+                    android:id="@+id/widget_transport_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_transport_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_transport" />
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_entertainment_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_entertainment" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="Travel"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_entertainment"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="Fun"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp">
 
-        <LinearLayout
-            android:id="@+id/widget_shopping"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:visibility="gone">
+                <ImageView
+                    android:id="@+id/widget_entertainment_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_entertainment_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_entertainment" />
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_shopping_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_shopping" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="Fun"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_shopping"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="Shop"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:visibility="gone">
 
-        <LinearLayout
-            android:id="@+id/widget_more"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical">
+                <ImageView
+                    android:id="@+id/widget_shopping_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_shopping_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_shopping" />
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_misc_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_more" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="Shop"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_more"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="More"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp">
 
-        <LinearLayout
-            android:id="@+id/widget_credit"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:orientation="vertical">
+                <ImageView
+                    android:id="@+id/widget_more_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_misc_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_more" />
 
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/expense_widget_credit_icon_bg"
-                android:padding="7dp"
-                android:src="@drawable/ic_widget_credit" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="More"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/widget_credit"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:singleLine="true"
-                android:text="Credit"
-                android:textColor="@color/spenza_widget_text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp">
+
+                <ImageView
+                    android:id="@+id/widget_credit_icon"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/expense_widget_credit_icon_bg"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_credit" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:text="Credit"
+                    android:textColor="@color/spenza_widget_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
     </LinearLayout>
 </FrameLayout>

@@ -1,5 +1,5 @@
 import { Injectable, inject, isDevMode, signal } from '@angular/core';
-import { firebaseConfig } from '../config/firebase.config';
+import { getSharedFirestore } from './firestore-db';
 import { AuthService } from './auth.service';
 import { StorageService } from './storage.service';
 import type { Firestore } from 'firebase/firestore';
@@ -31,11 +31,9 @@ export class SubscriptionService {
   #listeningUid: string | null = null;
 
   async #getDb(): Promise<Firestore> {
-    if (this.#db) return this.#db;
-    const { getApps, initializeApp } = await import('firebase/app');
-    const { getFirestore } = await import('firebase/firestore');
-    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-    this.#db = getFirestore(app);
+    // Shared instance: persistent-cache settings are fixed by whoever initializes
+    // Firestore first — always go through getSharedFirestore().
+    this.#db ??= await getSharedFirestore();
     return this.#db;
   }
 

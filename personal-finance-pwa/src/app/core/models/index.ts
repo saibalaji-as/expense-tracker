@@ -7,5 +7,6 @@ export * from './pending-cc-expense.model';
 export * from './expense-entry.model';
 export * from './expense-limit.model';
 export * from './local-notification.model';
+export * from './notification-inbox.model';
 export * from './notification-preferences.model';
 export * from './family-sync.model';

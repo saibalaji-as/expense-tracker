@@ -54,7 +54,19 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         String text = collectText(notification);
         SpendCandidate candidate = SpendCandidate.from(text, sbn.getPackageName(), currentCurrency());
         if (candidate == null || isDuplicate(candidate)) return;
-        showPrompt(candidate);
+        // Persist BEFORE prompting: a swiped/cleared prompt (or a denied
+        // POST_NOTIFICATIONS permission) must not lose the detection. The
+        // in-app /notifications screen recovers pending items from this inbox.
+        String inboxId = NotificationInbox.append(
+            this,
+            candidate.inboxKind(),
+            candidate.amount,
+            candidate.currency,
+            candidate.comment,
+            candidate.sourcePackage,
+            candidate.cardLast4
+        );
+        showPrompt(candidate, inboxId);
     }
 
     private boolean isPromptEnabled() {
@@ -105,7 +117,7 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         return false;
     }
 
-    private void showPrompt(SpendCandidate candidate) {
+    private void showPrompt(SpendCandidate candidate, String inboxId) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
             && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG, "Cannot show spend prompt without POST_NOTIFICATIONS permission");
@@ -125,6 +137,9 @@ public class SpendNotificationListenerService extends NotificationListenerServic
             intent.putExtra(WidgetExpenseConstants.WIDGET_CC_LAST4_EXTRA, candidate.cardLast4);
         }
         intent.putExtra(WidgetExpenseConstants.WIDGET_IS_SALARY_EXTRA, candidate.isSalary);
+        if (inboxId != null) {
+            intent.putExtra(WidgetExpenseConstants.WIDGET_INBOX_ID_EXTRA, inboxId);
+        }
 
         int requestCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -245,6 +260,13 @@ public class SpendNotificationListenerService extends NotificationListenerServic
 
         boolean isCcPayment() {
             return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(amountKind);
+        }
+
+        /** Inbox kind for the persisted detection record. */
+        String inboxKind() {
+            if (isCcPayment()) return "cc-payment";
+            if (isCredit()) return isSalary ? "salary" : "income";
+            return isCreditCard ? "cc-spend" : "expense";
         }
 
         String displayAmount() {

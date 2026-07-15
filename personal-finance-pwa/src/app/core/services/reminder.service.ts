@@ -2,7 +2,7 @@ import { Injectable, inject, signal, computed, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { App } from '@capacitor/app';
-import { firebaseConfig } from '../config/firebase.config';
+import { getSharedFirestore } from './firestore-db';
 import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
 import type { Firestore, Unsubscribe } from 'firebase/firestore';
@@ -60,10 +60,8 @@ export class ReminderService {
 
   async start(uid: string): Promise<void> {
     this.stop();
-    const { getApps, initializeApp } = await import('firebase/app');
-    const { getFirestore, collection, onSnapshot, orderBy, query } = await import('firebase/firestore');
-    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-    this.#db = getFirestore(app);
+    const { collection, onSnapshot, orderBy, query } = await import('firebase/firestore');
+    this.#db = await getSharedFirestore();
 
     const col = collection(this.#db, 'users', uid, 'reminders');
     const q = query(col, orderBy('createdAt', 'desc'));
@@ -326,11 +324,7 @@ export class ReminderService {
   }
 
   async #getDb(): Promise<Firestore> {
-    if (this.#db) return this.#db;
-    const { getApps, initializeApp } = await import('firebase/app');
-    const { getFirestore } = await import('firebase/firestore');
-    const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-    this.#db = getFirestore(app);
+    this.#db ??= await getSharedFirestore();
     return this.#db;
   }
 }

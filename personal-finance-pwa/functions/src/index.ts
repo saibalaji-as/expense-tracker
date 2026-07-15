@@ -14,6 +14,7 @@ import { parseVoiceReminder } from './ai-reminder';
 // Re-import locally only when testing with the Firebase emulator.
 import { createFamily, createFamilyInvite, redeemFamilyInvite, dissolveFamily, leaveFamily } from './family';
 import { syncWidgetExpenseToFamily } from './widget-sync';
+import { commitFamilyLedger } from './family-ledger';
 import { exchangeGoogleAuthCode, getGoogleAccessToken } from './google-tokens';
 
 admin.initializeApp();
@@ -41,6 +42,7 @@ export {
   dissolveFamily,
   leaveFamily,
   syncWidgetExpenseToFamily,
+  commitFamilyLedger,
   exchangeGoogleAuthCode,
   getGoogleAccessToken,
 };

@@ -162,7 +162,13 @@ export class AuthService {
       return this.#socialLoginInitPromise;
     }
     this.#socialLoginMode = mode;
+    // Serialize against any in-flight initialize() (e.g. the eager constructor init):
+    // two concurrent initialize() calls race on the native side, and if the ONLINE one
+    // lands last the plugin returns an online response while JS expects offline →
+    // "Expected offline Google login response" AFTER the user completed the picker.
+    const previousInit = this.#socialLoginInitPromise;
     this.#socialLoginInitPromise = (async () => {
+      if (previousInit) await previousInit.catch(() => {});
       const { SocialLogin } = await import('@capgo/capacitor-social-login');
       await SocialLogin.initialize({
         google: { webClientId: GOOGLE_WEB_CLIENT_ID, mode },
@@ -639,16 +645,27 @@ export class AuthService {
     // function is deployed AND configured. This guarantees the user is never shown
     // TWO account pickers (offline picker → exchange fails → online picker), which
     // is the failure mode that originally forced this flag off.
-    if (ENABLE_NATIVE_OFFLINE_REFRESH && (await this.#offlineExchangeReady())) {
+    if (
+      ENABLE_NATIVE_OFFLINE_REFRESH &&
+      !this.#offlineFlowFailedThisSession &&
+      (await this.#offlineExchangeReady())
+    ) {
       try {
         return await this.#nativeOfflineSignIn();
       } catch (err) {
         console.warn('[AuthService] Offline sign-in failed; falling back to online mode:', err);
-        // The user likely JUST completed the offline account picker (the failure was
-        // the backend exchange, not the picker). Credential Manager therefore has an
-        // authorized credential — a silent auto-select reuses it with ZERO UI. Only
-        // show an interactive picker if the silent path also fails (e.g. the user
-        // cancelled the offline picker itself).
+        // User cancellation must ABORT the sign-in, not chain more UI. Relaunching a
+        // picker immediately after a dismissed one is exactly the "multiple popups →
+        // cancelled by user" first-attempt failure on fresh installs. The user can
+        // simply tap Sign in again.
+        if (this.#isUserCancellation(err)) throw err;
+        // Non-cancel failure after the picker completed (usually the backend exchange,
+        // e.g. bad client secret — the preflight cannot detect that). Don't retry the
+        // offline flow again this session: go single-popup online on later attempts.
+        this.#offlineFlowFailedThisSession = true;
+        // Credential Manager has an authorized credential from the picker the user
+        // just completed — a silent auto-select reuses it with ZERO UI. Only show an
+        // interactive picker if the silent path also fails.
         try {
           const silentResult = await this.#nativeOnlineSignIn({ silent: true });
           if (this.#hasValidCachedToken()) return silentResult;
@@ -660,6 +677,20 @@ export class AuthService {
     }
 
     return this.#nativeOnlineSignIn({});
+  }
+
+  /**
+   * Set when an offline sign-in attempt failed AFTER the account picker (backend
+   * exchange failure the preflight cannot detect, e.g. wrong OAuth client secret).
+   * Later attempts this session skip straight to the single-popup online flow so the
+   * user never sees the picker → fail → picker-again loop twice in a row.
+   */
+  #offlineFlowFailedThisSession = false;
+
+  /** True when the error is the plugin's "user dismissed the picker" rejection. */
+  #isUserCancellation(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    return msg.includes('cancel');
   }
 
   /** Cached positive preflight result — the backend does not un-deploy mid-session. */

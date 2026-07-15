@@ -33,6 +33,7 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/widget_food_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_food_icon_bg"
@@ -60,6 +61,7 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/widget_transport_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_transport_icon_bg"
@@ -87,6 +89,7 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/widget_entertainment_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_entertainment_icon_bg"
@@ -115,6 +118,7 @@
         android:visibility="gone">
 
         <ImageView
+            android:id="@+id/widget_shopping_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_shopping_icon_bg"
@@ -142,6 +146,7 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/widget_more_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_misc_icon_bg"
@@ -169,6 +174,7 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/widget_credit_icon"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:background="@drawable/expense_widget_credit_icon_bg"

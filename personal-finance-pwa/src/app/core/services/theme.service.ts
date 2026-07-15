@@ -1,8 +1,20 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { StorageService } from './storage.service';
 
 export type AppPalette = 'violet' | 'rose' | 'azure' | 'emerald' | 'amber';
 export type AppStyle = 'glass' | 'neobrutalism' | 'neumorphism' | 'claymorphism';
+
+/**
+ * Minimal handle to the native expense widget. Its refresh() re-renders BOTH
+ * home-screen widgets (ExpenseWidgetProvider.updateAll cascades to the streak
+ * widget), which re-read pf-style/pf-palette so the widgets restyle the moment
+ * the user changes the design style or palette in Settings.
+ */
+interface NativeWidgetRefresher {
+  refresh(): Promise<void>;
+}
+const ExpenseWidgetRefresher = registerPlugin<NativeWidgetRefresher>('ExpenseWidget');
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
@@ -70,6 +82,7 @@ export class ThemeService {
     await this.storageService.set('pf-palette', p);
     this.#applyPalette();
     this.#updateMetaThemeColor();
+    this.#refreshNativeWidgets();
   }
 
   async setStyle(s: AppStyle): Promise<void> {
@@ -79,6 +92,16 @@ export class ThemeService {
       this.#applyStyle();
       // Style blocks change --background/--primary, keep browser chrome in sync
       this.#updateMetaThemeColor();
+    });
+    this.#refreshNativeWidgets();
+  }
+
+  /** Re-render the home-screen widgets so they pick up the new style/palette.
+   *  Called after the preference write completes; best-effort (web no-ops). */
+  #refreshNativeWidgets(): void {
+    if (!Capacitor.isNativePlatform()) return;
+    void ExpenseWidgetRefresher.refresh().catch(() => {
+      // Widget refresh is cosmetic; never surface an error for it.
     });
   }
 

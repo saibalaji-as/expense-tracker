@@ -25,9 +25,11 @@ import java.util.Locale;
  * receiver. Tapping the widget opens the Spenza app.
  */
 public class StreakWidgetProvider extends AppWidgetProvider {
-    private static final int COMPACT_MAX_HEIGHT_DP = 160;
+    // Two size tiers only (widget is 4x1 or 4x2; taller resizing is blocked via
+    // maxResizeHeight): <=70dp (one row) -> one-line compact strip, otherwise the
+    // 2-row layout with the 7-day tracker.
+    private static final int COMPACT_MAX_HEIGHT_DP = 70;
     private static final int OPEN_APP_REQUEST_ROOT = 201;
-    private static final int OPEN_APP_REQUEST_CTA = 202;
 
     private static final int[] DAY_DOT_IDS = {
         R.id.streak_day0, R.id.streak_day1, R.id.streak_day2, R.id.streak_day3,
@@ -85,18 +87,16 @@ public class StreakWidgetProvider extends AppWidgetProvider {
         WidgetTheme theme = WidgetTheme.from(context);
         theme.applySurface(context, views, R.id.widget_surface, options);
         StreakCalculator streak = StreakCalculator.from(context);
-        bindCommon(context, views, streak);
+        bindCommon(context, views, streak, theme);
         if (!compact) {
-            bindDetails(context, views, streak);
-            views.setTextColor(R.id.streak_title, theme.primaryColor());
-            views.setInt(R.id.streak_cta, "setBackgroundResource", theme.ctaDrawable());
-            views.setOnClickPendingIntent(R.id.streak_cta, openAppIntent(context, OPEN_APP_REQUEST_CTA));
+            bindDetails(context, views, streak, theme);
         }
         views.setOnClickPendingIntent(R.id.streak_widget_root, openAppIntent(context, OPEN_APP_REQUEST_ROOT));
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
-    private static void bindCommon(Context context, RemoteViews views, StreakCalculator streak) {
+    private static void bindCommon(Context context, RemoteViews views, StreakCalculator streak, WidgetTheme theme) {
+        boolean brutal = theme.style() == WidgetSurface.NEOBRUTALISM;
         int countColor;
         int statusColor;
         int badgeBg;
@@ -108,14 +108,14 @@ public class StreakWidgetProvider extends AppWidgetProvider {
                 statusText = "On track";
                 statusColor = R.color.spenza_food;
                 countColor = R.color.spenza_flame_end;
-                badgeBg = R.drawable.streak_flame_badge;
+                badgeBg = brutal ? R.drawable.streak_flame_badge_brutal : R.drawable.streak_flame_badge;
                 flameRes = R.drawable.ic_widget_flame;
                 break;
             case StreakCalculator.STATE_AT_RISK:
                 statusText = "At risk";
                 statusColor = R.color.spenza_streak_atrisk;
                 countColor = R.color.spenza_streak_atrisk;
-                badgeBg = R.drawable.streak_flame_badge_atrisk;
+                badgeBg = brutal ? R.drawable.streak_flame_badge_atrisk_brutal : R.drawable.streak_flame_badge_atrisk;
                 flameRes = R.drawable.ic_widget_flame;
                 break;
             case StreakCalculator.STATE_BROKEN:
@@ -123,9 +123,17 @@ public class StreakWidgetProvider extends AppWidgetProvider {
                 statusText = "Start today";
                 statusColor = R.color.spenza_streak_broken;
                 countColor = R.color.spenza_streak_broken;
-                badgeBg = R.drawable.streak_flame_badge_broken;
+                badgeBg = brutal ? R.drawable.streak_flame_badge_broken_brutal : R.drawable.streak_flame_badge_broken;
                 flameRes = R.drawable.ic_widget_flame_off;
                 break;
+        }
+
+        // Status pill follows the app's design style (white frosted pill on glass,
+        // ink-bordered paper pill on neobrutalism; the XML default covers the rest).
+        if (brutal) {
+            views.setInt(R.id.streak_status, "setBackgroundResource", R.drawable.widget_pill_brutal);
+        } else if (theme.style() == WidgetSurface.GLASS) {
+            views.setInt(R.id.streak_status, "setBackgroundResource", R.drawable.widget_pill_glass);
         }
 
         views.setTextViewText(R.id.streak_count, String.valueOf(streak.currentStreak));
@@ -137,21 +145,24 @@ public class StreakWidgetProvider extends AppWidgetProvider {
         views.setImageViewResource(R.id.streak_flame_badge, flameRes);
     }
 
-    private static void bindDetails(Context context, RemoteViews views, StreakCalculator streak) {
+    private static void bindDetails(Context context, RemoteViews views, StreakCalculator streak, WidgetTheme theme) {
         views.setTextViewText(R.id.streak_best, "Best " + streak.longestStreak);
         views.setTextViewText(R.id.streak_message, messageFor(streak));
 
+        // Neobrutalism uses checkbox-style ink-bordered squares; every other style
+        // keeps the round dots.
+        boolean brutal = theme.style() == WidgetSurface.NEOBRUTALISM;
         String today = WidgetExpenseUtils.localDateToday();
         for (int i = 0; i < 7; i++) {
             String date = StreakCalculator.shiftDate(today, -(6 - i));
             boolean isToday = i == 6;
             int dotRes;
             if (streak.last7[i]) {
-                dotRes = R.drawable.streak_day_dot_on;
+                dotRes = brutal ? R.drawable.streak_day_sq_on : R.drawable.streak_day_dot_on;
             } else if (isToday) {
-                dotRes = R.drawable.streak_day_dot_today;
+                dotRes = brutal ? R.drawable.streak_day_sq_today : R.drawable.streak_day_dot_today;
             } else {
-                dotRes = R.drawable.streak_day_dot_off;
+                dotRes = brutal ? R.drawable.streak_day_sq_off : R.drawable.streak_day_dot_off;
             }
             views.setImageViewResource(DAY_DOT_IDS[i], dotRes);
             views.setTextViewText(DAY_LABEL_IDS[i], weekdayLetter(date));

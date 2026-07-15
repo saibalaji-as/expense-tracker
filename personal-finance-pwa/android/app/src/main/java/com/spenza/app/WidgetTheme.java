@@ -19,7 +19,10 @@ import androidx.core.content.ContextCompat;
 final class WidgetTheme {
     private static final String PALETTE_KEY = "pf-palette";
     private static final String STYLE_KEY = "pf-style";
-    private static final int MAX_BITMAP_SIDE_PX = 400;
+    // Cap the rendered surface bitmap. 720px keeps corners crisp even on
+    // expanded (3-4 row) widgets while staying well under the RemoteViews
+    // bitmap memory budget.
+    private static final int MAX_BITMAP_SIDE_PX = 720;
 
     private final int style;
     private final int primary;
@@ -127,6 +130,11 @@ final class WidgetTheme {
         } catch (Throwable ignored) {
             // Keep the static fallback background already set on the layout root.
         }
+    }
+
+    /** One of the {@link WidgetSurface} style constants (GLASS, NEUMORPHISM, ...). */
+    int style() {
+        return style;
     }
 
     int primaryColor() {

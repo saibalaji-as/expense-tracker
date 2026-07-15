@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  CloudOff,
   Paperclip,
   FileText,
   ExternalLink,
@@ -132,7 +133,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, CreditCard, Image, Lock }),
+      useValue: new LucideIconProvider({ TrendingUp, TrendingDown, Mic, Trash2, Plus, Pencil, X, Calendar, ChevronDown, ChevronUp, AlertTriangle, CloudOff, Paperclip, FileText, ExternalLink, Sparkles, Eye, RotateCw, Wand2, Check, Crop, Users, WalletCards, CreditCard, Image, Lock }),
     },
   ],
   template: `
@@ -1129,12 +1130,18 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                       <div class="flex-1">
                         <div class="flex items-center gap-2 mb-1">
                           <p class="text-sm font-semibold">{{ entry.amount | currencyFormat }}</p>
-                          <span 
+                          <span
                             class="text-[10px] font-medium"
                             [style.color]="entry.savings >= 0 ? 'var(--success)' : 'var(--destructive)'"
                           >
                             {{ entry.savings >= 0 ? '+' : '' }}{{ entry.savings | currencyFormat }}
                           </span>
+                          @if (expenseStore.pendingSyncIds().includes(entry.id)) {
+                            <span class="flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
+                              <lucide-icon name="cloud-off" class="h-2.5 w-2.5" />
+                              {{ 'daily.syncPending' | translate }}
+                            </span>
+                          }
                         </div>
                         <p class="text-[10px] text-muted-foreground">
                           {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}@if (accountName(entry.accountId)) {<span> · {{ accountName(entry.accountId) }}</span>}

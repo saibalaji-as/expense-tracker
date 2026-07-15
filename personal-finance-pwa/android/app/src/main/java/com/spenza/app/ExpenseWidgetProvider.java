@@ -19,8 +19,27 @@ import java.util.Calendar;
 import java.util.Locale;
 
 public class ExpenseWidgetProvider extends AppWidgetProvider {
-    private static final int QUICK_MAX_HEIGHT_DP = 110;
+    // Two size tiers only (widget is 4x1 or 4x2; taller resizing is blocked via
+    // maxResizeHeight): <=70dp (one row) -> buttons-only quick layout, otherwise
+    // the 2-row layout with the budget header.
+    private static final int QUICK_MAX_HEIGHT_DP = 70;
     private static final int FIVE_COLUMN_MIN_WIDTH_DP = 360;
+
+    // Category chip icon views, restyled per app design style (glass/neu/clay/brutal).
+    private static final int[] CHIP_ICON_IDS = {
+        R.id.widget_food_icon, R.id.widget_transport_icon, R.id.widget_entertainment_icon,
+        R.id.widget_shopping_icon, R.id.widget_more_icon, R.id.widget_credit_icon
+    };
+    private static final int[] CHIP_CLAY_BGS = {
+        R.drawable.widget_chip_clay_food, R.drawable.widget_chip_clay_transport,
+        R.drawable.widget_chip_clay_entertainment, R.drawable.widget_chip_clay_shopping,
+        R.drawable.widget_chip_clay_misc, R.drawable.widget_chip_clay_credit
+    };
+    private static final int[] CHIP_BRUTAL_BGS = {
+        R.drawable.widget_chip_brutal_food, R.drawable.widget_chip_brutal_transport,
+        R.drawable.widget_chip_brutal_entertainment, R.drawable.widget_chip_brutal_shopping,
+        R.drawable.widget_chip_brutal_misc, R.drawable.widget_chip_brutal_credit
+    };
 
     static void updateAll(Context context) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
@@ -61,10 +80,13 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         WidgetTheme theme = WidgetTheme.from(context);
         theme.applySurface(context, views, R.id.widget_surface, options);
         if (!quickOnly) {
-            bindDailyInsight(context, views, false);
-            views.setTextColor(R.id.expense_widget_title, theme.primaryColor());
+            bindDailyInsight(context, views);
+            // The "spent of budget" line is the widget's hero — tint it with the
+            // user's palette so the widget matches the in-app theme.
+            views.setTextColor(R.id.widget_budget_amount, theme.primaryColor());
             views.setInt(R.id.expense_widget_brand, "setBackgroundResource", theme.ctaDrawable());
         }
+        applyDesignStyle(views, theme, quickOnly);
         views.setViewVisibility(R.id.widget_shopping, showShopping ? View.VISIBLE : View.GONE);
         bindButton(context, views, R.id.widget_food, WidgetExpenseConstants.TYPE_FOOD, 101);
         bindButton(context, views, R.id.widget_transport, WidgetExpenseConstants.TYPE_TRANSPORT, 102);
@@ -74,6 +96,44 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         bindCreditButton(context, views, R.id.widget_credit, 106);
         applyPredictedHighlight(context, views, showShopping);
         appWidgetManager.updateAppWidget(appWidgetId, views);
+    }
+
+    /**
+     * Restyles the widget's inner elements (category chips, trend pill, brand badge)
+     * to match the app's selected design style so the widget reads as glass /
+     * neumorphism / claymorphism / neobrutalism, not just its background surface.
+     * The XML defaults stay as a safe fallback.
+     */
+    private static void applyDesignStyle(RemoteViews views, WidgetTheme theme, boolean quickOnly) {
+        switch (theme.style()) {
+            case WidgetSurface.GLASS:
+                for (int id : CHIP_ICON_IDS) {
+                    views.setInt(id, "setBackgroundResource", R.drawable.widget_chip_glass);
+                }
+                if (!quickOnly) {
+                    views.setInt(R.id.widget_trend_badge, "setBackgroundResource", R.drawable.widget_pill_glass);
+                }
+                break;
+            case WidgetSurface.NEUMORPHISM:
+                for (int id : CHIP_ICON_IDS) {
+                    views.setInt(id, "setBackgroundResource", R.drawable.widget_chip_neu);
+                }
+                break;
+            case WidgetSurface.CLAYMORPHISM:
+                for (int i = 0; i < CHIP_ICON_IDS.length; i++) {
+                    views.setInt(CHIP_ICON_IDS[i], "setBackgroundResource", CHIP_CLAY_BGS[i]);
+                }
+                break;
+            case WidgetSurface.NEOBRUTALISM:
+                for (int i = 0; i < CHIP_ICON_IDS.length; i++) {
+                    views.setInt(CHIP_ICON_IDS[i], "setBackgroundResource", CHIP_BRUTAL_BGS[i]);
+                }
+                if (!quickOnly) {
+                    views.setInt(R.id.widget_trend_badge, "setBackgroundResource", R.drawable.widget_pill_brutal);
+                    views.setInt(R.id.expense_widget_brand, "setBackgroundResource", R.drawable.widget_brand_badge_brutal);
+                }
+                break;
+        }
     }
 
     private static void bindButton(Context context, RemoteViews views, int viewId, String category, int requestCode) {
@@ -128,20 +188,18 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(viewId, pendingIntent);
     }
 
-    private static void bindDailyInsight(Context context, RemoteViews views, boolean compact) {
+    private static void bindDailyInsight(Context context, RemoteViews views) {
         DailyInsight insight = DailyInsight.from(context);
-        String budgetText = compact
-            ? insight.spentText + "\n" + insight.budgetText
-            : insight.spentText + " spent of " + insight.budgetText;
-        views.setTextViewText(R.id.widget_budget_amount, budgetText);
+        views.setTextViewText(R.id.widget_budget_amount, insight.spentText + " of " + insight.budgetText);
         views.setProgressBar(R.id.widget_budget_progress, 100, insight.progressPercent, false);
         views.setTextViewText(R.id.widget_trend_badge, insight.trendBadge);
-        views.setTextViewText(R.id.widget_trend_text, insight.trendText);
-        // Partner-aware framing: in family mode the spend total above is the combined family
-        // total, so the subtitle calls that out and shows who logged the most recent expense.
-        if (insight.subtitle != null) {
-            views.setTextViewText(R.id.expense_widget_subtitle, insight.subtitle);
-        }
+        // Single caption line under the hero amount. Partner-aware framing wins: in family
+        // mode the spend total above is the combined family total, so the caption calls that
+        // out and shows who logged the most recent expense. Otherwise it carries the trend.
+        String caption = insight.subtitle != null
+            ? insight.subtitle
+            : insight.trendText.toUpperCase(Locale.US);
+        views.setTextViewText(R.id.expense_widget_subtitle, caption);
     }
 
     private static final class DailyInsight {

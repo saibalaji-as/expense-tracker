@@ -17,12 +17,19 @@ final class WidgetExpenseConstants {
     static final String FIREBASE_REFRESH_TOKEN_KEY = "firebase_refresh_token";
     static final String FIREBASE_API_KEY = "AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg";
     static final String SECURETOKEN_URL = "https://securetoken.googleapis.com/v1/token?key=" + FIREBASE_API_KEY;
+    // Family Ledger commit (record-level Firestore sync — see
+    // docs/family-sync-centralization-plan.md). The legacy
+    // syncWidgetExpenseToFamily endpoint remains deployed for older APKs.
     static final String FAMILY_WIDGET_SYNC_URL =
-        "https://us-central1-spenza-notifications.cloudfunctions.net/syncWidgetExpenseToFamily";
+        "https://us-central1-spenza-notifications.cloudfunctions.net/commitFamilyLedger";
     static final String AI_SETTINGS_KEY = "spenza_ai_settings_private";
     static final String CURRENCY_KEY = "spenza_currency";
     static final String SPEND_NOTIFICATION_PROMPTS_ENABLED_KEY = "spenza_spend_notification_prompts_enabled_v1";
     static final String SPEND_NOTIFICATION_DEDUPE_KEY = "spenza_spend_notification_dedupe_v1";
+    // Device-local notification inbox. PRIVACY: contains SMS-derived text; must
+    // never be synced into the Drive backup or family Firestore documents.
+    static final String NOTIFICATION_INBOX_KEY = "spenza_notification_inbox_v1";
+    static final String WIDGET_INBOX_ID_EXTRA = "com.spenza.app.WIDGET_INBOX_ID";
     static final String PRO_TIER_KEY = "spenza_pro_tier";
     static final String WIDGET_CATEGORY_EXTRA = "com.spenza.app.WIDGET_CATEGORY";
     static final String WIDGET_AMOUNT_EXTRA = "com.spenza.app.WIDGET_AMOUNT";

@@ -29,6 +29,7 @@ import { BackupMode, BackupModeService } from './backup-mode.service';
 import { AppCurrency, CurrencyService } from './currency.service';
 import { AuthService } from './auth.service';
 import { toLocalDateString } from '../utils/local-date';
+import { applyLedgerChanges, diffLedgerState, type LedgerStateView } from '../utils/family-ledger.util';
 
 const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
 const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
@@ -333,7 +334,14 @@ export const ExpenseStore = signalStore(
     const BG_FLUSH_BASE_MS = 5000;
     const BG_FLUSH_MAX_MS = 5 * 60 * 1000;
     let applyingRemote = false;
-    let lastAppliedRemoteAt = '';
+    // True when a family-ledger push was dropped or failed; retried from flushPendingChanges().
+    let familyPushPending = false;
+    // True once local state has been fully hydrated (Drive load or local cache).
+    // Gates absence-tombstone detection in the ledger diff — an un-hydrated
+    // (empty) state must never be interpreted as "everything was deleted".
+    let localDataHydrated = false;
+    // Debounce guard for the post-snapshot ledger reconciliation push.
+    let ledgerReconcileTimer: ReturnType<typeof setTimeout> | null = null;
     // Tracks entry IDs deleted in this session so tombstones propagate to the partner via Firestore.
     // Cleared on app restart — harmless because Drive is updated after each deletion.
     const localDeletedEntryIds = new Set<string>();
@@ -686,8 +694,19 @@ export const ExpenseStore = signalStore(
       const newPendingCc: PendingCcExpense[] = [];
       const ccPaymentItems: WidgetCcPaymentQueueItem[] = [];
       let noCcAccountDetected = false;
+      // Sync tag (wrapper-level `familySynced`, written by WidgetExpenseSyncWorker after
+      // a successful Cloud Function push): any consumed widget item WITHOUT the tag still
+      // owes the partner a family push — even when the entry itself is a local duplicate,
+      // in which case the entry-count guard below would otherwise skip pushFamilyLedger().
+      let widgetFamilyPushNeeded = false;
+      const owesFamilyPush = (raw: unknown): boolean =>
+        typeof raw === 'object' && raw !== null &&
+        (raw as Record<string, unknown>)['familySynced'] !== true;
 
       for (const item of activeItems) {
+        if (item.kind !== 'cc-payment' && owesFamilyPush(item.raw)) {
+          widgetFamilyPushNeeded = true;
+        }
         if (item.kind === 'expense') {
           let entry = item.entry;
           if (existingIds.has(entry.id)) continue;
@@ -828,7 +847,12 @@ export const ExpenseStore = signalStore(
         noCcAccountForExpense$.next({ amount: ccEntry?.amount ?? 0, comment: ccEntry?.comment });
       }
 
-      if (newEntries.length === 0 && newAdjustments.length === 0 && ccPaymentItems.length === 0) return false;
+      if (newEntries.length === 0 && newAdjustments.length === 0 && ccPaymentItems.length === 0) {
+        // Consumed items were all local duplicates, but the sync tag says the partner
+        // may still be missing them — push the (merge-on-write) family state anyway.
+        if (widgetFamilyPushNeeded) pushFamilyLedger();
+        return false;
+      }
 
       if (newEntries.length > 0 || newAdjustments.length > 0) {
         patchState(store, {
@@ -836,10 +860,19 @@ export const ExpenseStore = signalStore(
           accounts: nextAccounts,
           debts: nextDebts,
           accountAdjustments: [...newAdjustments, ...store.accountAdjustments()],
+          // Sync tag: widget-captured items show as "syncing" in the UI until the
+          // Drive write below confirms (persistToDrive clears pendingSyncIds).
+          pendingSyncIds: [
+            ...newEntries.map((entry) => entry.id),
+            ...newAdjustments.map((adjustment) => adjustment.id),
+            ...store.pendingSyncIds(),
+          ],
         });
         localRevision += 1;
         await methods.persistToDrive();
-        pushFamilyState();
+        pushFamilyLedger();
+      } else if (widgetFamilyPushNeeded) {
+        pushFamilyLedger();
       }
 
       // ── Widget-captured credit-card bill payments ────────────────────────
@@ -1063,6 +1096,7 @@ export const ExpenseStore = signalStore(
       });
       localRevision = 0;
       persistedRevision = 0;
+      localDataHydrated = true;
       void writeLocalBackupSnapshot(fileId, normalizedDoc, modifiedTime, false);
       if (healed) {
         localRevision += 1;
@@ -1079,33 +1113,62 @@ export const ExpenseStore = signalStore(
       return true;
     };
 
-    const pushFamilyState = (): void => {
+    /** Local state as the pure ledger diff/apply utils see it. */
+    const ledgerStateView = (): LedgerStateView => ({
+      entries: store.entries(),
+      accountAdjustments: store.accountAdjustments(),
+      debtPayments: store.debtPayments(),
+      accounts: store.accounts(),
+      debts: store.debts(),
+      limits: store.limits(),
+      monthlyIncome: store.monthlyIncome(),
+      currency: currencyService.currency(),
+    });
+
+    /**
+     * Family Ledger push (docs/family-sync-centralization-plan.md): diffs local
+     * state against this device's copy of the ledger and commits ONLY what the
+     * ledger is missing. Reconciliation-based — ANY call heals ANY gap, so it
+     * is always safe (and cheap: no-op when in sync) to call this "too often".
+     * Receipts never sync (device-private files); deletions are tombstones.
+     */
+    const pushFamilyLedger = (): void => {
       if (applyingRemote) return;
       if (backupModeService.getMode() !== 'family') return;
       const familyId = backupModeService.getFamilyId();
       const currentRole = backupModeService.getOwnerRole();
       if (!familyId || !currentRole) return;
-      const currentUid = authService.firebaseUid();
-      if (!currentUid) return;
-      const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
-      const doc = buildBackupDocument();
-      // Strip receipt metadata before pushing to Firestore: receipt files live in the
-      // author's private Drive appDataFolder, so the partner cannot access them —
-      // syncing the metadata would only produce dead links on the partner's device.
-      const sanitizedDoc = {
-        ...doc,
-        expenses: doc.expenses.map((entry) => {
-          if (!entry.receipt) return entry;
-          const { receipt: _receipt, ...rest } = entry;
-          return rest;
-        }),
-      };
-      const deletedIds = Array.from(localDeletedEntryIds);
       void (async () => {
         try {
-          await familySyncService.pushState(familyId, sanitizedDoc, writer, deletedIds);
+          // Resolve the UID asynchronously: on native cold starts the Firebase
+          // session may not be restored yet, and silently dropping the push here
+          // was one cause of "partner's expense never synced".
+          let currentUid = authService.firebaseUid();
+          if (!currentUid) currentUid = await authService.ensureUserId();
+          if (!currentUid) {
+            familyPushPending = true;
+            console.warn('[ExpenseStore] Family ledger push deferred: no Firebase UID yet (will retry on resume/online).');
+            return;
+          }
+          if (!familySyncService.isPrimed()) {
+            // First ledger snapshot not received yet — the post-snapshot
+            // reconciliation push will carry this change.
+            familyPushPending = true;
+            return;
+          }
+          const ops = diffLedgerState(ledgerStateView(), familySyncService.ledgerCopy(), {
+            includeAbsenceTombstones: localDataHydrated,
+            localDeletedEntryIds,
+          });
+          if (ops.length > 0) {
+            const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
+            await familySyncService.commitRecords(familyId, ops, writer);
+          }
+          familyPushPending = false;
         } catch (err) {
-          console.error('[ExpenseStore] pushFamilyState failed:', err);
+          // The diff re-produces everything on the retry (resume/online/next change).
+          familyPushPending = true;
+          console.error('[ExpenseStore] Family ledger push failed (will retry on resume/online):', err);
         }
       })();
     };
@@ -1120,7 +1183,7 @@ export const ExpenseStore = signalStore(
     const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
       await methods.persistToDrive();
-      pushFamilyState();
+      pushFamilyLedger();
     };
 
     /**
@@ -1293,6 +1356,7 @@ export const ExpenseStore = signalStore(
         });
         localRevision = snapshot.dirty ? 1 : 0;
         persistedRevision = 0;
+        localDataHydrated = true;
         // Fire-and-forget: the flush includes a Drive write (persistToDrive) which
         // must not block cached startup (< 500 ms budget). The local merge inside
         // the flush still runs immediately after first render.
@@ -1643,7 +1707,7 @@ export const ExpenseStore = signalStore(
         });
         localRevision += 1;
         await methods.persistToDrive();
-        pushFamilyState();
+        pushFamilyLedger();
       },
 
       async addDebt(input: CreateDebtAccountInput): Promise<void> {
@@ -2313,7 +2377,7 @@ export const ExpenseStore = signalStore(
       },
 
       pushFamilyStateNow(): void {
-        pushFamilyState();
+        pushFamilyLedger();
       },
 
       /**
@@ -2323,6 +2387,9 @@ export const ExpenseStore = signalStore(
        * No-op when everything is already in sync.
        */
       flushPendingChanges(): void {
+        // Retry a family-state push that was dropped (no Firebase UID) or failed
+        // (offline / auth); push is full-state so one retry carries everything.
+        if (familyPushPending) pushFamilyLedger();
         if (localRevision === persistedRevision && store.syncStatus() === 'idle') return;
         backgroundFlushAttempts = 0;
         if (backgroundFlushTimer !== null) {
@@ -2339,100 +2406,51 @@ export const ExpenseStore = signalStore(
 
     };
 
-    // Merge incoming full-snapshot state from the partner into local state.
-    familySyncService.state$.subscribe(({ doc: remoteDoc, deletedEntryIds: remoteDeletedEntryIds }) => {
-      applyingRemote = true;
-      try {
-        const remoteUpdatedAt = remoteDoc.lastUpdated ?? '';
-
-        // entries: union merge so concurrent additions from both sides are preserved.
-        // Remote wins on timestamp tie or remote-is-newer for the same entry.
-        // Explicit tombstones (deletedEntryIds from remote + local session) handle deletions.
-        const mergedEntriesById = new Map<string, ExpenseEntry>();
-        for (const localEntry of store.entries()) {
-          mergedEntriesById.set(localEntry.id, localEntry);
-        }
-        for (const remoteEntry of (remoteDoc.expenses ?? [])) {
-          const local = mergedEntriesById.get(remoteEntry.id);
-          if (!local || (remoteEntry.timestamp ?? '') >= (local.timestamp ?? '')) {
-            // Receipts are device-private (appDataFolder) and stripped from pushed
-            // state, so an incoming partner edit must not wipe the local attachment.
-            const merged = (local?.receipt && !remoteEntry.receipt)
-              ? { ...remoteEntry, receipt: local.receipt }
-              : remoteEntry;
-            mergedEntriesById.set(remoteEntry.id, merged);
+    // Apply incoming ledger record changes from the partner (own echoes no-op).
+    // Per-record local-divergence guard lives in the pure util: a local
+    // un-pushed edit is never overwritten — the next diff push resolves the
+    // conflict as last-writer-wins.
+    familySyncService.changes$.subscribe(({ changes }) => {
+      if (changes.length > 0) {
+        applyingRemote = true;
+        try {
+          const result = applyLedgerChanges(ledgerStateView(), changes, localDeletedEntryIds);
+          // Remote tombstones join our session set so Drive merges respect them too.
+          for (const deletedId of result.deletedEntryIds) {
+            localDeletedEntryIds.add(deletedId);
           }
-        }
-        // Apply tombstones: remote deletions are accumulated into our own set so future pushes carry them.
-        for (const deletedId of remoteDeletedEntryIds) {
-          mergedEntriesById.delete(deletedId);
-          localDeletedEntryIds.add(deletedId);
-        }
-        for (const deletedId of localDeletedEntryIds) {
-          mergedEntriesById.delete(deletedId);
-        }
-        const mergedEntries = Array.from(mergedEntriesById.values())
-          .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-        // accounts: union merge, remote wins on timestamp tie.
-        const mergedAccountsById = new Map(store.accounts().map(a => [a.id, a]));
-        for (const remoteAccount of (remoteDoc.accounts ?? [])) {
-          const local = mergedAccountsById.get(remoteAccount.id);
-          if (!local || (remoteAccount.updatedAt ?? '') >= (local.updatedAt ?? '')) {
-            mergedAccountsById.set(remoteAccount.id, remoteAccount);
+          if (result.changed) {
+            if (result.currency) setCurrencyFromBackup(result.currency);
+            patchState(store, {
+              entries: result.entries,
+              accounts: result.accounts,
+              accountAdjustments: result.accountAdjustments,
+              debts: result.debts,
+              debtPayments: result.debtPayments,
+              limits: result.limits,
+              monthlyIncome: result.monthlyIncome,
+            });
+            localRevision += 1;
+            if (syncDriveDebounceTimer !== null) clearTimeout(syncDriveDebounceTimer);
+            syncDriveDebounceTimer = setTimeout(() => {
+              syncDriveDebounceTimer = null;
+              void methods.persistToDrive();
+            }, 2000);
           }
+        } finally {
+          applyingRemote = false;
         }
-
-        // accountAdjustments: add-only, keep all from both sides.
-        const localAdjById = new Map(store.accountAdjustments().map(a => [a.id, a]));
-        for (const remoteAdj of (remoteDoc.accountAdjustments ?? [])) {
-          if (!localAdjById.has(remoteAdj.id)) localAdjById.set(remoteAdj.id, remoteAdj);
-        }
-
-        // debts: union merge, remote wins on timestamp tie.
-        const mergedDebtsById = new Map(store.debts().map(d => [d.id, d]));
-        for (const remoteDebt of (remoteDoc.debts ?? [])) {
-          const local = mergedDebtsById.get(remoteDebt.id);
-          if (!local || (remoteDebt.updatedAt ?? '') >= (local.updatedAt ?? '')) {
-            mergedDebtsById.set(remoteDebt.id, remoteDebt);
-          }
-        }
-
-        // debtPayments: add-only, keep all from both sides.
-        const localPaymentsById = new Map(store.debtPayments().map(p => [p.id, p]));
-        for (const remotePayment of (remoteDoc.debtPayments ?? [])) {
-          if (!localPaymentsById.has(remotePayment.id)) localPaymentsById.set(remotePayment.id, remotePayment);
-        }
-
-        // limits / income / currency: take remote when remoteDoc is newer than last applied remote.
-        let mergedLimits = store.limits();
-        let mergedIncome = store.monthlyIncome();
-        if (remoteUpdatedAt > lastAppliedRemoteAt || lastAppliedRemoteAt === '') {
-          if ((remoteDoc.limits?.length ?? 0) > 0) mergedLimits = remoteDoc.limits;
-          mergedIncome = remoteDoc.metadata.monthlyIncome;
-          setCurrencyFromBackup(remoteDoc.metadata.currency);
-          lastAppliedRemoteAt = remoteUpdatedAt;
-        }
-
-        patchState(store, {
-          entries: mergedEntries,
-          accounts: Array.from(mergedAccountsById.values()),
-          accountAdjustments: Array.from(localAdjById.values()),
-          debts: Array.from(mergedDebtsById.values()),
-          debtPayments: Array.from(localPaymentsById.values()),
-          limits: mergedLimits,
-          monthlyIncome: mergedIncome,
-        });
-
-        localRevision += 1;
-        if (syncDriveDebounceTimer !== null) clearTimeout(syncDriveDebounceTimer);
-        syncDriveDebounceTimer = setTimeout(() => {
-          syncDriveDebounceTimer = null;
-          void methods.persistToDrive();
-        }, 2000);
-      } finally {
-        applyingRemote = false;
       }
+
+      // Structural reconciliation: after every snapshot settles, push whatever
+      // the ledger is still missing from this device (debounced; no-op when in
+      // sync). This makes sync correctness independent of any specific code
+      // path having remembered to push at the right moment.
+      if (ledgerReconcileTimer !== null) clearTimeout(ledgerReconcileTimer);
+      ledgerReconcileTimer = setTimeout(() => {
+        ledgerReconcileTimer = null;
+        pushFamilyLedger();
+      }, 3000);
     });
 
     // When the family is dissolved externally, clean up local state.
