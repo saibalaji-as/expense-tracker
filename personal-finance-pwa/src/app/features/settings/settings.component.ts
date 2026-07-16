@@ -2738,10 +2738,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const familyId = this.backupModeService.firestoreFamilyId();
     if (!familyId) return;
     try {
-      const { getApps, initializeApp } = await import('firebase/app');
-      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-      const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-      const db = getFirestore(app);
+      // Shared instance only: a direct getFirestore() here could initialize the
+      // default instance FIRST and silently downgrade the whole session to a
+      // memory-only cache (killing offline durability of family-ledger writes).
+      const { doc, getDoc } = await import('firebase/firestore');
+      const { getSharedFirestore } = await import('../../core/services/firestore-db');
+      const db = await getSharedFirestore();
       const snap = await getDoc(doc(db, 'families', familyId));
       if (snap.exists()) {
         this.familyDoc.set(snap.data() as FamilyDocument);

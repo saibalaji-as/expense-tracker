@@ -13,6 +13,9 @@ final class WidgetExpenseConstants {
     static final String OWNER_ROLE_KEY = "spenza_owner_role";
     // Firestore-based family instant sync (widget → partner) plumbing.
     static final String FIRESTORE_FAMILY_ID_KEY = "spenza_firestore_family_id";
+    // Display-only overlay of partner ledger records delivered by FCM while the
+    // app is closed (widget two-way sync). Never synced anywhere.
+    static final String PARTNER_PENDING_KEY = "spenza_widget_partner_pending_v1";
     static final String FIREBASE_UID_KEY = "firebase_uid";
     static final String FIREBASE_REFRESH_TOKEN_KEY = "firebase_refresh_token";
     static final String FIREBASE_API_KEY = "AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg";

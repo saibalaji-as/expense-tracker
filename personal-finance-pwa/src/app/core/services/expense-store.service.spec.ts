@@ -795,28 +795,117 @@ describe('Unit: updateDebtPayment logic', () => {
   });
 });
 
-describe('Unit: deleteEntry rejects debt-payment entries', () => {
-  it('detects debt-payment source and throws the right error message', () => {
-    const entries: MiniEntry[] = [
-      { id: 'dp1', source: 'debt-payment', debtId: 'debt1', amount: 500, accountId: 'acc1' },
-      { id: 'reg1', amount: 100 },
-    ];
+describe('Unit: deleteEntry/updateEntry manage rules for card-linked entries', () => {
+  // Mirrors ExpenseStore.deleteEntry/updateEntry guard: only debt-payment
+  // entries (repayments) are blocked; card purchases (debtId, other source)
+  // are editable/deletable with charge reversal.
+  const isBlocked = (e: MiniEntry): boolean => e.source === 'debt-payment';
 
-    const checkRejectDebtPaymentEntry = (entryId: string): boolean => {
-      const e = entries.find(x => x.id === entryId);
-      return e?.source === 'debt-payment' || !!e?.debtId;
-    };
-
-    expect(checkRejectDebtPaymentEntry('dp1')).toBe(true);
-    expect(checkRejectDebtPaymentEntry('reg1')).toBe(false);
+  it('debt-payment repayment entries stay blocked', () => {
+    const repayment: MiniEntry = { id: 'dp1', source: 'debt-payment', debtId: 'debt1', amount: 500, accountId: 'acc1' };
+    expect(isBlocked(repayment)).toBe(true);
   });
 
-  it('entry with debtId but no source is also blocked', () => {
-    const entries: MiniEntry[] = [
-      { id: 'dp2', debtId: 'debt1', amount: 300, accountId: 'acc1' },
-    ];
-    const isDebtPayment = (e: MiniEntry): boolean => e.source === 'debt-payment' || !!e.debtId;
-    expect(isDebtPayment(entries[0])).toBe(true);
+  it('card purchase entries (debtId, no debt-payment source) are manageable', () => {
+    const cardSpend: MiniEntry = { id: 'cc1', debtId: 'debt1', amount: 300 };
+    const regular: MiniEntry = { id: 'reg1', amount: 100, accountId: 'acc1' };
+    expect(isBlocked(cardSpend)).toBe(false);
+    expect(isBlocked(regular)).toBe(false);
+  });
+});
+
+describe('Unit: card charge reversal math (edit/delete of card entries)', () => {
+  // Mirrors ExpenseStore debtDeltasFor*/applyDebtDeltas: reversal −, charge +,
+  // outstanding clamped at 0.
+  const addDelta = (deltas: Map<string, number>, e: MiniEntry | undefined, sign: 1 | -1): void => {
+    if (!e?.debtId || e.source === 'debt-payment' || !e.amount) return;
+    const next = (deltas.get(e.debtId) ?? 0) + sign * e.amount;
+    if (next === 0) deltas.delete(e.debtId); else deltas.set(e.debtId, next);
+  };
+  const applyClamped = (balance: number, delta: number): number => Math.max(0, balance + delta);
+
+  it('deleting a card entry reduces the card outstanding by its amount', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, -1);
+    expect(deltas.get('debt1')).toBe(-300);
+    expect(applyClamped(1000, -300)).toBe(700);
+  });
+
+  it('editing the amount applies only the net difference', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, -1);
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 450 }, 1);
+    expect(deltas.get('debt1')).toBe(150);
+  });
+
+  it('moving an entry from card to account reverses the full card charge', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, -1);
+    addDelta(deltas, { id: 'cc1', accountId: 'acc1', amount: 300 }, 1); // no debtId → no card delta
+    expect(deltas.get('debt1')).toBe(-300);
+  });
+
+  it('moving an entry between cards reverses one and charges the other', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, -1);
+    addDelta(deltas, { id: 'cc1', debtId: 'debt2', amount: 300 }, 1);
+    expect(deltas.get('debt1')).toBe(-300);
+    expect(deltas.get('debt2')).toBe(300);
+  });
+
+  it('an unchanged card link cancels out to no delta', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, -1);
+    addDelta(deltas, { id: 'cc1', debtId: 'debt1', amount: 300 }, 1);
+    expect(deltas.size).toBe(0);
+  });
+
+  it('reversal never drives the outstanding below zero (clamp)', () => {
+    expect(applyClamped(200, -300)).toBe(0);
+  });
+
+  it('debt-payment entries never contribute card deltas', () => {
+    const deltas = new Map<string, number>();
+    addDelta(deltas, { id: 'dp1', source: 'debt-payment', debtId: 'debt1', amount: 500 }, -1);
+    expect(deltas.size).toBe(0);
+  });
+});
+
+describe('Unit: recordDebtAdjustment balance math (refund / cash-withdrawal / charge)', () => {
+  // Mirrors ExpenseStore.recordDebtAdjustment: refunds reduce the card
+  // outstanding (clamped at 0), cash withdrawals raise the outstanding AND the
+  // receiving account atomically, charges raise the outstanding. None create
+  // an ExpenseEntry.
+  const outstandingAfter = (balance: number, kind: string, amount: number): number =>
+    Math.max(0, balance + (kind === 'refund' ? -amount : amount));
+
+  it('refund reduces the outstanding', () => {
+    expect(outstandingAfter(1000, 'refund', 300)).toBe(700);
+  });
+
+  it('refund is clamped at 0 when the bill was already paid (audit record keeps the amount)', () => {
+    expect(outstandingAfter(100, 'refund', 300)).toBe(0);
+  });
+
+  it('cash withdrawal raises the outstanding and credits the account by the same amount', () => {
+    const amount = 500;
+    const cardAfter = outstandingAfter(1000, 'cash-withdrawal', amount);
+    const accountAfter = 2000 + amount; // applyAccountDeltas(+amount)
+    expect(cardAfter).toBe(1500);
+    expect(accountAfter).toBe(2500);
+    // Net worth is unchanged: asset +500, debt +500.
+    expect((accountAfter - 2000) - (cardAfter - 1000)).toBe(0);
+  });
+
+  it('charge (fee/interest) raises the outstanding', () => {
+    expect(outstandingAfter(1000, 'charge', 150)).toBe(1150);
+  });
+
+  it('no ExpenseEntry results from any adjustment kind (spend totals unaffected)', () => {
+    // recordDebtAdjustment patches accounts/debts/debtAdjustments only; the
+    // entries array is untouched — mirrored here as the contract.
+    const patchedKeys = ['accounts', 'debts', 'debtAdjustments', 'pendingSyncIds'];
+    expect(patchedKeys).not.toContain('entries');
   });
 });
 

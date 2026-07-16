@@ -43,7 +43,8 @@ const functions = __importStar(require("firebase-functions/v2/https"));
  * Upserts expenses/adjustments logged from the home-screen widget as
  * INDIVIDUAL record documents under `families/{familyId}/ledger/` — the same
  * collection the Angular clients write directly and listen to. Replaces the
- * full-state merge of `syncWidgetExpenseToFamily` (kept deployed for old APKs).
+ * full-state merge of the legacy `syncWidgetExpenseToFamily` function (source
+ * deleted in Phase 2 — undeploy it with `firebase functions:delete syncWidgetExpenseToFamily`).
  *
  * Idempotent: a record whose ledger doc already exists (live or tombstoned) is
  * skipped, so WorkManager retries are harmless. Linked account/debt balances

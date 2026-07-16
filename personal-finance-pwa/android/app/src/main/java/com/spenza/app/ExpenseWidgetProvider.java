@@ -19,10 +19,16 @@ import java.util.Calendar;
 import java.util.Locale;
 
 public class ExpenseWidgetProvider extends AppWidgetProvider {
-    // Two size tiers only (widget is 4x1 or 4x2; taller resizing is blocked via
-    // maxResizeHeight): <=70dp (one row) -> buttons-only quick layout, otherwise
-    // the 2-row layout with the budget header.
-    private static final int QUICK_MAX_HEIGHT_DP = 70;
+    // Layout tiers, chosen from the launcher-reported height of the CURRENT
+    // orientation (portrait uses OPTION_APPWIDGET_MAX_HEIGHT, landscape uses
+    // OPTION_APPWIDGET_MIN_HEIGHT — a landscape/portrait RemoteViews pair lets the
+    // system pick). Launcher cell heights vary wildly (a "row" is ~40dp on dense
+    // grids, ~100dp on tall ones), so tiers key off dp the content needs, not rows:
+    //   < 115dp  -> quick layout: category buttons ONLY (budget line hidden)
+    //   115-149  -> standard 2-row layout
+    //   >= 150dp -> roomy 2-row layout with scaled-up chips and type
+    private static final int QUICK_MAX_HEIGHT_DP = 115;
+    private static final int ROOMY_MIN_HEIGHT_DP = 150;
     private static final int FIVE_COLUMN_MIN_WIDTH_DP = 360;
 
     // Category chip icon views, restyled per app design style (glass/neu/clay/brutal).
@@ -72,13 +78,28 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
     private static void updateWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
         Bundle options = appWidgetManager.getAppWidgetOptions(appWidgetId);
         int minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+        int maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth);
         int minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
-        boolean quickOnly = minHeight > 0 && minHeight <= QUICK_MAX_HEIGHT_DP;
-        boolean showShopping = minWidth >= FIVE_COLUMN_MIN_WIDTH_DP;
-        int layoutId = quickOnly ? R.layout.expense_widget_quick : R.layout.expense_widget;
+        int maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight);
+
+        // On phones: portrait shows minWidth x maxHeight, landscape maxWidth x minHeight.
+        RemoteViews portrait = buildViews(context, minWidth, maxHeight);
+        RemoteViews views = (minHeight == maxHeight && minWidth == maxWidth)
+            ? portrait
+            : new RemoteViews(buildViews(context, maxWidth, minHeight), portrait);
+        appWidgetManager.updateAppWidget(appWidgetId, views);
+    }
+
+    private static RemoteViews buildViews(Context context, int widthDp, int heightDp) {
+        boolean quickOnly = heightDp > 0 && heightDp < QUICK_MAX_HEIGHT_DP;
+        boolean roomy = !quickOnly && heightDp >= ROOMY_MIN_HEIGHT_DP;
+        boolean showShopping = widthDp >= FIVE_COLUMN_MIN_WIDTH_DP;
+        int layoutId = quickOnly
+            ? R.layout.expense_widget_quick
+            : (roomy ? R.layout.expense_widget_tall : R.layout.expense_widget);
         RemoteViews views = new RemoteViews(context.getPackageName(), layoutId);
         WidgetTheme theme = WidgetTheme.from(context);
-        theme.applySurface(context, views, R.id.widget_surface, options);
+        theme.applySurface(context, views, R.id.widget_surface, widthDp, heightDp);
         if (!quickOnly) {
             bindDailyInsight(context, views);
             // The "spent of budget" line is the widget's hero — tint it with the
@@ -95,7 +116,7 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         bindButton(context, views, R.id.widget_more, WidgetExpenseConstants.TYPE_MORE, 105);
         bindCreditButton(context, views, R.id.widget_credit, 106);
         applyPredictedHighlight(context, views, showShopping);
-        appWidgetManager.updateAppWidget(appWidgetId, views);
+        return views;
     }
 
     /**
@@ -230,17 +251,22 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             JSONObject metadata = doc.optJSONObject("metadata");
             String currency = metadata == null ? "INR" : metadata.optString("currency", "INR");
             double monthlyIncome = metadata == null ? 0 : metadata.optDouble("monthlyIncome", 0);
-            JSONArray limits = doc.optJSONArray("limits");
             JSONArray expenses = doc.optJSONArray("expenses");
+            String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+            // Widget two-way sync: merge partner records delivered by FCM while
+            // the app was closed (display-only overlay; supersede rule keyed on
+            // the snapshot's savedAt — once the app rewrites the snapshot, the
+            // overlay copies are redundant and pruned).
+            expenses = PartnerPendingStore.overlayExpenses(
+                context, expenses, activeEmail, snapshotSavedAtMillis(prefs));
             String today = WidgetExpenseUtils.localDateToday();
             String yesterday = yesterday();
             double todaySpent = totalForDate(expenses, today);
             double yesterdaySpent = totalForDate(expenses, yesterday);
             JSONArray queued = WidgetExpenseQueue.readQueue(context);
-            String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
             todaySpent += queuedTotalForDate(queued, today, activeEmail);
             yesterdaySpent += queuedTotalForDate(queued, yesterday, activeEmail);
-            double dailyBudget = dailyBudget(monthlyIncome, limits, today);
+            double dailyBudget = dailyBudget(monthlyIncome);
             int progress = dailyBudget > 0 ? (int) Math.min(100, Math.round((todaySpent / dailyBudget) * 100)) : 0;
             String subtitle = familySubtitle(prefs, expenses, queued, today, activeEmail);
             return new DailyInsight(
@@ -331,6 +357,27 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             }
         }
 
+        /**
+         * When the app last rewrote the local snapshot (epoch millis, 0 when
+         * unknown). Overlay records received before this instant were already
+         * applied into the snapshot by the app's ledger listener.
+         */
+        private static long snapshotSavedAtMillis(SharedPreferences prefs) {
+            String raw = prefs.getString(WidgetExpenseConstants.LOCAL_BACKUP_CACHE_KEY, null);
+            if (raw == null) return 0;
+            try {
+                String savedAt = new JSONObject(raw).optString("savedAt", "");
+                if (savedAt.isEmpty()) return 0;
+                java.text.SimpleDateFormat format =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+                format.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                java.util.Date parsed = format.parse(savedAt);
+                return parsed == null ? 0 : parsed.getTime();
+            } catch (JSONException | java.text.ParseException ignored) {
+                return 0; // fail open: id-dedup in overlayExpenses still prevents double counts
+            }
+        }
+
         private static double totalForDate(JSONArray expenses, String date) {
             if (expenses == null) return 0;
             double total = 0;
@@ -357,29 +404,14 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             return total;
         }
 
-        private static double dailyBudget(double monthlyIncome, JSONArray limits, String date) {
-            double monthlyLimit = 0;
-            if (limits != null) {
-                for (int i = 0; i < limits.length(); i++) {
-                    JSONObject limit = limits.optJSONObject(i);
-                    if (limit != null) monthlyLimit += (limit.optDouble("userPercentage", 0) / 100.0) * monthlyIncome;
-                }
-            }
-            if (monthlyLimit <= 0) monthlyLimit = monthlyIncome;
-            return monthlyLimit <= 0 ? 0 : Math.ceil(monthlyLimit / daysInMonth(date));
-        }
-
-        private static int daysInMonth(String date) {
-            Calendar calendar = Calendar.getInstance();
-            try {
-                String[] parts = date.split("-");
-                calendar.set(Calendar.YEAR, Integer.parseInt(parts[0]));
-                calendar.set(Calendar.MONTH, Integer.parseInt(parts[1]) - 1);
-                calendar.set(Calendar.DAY_OF_MONTH, 1);
-            } catch (Exception ignored) {
-                // Use current month.
-            }
-            return calendar.getActualMaximum(Calendar.DAY_OF_MONTH);
+        /**
+         * MUST match the app's Daily Expense hero exactly
+         * (daily-expense.component.ts `dailyBudget`): Math.round(monthlyIncome / 30).
+         * The widget previously derived a limit-percentage/days-in-month figure,
+         * which drifted from the number shown in the app.
+         */
+        private static double dailyBudget(double monthlyIncome) {
+            return monthlyIncome > 0 ? Math.round(monthlyIncome / 30.0) : 0;
         }
 
         private static String yesterday() {

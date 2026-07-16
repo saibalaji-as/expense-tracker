@@ -25,10 +25,14 @@ import java.util.Locale;
  * receiver. Tapping the widget opens the Spenza app.
  */
 public class StreakWidgetProvider extends AppWidgetProvider {
-    // Two size tiers only (widget is 4x1 or 4x2; taller resizing is blocked via
-    // maxResizeHeight): <=70dp (one row) -> one-line compact strip, otherwise the
-    // 2-row layout with the 7-day tracker.
-    private static final int COMPACT_MAX_HEIGHT_DP = 70;
+    // Layout tiers, chosen from the launcher-reported height of the CURRENT
+    // orientation (portrait uses OPTION_APPWIDGET_MAX_HEIGHT, landscape uses
+    // OPTION_APPWIDGET_MIN_HEIGHT). Mirrors ExpenseWidgetProvider:
+    //   < 115dp  -> compact one-line strip (count + status only)
+    //   115-149  -> standard 2-row layout
+    //   >= 150dp -> roomy 2-row layout with scaled-up hero and dots
+    private static final int COMPACT_MAX_HEIGHT_DP = 115;
+    private static final int ROOMY_MIN_HEIGHT_DP = 150;
     private static final int OPEN_APP_REQUEST_ROOT = 201;
 
     private static final int[] DAY_DOT_IDS = {
@@ -79,20 +83,36 @@ public class StreakWidgetProvider extends AppWidgetProvider {
 
     private static void updateWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
         Bundle options = appWidgetManager.getAppWidgetOptions(appWidgetId);
+        int minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+        int maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth);
         int minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
-        boolean compact = minHeight > 0 && minHeight <= COMPACT_MAX_HEIGHT_DP;
-        int layoutId = compact ? R.layout.streak_widget_compact : R.layout.streak_widget;
+        int maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight);
+
+        // On phones: portrait shows minWidth x maxHeight, landscape maxWidth x minHeight.
+        RemoteViews portrait = buildViews(context, minWidth, maxHeight);
+        RemoteViews views = (minHeight == maxHeight && minWidth == maxWidth)
+            ? portrait
+            : new RemoteViews(buildViews(context, maxWidth, minHeight), portrait);
+        appWidgetManager.updateAppWidget(appWidgetId, views);
+    }
+
+    private static RemoteViews buildViews(Context context, int widthDp, int heightDp) {
+        boolean compact = heightDp > 0 && heightDp < COMPACT_MAX_HEIGHT_DP;
+        boolean roomy = !compact && heightDp >= ROOMY_MIN_HEIGHT_DP;
+        int layoutId = compact
+            ? R.layout.streak_widget_compact
+            : (roomy ? R.layout.streak_widget_tall : R.layout.streak_widget);
 
         RemoteViews views = new RemoteViews(context.getPackageName(), layoutId);
         WidgetTheme theme = WidgetTheme.from(context);
-        theme.applySurface(context, views, R.id.widget_surface, options);
+        theme.applySurface(context, views, R.id.widget_surface, widthDp, heightDp);
         StreakCalculator streak = StreakCalculator.from(context);
         bindCommon(context, views, streak, theme);
         if (!compact) {
             bindDetails(context, views, streak, theme);
         }
         views.setOnClickPendingIntent(R.id.streak_widget_root, openAppIntent(context, OPEN_APP_REQUEST_ROOT));
-        appWidgetManager.updateAppWidget(appWidgetId, views);
+        return views;
     }
 
     private static void bindCommon(Context context, RemoteViews views, StreakCalculator streak, WidgetTheme theme) {

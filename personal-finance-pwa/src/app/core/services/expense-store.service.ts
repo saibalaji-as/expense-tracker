@@ -12,11 +12,13 @@ import {
   CreateAssetAccountInput,
   CreateDebtAccountInput,
   DebtAccount,
+  DebtAdjustment,
   DebtPayment,
   DEBT_PAYMENT_EXPENSE_TYPE,
   ExpenseEntry,
   ExpenseLimit,
   PendingCcExpense,
+  RecordDebtAdjustmentInput,
   RecordDebtPaymentInput,
   UpdateAssetAccountInput,
   UpdateDebtAccountInput,
@@ -29,11 +31,18 @@ import { BackupMode, BackupModeService } from './backup-mode.service';
 import { AppCurrency, CurrencyService } from './currency.service';
 import { AuthService } from './auth.service';
 import { toLocalDateString } from '../utils/local-date';
-import { applyLedgerChanges, diffLedgerState, type LedgerStateView } from '../utils/family-ledger.util';
+import { applyLedgerChanges, diffLedgerState, stableStringify, type LedgerStateView } from '../utils/family-ledger.util';
+import { ledgerDocId } from '../models/family-ledger.model';
+import { mergeAddOnly, mergeByUpdatedAt, mergeEntries } from '../utils/family-state-merge';
 
 const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
 const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
 const PENDING_CC_SELECTION_KEY = 'spenza_pending_cc_expense_queue_v1';
+// Persisted delete flags for family-ledger records (docs/family-sync-centralization-plan.md).
+const PENDING_DELETES_KEY = 'spenza_family_pending_deletes_v1';
+// Persisted verify flags: widget-synced records whose ledger version must be
+// fetched before this device may push its (possibly stale) queue payload.
+const PENDING_VERIFY_KEY = 'spenza_family_pending_verify_v1';
 
 interface ExpenseWidgetPlugin {
   refresh(): Promise<void>;
@@ -114,6 +123,7 @@ interface ExpenseState {
   accountAdjustments: AccountBalanceAdjustment[];
   debts: DebtAccount[];
   debtPayments: DebtPayment[];
+  debtAdjustments: DebtAdjustment[];
   monthlyIncome: number;
   selectedMonth: string; // YYYY-MM
   syncStatus: 'idle' | 'syncing' | 'error';
@@ -140,6 +150,7 @@ export const ExpenseStore = signalStore(
     accountAdjustments: [],
     debts: [],
     debtPayments: [],
+    debtAdjustments: [],
     monthlyIncome: 0,
     selectedMonth: toLocalDateString().slice(0, 7), // YYYY-MM
     syncStatus: 'idle',
@@ -334,17 +345,107 @@ export const ExpenseStore = signalStore(
     const BG_FLUSH_BASE_MS = 5000;
     const BG_FLUSH_MAX_MS = 5 * 60 * 1000;
     let applyingRemote = false;
-    // True when a family-ledger push was dropped or failed; retried from flushPendingChanges().
+    // True when a family-ledger push was dropped, failed, or is not yet
+    // server-acked; retried from flushPendingChanges() and the reconcile push.
     let familyPushPending = false;
-    // True once local state has been fully hydrated (Drive load or local cache).
-    // Gates absence-tombstone detection in the ledger diff — an un-hydrated
-    // (empty) state must never be interpreted as "everything was deleted".
-    let localDataHydrated = false;
     // Debounce guard for the post-snapshot ledger reconciliation push.
     let ledgerReconcileTimer: ReturnType<typeof setTimeout> | null = null;
-    // Tracks entry IDs deleted in this session so tombstones propagate to the partner via Firestore.
-    // Cleared on app restart — harmless because Drive is updated after each deletion.
-    const localDeletedEntryIds = new Set<string>();
+    // DELETE FLAGS (persisted): ledger doc ids the user deleted, flagged BEFORE
+    // the state mutation and kept until the server acks the tombstone. Enforced
+    // on every apply (a snapshot can never resurrect a flagged record) and every
+    // diff (a flagged record is never re-uploaded). Survives app restarts —
+    // the in-memory session set this replaces was why deletes resurrected.
+    const pendingDeletes = new Set<string>();
+    let pendingDeletesLoaded = false;
+
+    const loadPendingDeletes = async (): Promise<void> => {
+      if (pendingDeletesLoaded) return;
+      pendingDeletesLoaded = true;
+      try {
+        const raw = await storageService.get(PENDING_DELETES_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { ids?: string[] };
+        for (const id of parsed.ids ?? []) pendingDeletes.add(id);
+      } catch (err) {
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to load pending delete flags:', err); }
+      }
+    };
+
+    const persistPendingDeletes = (): void => {
+      const ids = Array.from(pendingDeletes).slice(-500); // safety cap
+      void storageService.set(PENDING_DELETES_KEY, JSON.stringify({ ids })).catch((err) => {
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to persist pending delete flags:', err); }
+      });
+    };
+
+    /** Flags a record as deleted BEFORE the mutation lands — the durable "delete flag". */
+    const flagPendingDelete = (type: 'expense' | 'adjustment' | 'debt-payment' | 'debt-adjustment' | 'account' | 'debt', id: string): void => {
+      if (backupModeService.getMode() !== 'family') return;
+      pendingDeletes.add(ledgerDocId(type, id));
+      persistPendingDeletes();
+    };
+
+    /** Clears flags whose tombstone the server has acked. */
+    const clearAckedDeleteFlags = (docIds: readonly string[]): void => {
+      let changed = false;
+      for (const docId of docIds) {
+        if (pendingDeletes.delete(docId)) changed = true;
+      }
+      if (changed) persistPendingDeletes();
+    };
+
+    // VERIFY FLAGS (persisted): a widget item tagged `familySynced` was written
+    // to the ledger by the Cloud Function while this app was closed — and the
+    // partner may have EDITED the record since. The queue payload is therefore
+    // capture-time-stale: pushing it would revert the partner's edit (the
+    // 2026-07-16 "updated log reverted to previous entry" bug). Flagged doc ids
+    // are never pushed until verifyDocs() fetches the server truth: a found doc
+    // is ingested+applied (newer version wins locally), a missing doc (CF never
+    // actually wrote it) clears the flag so the normal push delivers it.
+    const pendingVerify = new Set<string>();
+    let pendingVerifyLoaded = false;
+
+    const loadPendingVerify = async (): Promise<void> => {
+      if (pendingVerifyLoaded) return;
+      pendingVerifyLoaded = true;
+      try {
+        const raw = await storageService.get(PENDING_VERIFY_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { ids?: string[] };
+        for (const id of parsed.ids ?? []) pendingVerify.add(id);
+      } catch (err) {
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to load pending verify flags:', err); }
+      }
+    };
+
+    const persistPendingVerify = (): void => {
+      const ids = Array.from(pendingVerify).slice(-500); // safety cap
+      void storageService.set(PENDING_VERIFY_KEY, JSON.stringify({ ids })).catch((err) => {
+        if (isDevMode()) { console.warn('[ExpenseStore] Failed to persist pending verify flags:', err); }
+      });
+    };
+
+    const flagPendingVerify = (type: 'expense' | 'adjustment', id: string): void => {
+      pendingVerify.add(ledgerDocId(type, id));
+      persistPendingVerify();
+    };
+
+    /**
+     * Resolves outstanding verify flags against the server. Missing docs (the
+     * CF never wrote them) are unflagged so the following diff pushes them;
+     * found docs are ingested by the service and applied via changes$ (a newer
+     * partner version replaces the stale queue payload locally). Throws
+     * offline — flags stay, retried from resume/online/reconcile pushes.
+     */
+    const resolvePendingVerify = async (familyId: string): Promise<void> => {
+      if (pendingVerify.size === 0) return;
+      const docIds = Array.from(pendingVerify);
+      await familySyncService.verifyDocs(familyId, docIds);
+      // Both outcomes clear the flag: found → copy now holds server truth
+      // (divergence rules take over); missing → local payload is the truth.
+      for (const docId of docIds) pendingVerify.delete(docId);
+      persistPendingVerify();
+    };
 
     const isAppCurrency = (currency: string | undefined): currency is AppCurrency =>
       currency === 'INR' || currency === 'USD' || currency === 'AED';
@@ -378,6 +479,9 @@ export const ExpenseStore = signalStore(
 
     const backupDebtPayments = (doc: BackupDocument): DebtPayment[] =>
       Array.isArray(doc.debtPayments) ? doc.debtPayments : [];
+
+    const backupDebtAdjustments = (doc: BackupDocument): DebtAdjustment[] =>
+      Array.isArray(doc.debtAdjustments) ? doc.debtAdjustments : [];
 
     const addAccountDelta = (deltas: AccountBalanceDelta, accountId: string | undefined, delta: number): void => {
       if (!accountId || delta === 0) return;
@@ -422,6 +526,64 @@ export const ExpenseStore = signalStore(
         return {
           ...debt,
           remainingBalance: roundMoney(debt.remainingBalance + charge),
+          updatedAt: now,
+          updatedByEmail: actor.email,
+          updatedByRole: actor.role,
+        };
+      });
+    };
+
+    /** Accumulate a signed card-outstanding delta for one entry (reversal −, charge +). */
+    const addDebtDelta = (deltas: Map<string, number>, entry: ExpenseEntry | undefined, sign: 1 | -1): void => {
+      if (!entry?.debtId || entry.source === 'debt-payment' || entry.amount === 0) return;
+      const next = roundMoney((deltas.get(entry.debtId) ?? 0) + sign * entry.amount);
+      if (next === 0) deltas.delete(entry.debtId);
+      else deltas.set(entry.debtId, next);
+    };
+
+    /** Reverse the previous card charge and apply the next one (net per card). */
+    const debtDeltasForEntryUpdate = (
+      previousEntry: ExpenseEntry | undefined,
+      nextEntry: ExpenseEntry
+    ): Map<string, number> => {
+      const deltas = new Map<string, number>();
+      addDebtDelta(deltas, previousEntry, -1);
+      addDebtDelta(deltas, nextEntry, 1);
+      return deltas;
+    };
+
+    const debtDeltasForDeletedEntry = (entry: ExpenseEntry | undefined): Map<string, number> => {
+      const deltas = new Map<string, number>();
+      addDebtDelta(deltas, entry, -1);
+      return deltas;
+    };
+
+    /**
+     * Apply signed outstanding deltas to cards. A positive net delta is a new
+     * charge and requires an active credit card (same rule as applyDebtCharges).
+     * A negative net delta is a reversal (edit/delete of a mis-logged card
+     * spend) and is always honoured — even on an archived card — with the
+     * outstanding clamped at 0, matching the widget CC-payment clamp precedent.
+     */
+    const applyDebtDeltas = (debts: DebtAccount[], deltas: Map<string, number>): DebtAccount[] => {
+      if (deltas.size === 0) return debts;
+
+      const now = new Date().toISOString();
+      const actor = activityActor();
+      for (const [debtId, delta] of deltas) {
+        if (delta <= 0) continue;
+        const debt = debts.find((d) => d.id === debtId);
+        if (!debt || debt.type !== 'credit-card' || debt.status !== 'active') {
+          throw new Error('Selected credit card is not active anymore. Choose another payment method.');
+        }
+      }
+
+      return debts.map((debt) => {
+        const delta = deltas.get(debt.id);
+        if (delta === undefined) return debt;
+        return {
+          ...debt,
+          remainingBalance: Math.max(0, roundMoney(debt.remainingBalance + delta)),
           updatedAt: now,
           updatedByEmail: actor.email,
           updatedByRole: actor.role,
@@ -508,6 +670,7 @@ export const ExpenseStore = signalStore(
       accountAdjustments: store.accountAdjustments(),
       debts: store.debts(),
       debtPayments: store.debtPayments(),
+      debtAdjustments: store.debtAdjustments(),
     });
 
     const isBackupDocument = (value: unknown): value is BackupDocument => {
@@ -521,6 +684,7 @@ export const ExpenseStore = signalStore(
         (candidate.accountAdjustments === undefined || Array.isArray(candidate.accountAdjustments)) &&
         (candidate.debts === undefined || Array.isArray(candidate.debts)) &&
         (candidate.debtPayments === undefined || Array.isArray(candidate.debtPayments)) &&
+        (candidate.debtAdjustments === undefined || Array.isArray(candidate.debtAdjustments)) &&
         typeof candidate.metadata === 'object' &&
         candidate.metadata !== null &&
         typeof candidate.metadata.monthlyIncome === 'number'
@@ -694,19 +858,26 @@ export const ExpenseStore = signalStore(
       const newPendingCc: PendingCcExpense[] = [];
       const ccPaymentItems: WidgetCcPaymentQueueItem[] = [];
       let noCcAccountDetected = false;
-      // Sync tag (wrapper-level `familySynced`, written by WidgetExpenseSyncWorker after
-      // a successful Cloud Function push): any consumed widget item WITHOUT the tag still
-      // owes the partner a family push — even when the entry itself is a local duplicate,
-      // in which case the entry-count guard below would otherwise skip pushFamilyLedger().
-      let widgetFamilyPushNeeded = false;
-      const owesFamilyPush = (raw: unknown): boolean =>
+      // The wrapper-level `familySynced` tag (set by WidgetExpenseSyncWorker after
+      // a CF push) means THE LEDGER ALREADY OWNS this record — and the partner may
+      // have edited it since capture. Tagged items get a persisted VERIFY flag:
+      // the diff will not push them until verifyDocs() has fetched the server
+      // version (which, if newer, replaces the stale queue payload locally).
+      // Untagged items are covered by the unconditional pushFamilyLedger() below.
+      const isFamilyMode = backupModeService.getMode() === 'family' && !!backupModeService.getFamilyId();
+      const wasFamilySynced = (raw: unknown): boolean =>
         typeof raw === 'object' && raw !== null &&
-        (raw as Record<string, unknown>)['familySynced'] !== true;
+        (raw as Record<string, unknown>)['familySynced'] === true;
+      if (isFamilyMode) {
+        await loadPendingVerify();
+        for (const item of activeItems) {
+          if (!wasFamilySynced(item.raw)) continue;
+          if (item.kind === 'expense') flagPendingVerify('expense', item.entry.id);
+          else if (item.kind === 'adjustment') flagPendingVerify('adjustment', item.adjustment.id);
+        }
+      }
 
       for (const item of activeItems) {
-        if (item.kind !== 'cc-payment' && owesFamilyPush(item.raw)) {
-          widgetFamilyPushNeeded = true;
-        }
         if (item.kind === 'expense') {
           let entry = item.entry;
           if (existingIds.has(entry.id)) continue;
@@ -848,9 +1019,10 @@ export const ExpenseStore = signalStore(
       }
 
       if (newEntries.length === 0 && newAdjustments.length === 0 && ccPaymentItems.length === 0) {
-        // Consumed items were all local duplicates, but the sync tag says the partner
-        // may still be missing them — push the (merge-on-write) family state anyway.
-        if (widgetFamilyPushNeeded) pushFamilyLedger();
+        // All consumed items were local duplicates. Still run the (cheap, no-op
+        // when in sync) ledger reconciliation — Phase 2 removed the old
+        // per-item bookkeeping in favor of always reconciling.
+        pushFamilyLedger();
         return false;
       }
 
@@ -870,10 +1042,10 @@ export const ExpenseStore = signalStore(
         });
         localRevision += 1;
         await methods.persistToDrive();
-        pushFamilyLedger();
-      } else if (widgetFamilyPushNeeded) {
-        pushFamilyLedger();
       }
+      // Always reconcile after a flush — the diff no-ops when the ledger
+      // already has everything (replaces the old widgetFamilyPushNeeded flag).
+      pushFamilyLedger();
 
       // ── Widget-captured credit-card bill payments ────────────────────────
       // Each one runs through recordDebtPayment (account deduction, card
@@ -1052,11 +1224,13 @@ export const ExpenseStore = signalStore(
       const currentAccountAdjustments = store.accountAdjustments();
       const currentDebts = store.debts();
       const currentDebtPayments = store.debtPayments();
+      const currentDebtAdjustments = store.debtAdjustments();
       const shouldRestoreAccounts = doc.accounts === undefined && currentAccounts.length > 0;
       const shouldRestoreAccountAdjustments = doc.accountAdjustments === undefined && currentAccountAdjustments.length > 0;
       const shouldRestoreDebts = doc.debts === undefined && currentDebts.length > 0;
       const shouldRestoreDebtPayments = doc.debtPayments === undefined && currentDebtPayments.length > 0;
-      const healed = shouldRestoreAccounts || shouldRestoreAccountAdjustments || shouldRestoreDebts || shouldRestoreDebtPayments;
+      const shouldRestoreDebtAdjustments = doc.debtAdjustments === undefined && currentDebtAdjustments.length > 0;
+      const healed = shouldRestoreAccounts || shouldRestoreAccountAdjustments || shouldRestoreDebts || shouldRestoreDebtPayments || shouldRestoreDebtAdjustments;
 
       if (!healed) return { doc, healed };
 
@@ -1068,8 +1242,48 @@ export const ExpenseStore = signalStore(
           accountAdjustments: shouldRestoreAccountAdjustments ? currentAccountAdjustments : backupAccountAdjustments(doc),
           debts: shouldRestoreDebts ? currentDebts : backupDebts(doc),
           debtPayments: shouldRestoreDebtPayments ? currentDebtPayments : backupDebtPayments(doc),
+          debtAdjustments: shouldRestoreDebtAdjustments ? currentDebtAdjustments : backupDebtAdjustments(doc),
         },
         healed,
+      };
+    };
+
+    /** All doc ids the ledger has tombstoned (acked) or the user has flagged deleted. */
+    const ledgerTombstonedDocIds = (): Set<string> => {
+      const ids = new Set<string>(pendingDeletes);
+      for (const [docId, entry] of familySyncService.ledgerCopy()) {
+        if (entry.deleted) ids.add(docId);
+      }
+      return ids;
+    };
+
+    /**
+     * Family mode: a Drive read must MERGE into current state, never replace it.
+     * The in-memory state can hold partner records (applied from the ledger)
+     * that this device's Drive backup hasn't stored yet — a wholesale replace
+     * silently dropped them until the next restart. Ledger tombstones and
+     * pending delete flags filter the result so a stale backup can't resurrect
+     * deleted records either (the 2026-07-15 delete-resurrection bug).
+     */
+    const mergeBackupDocumentForFamily = (doc: BackupDocument): BackupDocument => {
+      const tombstoned = ledgerTombstonedDocIds();
+      const deletedExpenseIds = new Set<string>();
+      for (const docId of tombstoned) {
+        if (docId.startsWith('expense:')) deletedExpenseIds.add(docId.slice('expense:'.length));
+      }
+      const live = <T extends { id: string }>(
+        type: 'adjustment' | 'debt-payment' | 'debt-adjustment' | 'account' | 'debt',
+        items: T[]
+      ): T[] => items.filter((item) => !tombstoned.has(ledgerDocId(type, item.id)));
+
+      return {
+        ...doc,
+        expenses: mergeEntries(store.entries(), doc.expenses ?? [], deletedExpenseIds),
+        accounts: live('account', mergeByUpdatedAt(store.accounts(), backupAccounts(doc))),
+        accountAdjustments: live('adjustment', mergeAddOnly(store.accountAdjustments(), backupAccountAdjustments(doc))),
+        debts: live('debt', mergeByUpdatedAt(store.debts(), backupDebts(doc))),
+        debtPayments: live('debt-payment', mergeAddOnly(store.debtPayments(), backupDebtPayments(doc))),
+        debtAdjustments: live('debt-adjustment', mergeAddOnly(store.debtAdjustments(), backupDebtAdjustments(doc))),
       };
     };
 
@@ -1080,15 +1294,24 @@ export const ExpenseStore = signalStore(
     ): void => {
       const { doc: normalizedDoc, healed } = preserveCachedFinanceArrays(doc);
       setCurrencyFromBackup(normalizedDoc.metadata.currency);
+
+      let effectiveDoc = normalizedDoc;
+      let familyMergeChanged = false;
+      if (backupModeService.getMode() === 'family' && backupModeService.getFamilyId()) {
+        effectiveDoc = mergeBackupDocumentForFamily(normalizedDoc);
+        familyMergeChanged = stableStringify(effectiveDoc) !== stableStringify(normalizedDoc);
+      }
+
       patchState(store, {
-        entries: normalizedDoc.expenses,
-        limits: normalizedDoc.limits,
-        accounts: backupAccounts(normalizedDoc),
-        accountAdjustments: backupAccountAdjustments(normalizedDoc),
-        debts: backupDebts(normalizedDoc),
-        debtPayments: backupDebtPayments(normalizedDoc),
-        monthlyIncome: normalizedDoc.metadata.monthlyIncome,
-        receiptFolderId: normalizedDoc.metadata.receiptFolderId ?? null,
+        entries: effectiveDoc.expenses,
+        limits: effectiveDoc.limits,
+        accounts: backupAccounts(effectiveDoc),
+        accountAdjustments: backupAccountAdjustments(effectiveDoc),
+        debts: backupDebts(effectiveDoc),
+        debtPayments: backupDebtPayments(effectiveDoc),
+        debtAdjustments: backupDebtAdjustments(effectiveDoc),
+        monthlyIncome: effectiveDoc.metadata.monthlyIncome,
+        receiptFolderId: effectiveDoc.metadata.receiptFolderId ?? null,
         driveFileId: fileId,
         lastKnownDriveModifiedTime: modifiedTime,
         syncStatus: 'idle',
@@ -1096,9 +1319,9 @@ export const ExpenseStore = signalStore(
       });
       localRevision = 0;
       persistedRevision = 0;
-      localDataHydrated = true;
-      void writeLocalBackupSnapshot(fileId, normalizedDoc, modifiedTime, false);
-      if (healed) {
+      void writeLocalBackupSnapshot(fileId, effectiveDoc, modifiedTime, false);
+      if (healed || familyMergeChanged) {
+        // The merged doc is richer than what Drive holds — write it back.
         localRevision += 1;
         void methods.persistToDrive();
       }
@@ -1118,6 +1341,7 @@ export const ExpenseStore = signalStore(
       entries: store.entries(),
       accountAdjustments: store.accountAdjustments(),
       debtPayments: store.debtPayments(),
+      debtAdjustments: store.debtAdjustments(),
       accounts: store.accounts(),
       debts: store.debts(),
       limits: store.limits(),
@@ -1127,10 +1351,14 @@ export const ExpenseStore = signalStore(
 
     /**
      * Family Ledger push (docs/family-sync-centralization-plan.md): diffs local
-     * state against this device's copy of the ledger and commits ONLY what the
-     * ledger is missing. Reconciliation-based — ANY call heals ANY gap, so it
-     * is always safe (and cheap: no-op when in sync) to call this "too often".
-     * Receipts never sync (device-private files); deletions are tombstones.
+     * state against this device's persisted, server-acked copy of the ledger
+     * and commits ONLY what the ledger is missing. Reconciliation-based — ANY
+     * call heals ANY gap, so it is always safe (and cheap: no-op when in sync)
+     * to call this "too often". Never gated on the listener: the copy is primed
+     * on demand. `familyPushPending` stays true until the server ACKS the
+     * commit, so resume/online retries re-produce anything still undelivered.
+     * Delete flags: flagged records are never re-uploaded and produce
+     * tombstones; acked tombstones in the copy win forever.
      */
     const pushFamilyLedger = (): void => {
       if (applyingRemote) return;
@@ -1150,21 +1378,41 @@ export const ExpenseStore = signalStore(
             console.warn('[ExpenseStore] Family ledger push deferred: no Firebase UID yet (will retry on resume/online).');
             return;
           }
-          if (!familySyncService.isPrimed()) {
-            // First ledger snapshot not received yet — the post-snapshot
-            // reconciliation push will carry this change.
-            familyPushPending = true;
-            return;
+          await loadPendingDeletes();
+          await loadPendingVerify();
+          // A push must never depend on the listener being ready.
+          await familySyncService.primeNow(familyId);
+          // Resolve widget-synced records against the server before trusting
+          // local payloads. Offline failure keeps the flags: those records are
+          // simply skipped by the diff below and retried on the next push.
+          let verifyDeferred = false;
+          if (pendingVerify.size > 0) {
+            try {
+              await resolvePendingVerify(familyId);
+            } catch (err) {
+              verifyDeferred = true; // keep familyPushPending so resume/online retries
+              if (isDevMode()) { console.warn('[ExpenseStore] verifyDocs deferred (offline?):', err); }
+            }
           }
           const ops = diffLedgerState(ledgerStateView(), familySyncService.ledgerCopy(), {
-            includeAbsenceTombstones: localDataHydrated,
-            localDeletedEntryIds,
+            pendingDeletes,
+            pendingVerify,
           });
-          if (ops.length > 0) {
-            const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
-            await familySyncService.commitRecords(familyId, ops, writer);
+          if (ops.length === 0) {
+            familyPushPending = verifyDeferred;
+            return;
           }
-          familyPushPending = false;
+          const writer = { uid: currentUid, email: authService.userEmail() ?? '', role: currentRole };
+          // Pending until SERVER ACK — not until "the SDK accepted the write".
+          // Do not await: ack can take arbitrarily long offline; the persistent
+          // cache delivers it, and re-pushes before ack are idempotent.
+          familyPushPending = true;
+          familySyncService.commitRecords(familyId, ops, writer).then(
+            () => { familyPushPending = verifyDeferred; },
+            (err) => {
+              console.error('[ExpenseStore] Family ledger commit not acked (will re-push on resume/online):', err);
+            }
+          );
         } catch (err) {
           // The diff re-produces everything on the retry (resume/online/next change).
           familyPushPending = true;
@@ -1316,6 +1564,7 @@ export const ExpenseStore = signalStore(
           accountAdjustments: [],
           debts: [],
           debtPayments: [],
+          debtAdjustments: [],
           monthlyIncome: 0,
           syncStatus: 'idle',
           driveFileId: null,
@@ -1347,6 +1596,7 @@ export const ExpenseStore = signalStore(
           accountAdjustments: backupAccountAdjustments(snapshot.doc),
           debts: backupDebts(snapshot.doc),
           debtPayments: backupDebtPayments(snapshot.doc),
+          debtAdjustments: backupDebtAdjustments(snapshot.doc),
           monthlyIncome: snapshot.doc.metadata.monthlyIncome,
           receiptFolderId: snapshot.doc.metadata.receiptFolderId ?? null,
           driveFileId: snapshot.fileId,
@@ -1356,7 +1606,6 @@ export const ExpenseStore = signalStore(
         });
         localRevision = snapshot.dirty ? 1 : 0;
         persistedRevision = 0;
-        localDataHydrated = true;
         // Fire-and-forget: the flush includes a Drive write (persistToDrive) which
         // must not block cached startup (< 500 ms budget). The local merge inside
         // the flush still runs immediately after first render.
@@ -1424,7 +1673,7 @@ export const ExpenseStore = signalStore(
           throw new Error('Spenza is not connected to the active family backup. Please sign in again and retry.');
         }
 
-        patchState(store, { entries, limits, monthlyIncome, accounts: [], accountAdjustments: [], debts: [], debtPayments: [] });
+        patchState(store, { entries, limits, monthlyIncome, accounts: [], accountAdjustments: [], debts: [], debtPayments: [], debtAdjustments: [] });
         localRevision += 1;
         await methods.persistToDrive();
 
@@ -1456,6 +1705,7 @@ export const ExpenseStore = signalStore(
           accountAdjustments: backupAccountAdjustments(doc),
           debts: backupDebts(doc),
           debtPayments: backupDebtPayments(doc),
+          debtAdjustments: backupDebtAdjustments(doc),
           monthlyIncome: doc.metadata.monthlyIncome,
           receiptFolderId: store.receiptFolderId() ?? doc.metadata.receiptFolderId ?? null,
         });
@@ -1625,6 +1875,11 @@ export const ExpenseStore = signalStore(
           remaining[0] = { ...remaining[0], isDefault: true, updatedAt: new Date().toISOString() };
         }
 
+        // Flag FIRST (persisted): the account and its adjustment audit records.
+        flagPendingDelete('account', accountId);
+        for (const adjustment of store.accountAdjustments()) {
+          if (adjustment.accountId === accountId) flagPendingDelete('adjustment', adjustment.id);
+        }
         patchState(store, {
           accounts: remaining,
           accountAdjustments: store.accountAdjustments().filter((adjustment) => adjustment.accountId !== accountId),
@@ -1884,14 +2139,97 @@ export const ExpenseStore = signalStore(
           throw new Error('Delete this debt’s linked expense entries before deleting the debt.');
         }
 
+        // Flag FIRST (persisted) — see delete-flag rules in family-ledger.util.ts.
+        // The debt's adjustment audit records cascade, mirroring how
+        // deleteAccount cascades account adjustments.
+        flagPendingDelete('debt', debtId);
+        for (const adjustment of store.debtAdjustments()) {
+          if (adjustment.debtId === debtId) flagPendingDelete('debt-adjustment', adjustment.id);
+        }
         patchState(store, {
           debts: store.debts().filter((debt) => debt.id !== debtId),
+          debtAdjustments: store.debtAdjustments().filter((adjustment) => adjustment.debtId !== debtId),
         });
         if (existing.type === 'credit-card') {
           // The reschedule effect only covers cards still in the list; a
           // deleted card's pending notifications must be cancelled explicitly.
           void localNotificationService.cancelCreditCardDueReminder(debtId);
         }
+        await markLocalChangeAndPersist();
+      },
+
+      /**
+       * Records a non-purchase card movement (refund / cash withdrawal / fee).
+       * None of these create an ExpenseEntry:
+       * - refund: outstanding ↓ (clamped at 0 — the adjustment record keeps the
+       *   full audit amount even when the bill was already paid);
+       * - cash-withdrawal: outstanding ↑ AND the receiving asset account ↑
+       *   atomically (money moved, not spent — spending the cash later is
+       *   logged normally, so nothing is double-counted);
+       * - charge: outstanding ↑ (fees/interest).
+       */
+      async recordDebtAdjustment(input: RecordDebtAdjustmentInput): Promise<void> {
+        const amount = roundMoney(Number(input.amount));
+        if (!Number.isFinite(amount) || amount <= 0) {
+          throw new Error('Enter an adjustment amount greater than 0.');
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+          throw new Error('Enter a valid adjustment date.');
+        }
+
+        const card = store.debts().find((candidate) => candidate.id === input.debtId && candidate.status === 'active');
+        if (!card || card.type !== 'credit-card') {
+          throw new Error('Active credit card was not found.');
+        }
+
+        let updatedAccounts = store.accounts();
+        let linkedAccountId: string | undefined;
+        if (input.kind === 'cash-withdrawal') {
+          const account = store.accounts().find(
+            (candidate) => candidate.id === input.linkedAccountId && !candidate.archived
+          );
+          if (!account) {
+            throw new Error('Choose the account that received the cash.');
+          }
+          linkedAccountId = account.id;
+          updatedAccounts = applyAccountDeltas(store.accounts(), new Map([[account.id, amount]]));
+        }
+
+        const outstandingDelta = input.kind === 'refund' ? -amount : amount;
+        const nextRemainingBalance = Math.max(0, roundMoney(card.remainingBalance + outstandingDelta));
+
+        const now = new Date().toISOString();
+        const actor = activityActor();
+        const adjustment: DebtAdjustment = {
+          id: crypto.randomUUID(),
+          debtId: card.id,
+          kind: input.kind,
+          amount,
+          date: input.date,
+          ...(linkedAccountId ? { linkedAccountId } : {}),
+          ...(input.kind === 'refund' && input.linkedExpenseId ? { linkedExpenseId: input.linkedExpenseId } : {}),
+          reason: input.reason?.trim() || undefined,
+          createdAt: now,
+          createdByEmail: actor.email,
+          createdByRole: actor.role,
+        };
+
+        patchState(store, {
+          accounts: updatedAccounts,
+          debts: store.debts().map((candidate) =>
+            candidate.id === card.id
+              ? {
+                  ...candidate,
+                  remainingBalance: nextRemainingBalance,
+                  updatedAt: now,
+                  updatedByEmail: actor.email,
+                  updatedByRole: actor.role,
+                }
+              : candidate
+          ),
+          debtAdjustments: [adjustment, ...store.debtAdjustments()],
+          pendingSyncIds: [adjustment.id, ...store.pendingSyncIds()],
+        });
         await markLocalChangeAndPersist();
       },
 
@@ -2084,6 +2422,10 @@ export const ExpenseStore = signalStore(
           ? roundMoney(debt.remainingBalance + payment.amount)
           : roundMoney(Math.min(debt.principalAmount, debt.remainingBalance + payment.amount));
 
+        // Flag FIRST (persisted): the payment and its linked expense must never
+        // be resurrected by a snapshot or re-uploaded by a push.
+        flagPendingDelete('debt-payment', payment.id);
+        flagPendingDelete('expense', payment.expenseId);
         patchState(store, {
           entries: store.entries().filter((entry) => entry.id !== payment.expenseId),
           accounts: updatedAccounts,
@@ -2111,16 +2453,22 @@ export const ExpenseStore = signalStore(
        */
       async deleteEntry(entryId: string): Promise<void> {
         const existingEntry = store.entries().find((e) => e.id === entryId);
-        if (existingEntry?.source === 'debt-payment' || existingEntry?.debtId) {
+        if (existingEntry?.source === 'debt-payment') {
           throw new Error('Debt payment entries must be managed from Finances.');
         }
-        localDeletedEntryIds.add(entryId);
+        // Flag FIRST (persisted): from this instant no snapshot can resurrect
+        // the entry and no push can re-upload it, even across app restarts.
+        flagPendingDelete('expense', entryId);
         const updatedEntries = store.entries().filter((e) => e.id !== entryId);
         const updatedAccounts = applyAccountDeltas(
           store.accounts(),
           accountDeltasForDeletedEntry(existingEntry)
         );
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
+        const updatedDebts = applyDebtDeltas(
+          store.debts(),
+          debtDeltasForDeletedEntry(existingEntry)
+        );
+        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
         await markLocalChangeAndPersist();
       },
 
@@ -2134,7 +2482,7 @@ export const ExpenseStore = signalStore(
         if (!existingEntry) {
           throw new Error('Expense entry was not found.');
         }
-        if (existingEntry.source === 'debt-payment' || existingEntry.debtId) {
+        if (existingEntry.source === 'debt-payment') {
           throw new Error('Debt payment entries must be managed from Finances.');
         }
         const updatedEntries = store.entries().map((e) =>
@@ -2144,7 +2492,11 @@ export const ExpenseStore = signalStore(
           store.accounts(),
           accountDeltasForEntryUpdate(existingEntry, updatedEntry)
         );
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts });
+        const updatedDebts = applyDebtDeltas(
+          store.debts(),
+          debtDeltasForEntryUpdate(existingEntry, updatedEntry)
+        );
+        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
         await markLocalChangeAndPersist();
       },
 
@@ -2234,6 +2586,7 @@ export const ExpenseStore = signalStore(
                 accountAdjustments: [],
                 debts: [],
                 debtPayments: [],
+                debtAdjustments: [],
                 monthlyIncome: 0,
                 receiptFolderId: null,
                 driveFileId: fileId,
@@ -2406,19 +2759,21 @@ export const ExpenseStore = signalStore(
 
     };
 
-    // Apply incoming ledger record changes from the partner (own echoes no-op).
-    // Per-record local-divergence guard lives in the pure util: a local
-    // un-pushed edit is never overwritten — the next diff push resolves the
-    // conflict as last-writer-wins.
+    // Restore persisted delete flags early so they guard the very first
+    // snapshot after a cold start (the resurrection window).
+    void loadPendingDeletes();
+
+    // Apply incoming (server-acked) ledger record changes from the partner.
+    // Delete flags and the local-divergence guard live in the pure util: a
+    // flagged record is never resurrected, a local un-pushed edit is never
+    // overwritten — the next diff push resolves conflicts as last-writer-wins.
     familySyncService.changes$.subscribe(({ changes }) => {
       if (changes.length > 0) {
         applyingRemote = true;
         try {
-          const result = applyLedgerChanges(ledgerStateView(), changes, localDeletedEntryIds);
-          // Remote tombstones join our session set so Drive merges respect them too.
-          for (const deletedId of result.deletedEntryIds) {
-            localDeletedEntryIds.add(deletedId);
-          }
+          const result = applyLedgerChanges(ledgerStateView(), changes, pendingDeletes);
+          // Server acked these tombstones — the delete flags have done their job.
+          clearAckedDeleteFlags(result.tombstonedDocIds);
           if (result.changed) {
             if (result.currency) setCurrencyFromBackup(result.currency);
             patchState(store, {
@@ -2427,6 +2782,7 @@ export const ExpenseStore = signalStore(
               accountAdjustments: result.accountAdjustments,
               debts: result.debts,
               debtPayments: result.debtPayments,
+              debtAdjustments: result.debtAdjustments,
               limits: result.limits,
               monthlyIncome: result.monthlyIncome,
             });

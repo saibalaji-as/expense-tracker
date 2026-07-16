@@ -42,7 +42,40 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         // Check if message contains a data payload
         if (remoteMessage.getData().size() > 0) {
             Log.d(TAG, "Message data payload: " + remoteMessage.getData());
-            // Handle data payload here if needed
+            if ("family-ledger-record".equals(remoteMessage.getData().get("spenzaKind"))) {
+                handleFamilyLedgerRecord(remoteMessage.getData().get("record"));
+            }
+        }
+    }
+
+    /**
+     * Widget two-way sync: a family member wrote an expense record to the
+     * ledger. Store it in the DISPLAY-ONLY partner-pending overlay and repaint
+     * the home-screen widgets — the app itself may stay closed. Authoritative
+     * state is never touched here; the app's ledger listener remains the only
+     * real sync path (see docs/family-sync-centralization-plan.md §8).
+     */
+    private void handleFamilyLedgerRecord(String recordJson) {
+        if (recordJson == null || recordJson.isEmpty()) return;
+        try {
+            android.content.SharedPreferences prefs = WidgetExpenseQueue.prefs(getApplicationContext());
+            if (!"family".equals(prefs.getString(WidgetExpenseConstants.BACKUP_MODE_KEY, null))) return;
+            String familyId = prefs.getString(WidgetExpenseConstants.FIRESTORE_FAMILY_ID_KEY, null);
+            if (familyId == null || familyId.trim().isEmpty()) return;
+            String activeEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+            if (activeEmail == null) return;
+
+            org.json.JSONObject record = new org.json.JSONObject(recordJson);
+            // The CF excludes the writer's uid, but never trust that alone:
+            // our own records must not enter the overlay (double count).
+            String byEmail = record.optString("updatedByEmail", "");
+            if (activeEmail.equalsIgnoreCase(byEmail)) return;
+
+            PartnerPendingStore.upsert(getApplicationContext(), record, activeEmail);
+            ExpenseWidgetProvider.updateAll(getApplicationContext());
+            Log.d(TAG, "Partner ledger record applied to widget overlay: " + record.optString("id"));
+        } catch (org.json.JSONException error) {
+            Log.w(TAG, "Malformed family ledger record payload.", error);
         }
     }
 

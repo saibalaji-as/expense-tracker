@@ -2,6 +2,7 @@ import type {
   AccountBalanceAdjustment,
   AssetAccount,
   DebtAccount,
+  DebtAdjustment,
   DebtPayment,
   ExpenseEntry,
   ExpenseLimit,
@@ -19,16 +20,25 @@ import {
 /**
  * Pure helpers for the Family Ledger (docs/family-sync-centralization-plan.md).
  *
- * DIFF (outgoing): compare the local state against the device's copy of the
- * ledger and produce the minimal set of upserts/tombstones the ledger is
- * missing. Re-running is always safe — records are idempotent by doc id.
- * Correctness is reconciliation-based: ANY call to the diff heals ANY gap,
- * regardless of which code path forgot what.
+ * THE DELETE-FLAG RULES (2026-07-15 — the resurrection fix):
+ * When the user deletes a record, its ledger doc id is flagged in a PERSISTED
+ * `pendingDeletes` set BEFORE anything else happens. The flag is enforced in
+ * both directions until the server acks the tombstone:
+ *   - APPLY: an incoming live record whose doc id is flagged is never applied
+ *     (a stale snapshot can't resurrect what the user deleted).
+ *   - DIFF: a flagged record is never upserted, and produces a tombstone op
+ *     while the ledger still holds it live.
+ * A server-acked tombstone in the ledger copy wins forever: the diff never
+ * re-upserts over it (record ids are UUIDs — deleted ids are never reused).
  *
- * APPLY (incoming): apply ledger doc changes to local state with a
- * local-divergence guard — if the local record differs from the copy of the
- * ledger we previously knew, a local un-pushed edit exists and the incoming
- * record is skipped (the next diff push overwrites it: last writer wins).
+ * DIFF (outgoing): compare local state against the device's (persisted,
+ * server-acked) copy of the ledger and produce the minimal ops the ledger is
+ * missing. Re-running is always safe — records are idempotent by doc id.
+ *
+ * APPLY (incoming): apply ledger changes with a local-divergence guard — if
+ * the local record differs from the copy the server last acked, a local
+ * un-pushed edit exists and the incoming record is skipped (the next diff push
+ * resolves the conflict: last writer wins).
  */
 
 /** JSON.stringify with recursively sorted object keys — stable comparison key. */
@@ -51,9 +61,21 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
-/** Comparison/storage key of an op's content. */
-export function opJson(payload: unknown, deleted: boolean): string {
-  return stableStringify({ payload: deleted ? null : payload, deleted });
+/**
+ * Content signature of an op — compact enough to persist the whole ledger copy
+ * to Preferences. Equality-only semantics (length + double 32-bit FNV/murmur
+ * mix makes accidental collisions vanishingly unlikely).
+ */
+export function opSig(payload: unknown, deleted: boolean): string {
+  const json = stableStringify({ payload: deleted ? null : payload, deleted });
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193 ^ json.length;
+  for (let i = 0; i < json.length; i++) {
+    const c = json.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return `${json.length.toString(36)}.${h1.toString(36)}.${h2.toString(36)}`;
 }
 
 /** Receipts are device-private (Drive appDataFolder) — never sync their metadata. */
@@ -67,6 +89,7 @@ export interface LedgerStateView {
   entries: readonly ExpenseEntry[];
   accountAdjustments: readonly AccountBalanceAdjustment[];
   debtPayments: readonly DebtPayment[];
+  debtAdjustments: readonly DebtAdjustment[];
   accounts: readonly AssetAccount[];
   debts: readonly DebtAccount[];
   limits: readonly ExpenseLimit[];
@@ -75,25 +98,18 @@ export interface LedgerStateView {
 }
 
 interface DiffOptions {
+  /** PERSISTED delete flags — ledger doc ids the user deleted, not yet server-acked. */
+  pendingDeletes: ReadonlySet<string>;
   /**
-   * When true (local data fully hydrated from Drive/cache), a record present in
-   * the ledger but absent locally is treated as locally deleted → tombstone.
-   * MUST be false before hydration completes, or an empty boot state would
-   * tombstone the whole family history.
+   * PERSISTED verify flags — doc ids of widget-captured records the CF already
+   * pushed (`familySynced` tag) whose ledger version this device hasn't fetched
+   * yet. The queue payload is a snapshot from capture time: the partner may
+   * have edited the record since, so pushing it would revert their edit (the
+   * 2026-07-16 update-revert bug). Flagged records are never upserted until
+   * `verifyDocs` learns the server truth.
    */
-  includeAbsenceTombstones: boolean;
-  /** Entry ids deleted in this session (explicit tombstones, independent of hydration). */
-  localDeletedEntryIds: ReadonlySet<string>;
-  /**
-   * Safety valve: if more than this many absence tombstones would be produced,
-   * ALL of them are dropped (explicit tombstones are unaffected). Protects the
-   * family history from a device that hydrated from a stale/partial backup —
-   * genuine deletions happen one or two at a time, never in bulk.
-   */
-  maxAbsenceTombstones?: number;
+  pendingVerify?: ReadonlySet<string>;
 }
-
-const DEFAULT_MAX_ABSENCE_TOMBSTONES = 25;
 
 /** Minimal set of ledger ops that bring the ledger up to date with local state. */
 export function diffLedgerState(
@@ -102,14 +118,14 @@ export function diffLedgerState(
   options: DiffOptions
 ): LedgerOp[] {
   const ops: LedgerOp[] = [];
-  const localDocIds = new Set<string>();
 
   const upsertIfChanged = (type: LedgerRecordType, id: string, payload: unknown): void => {
     const docId = ledgerDocId(type, id);
-    localDocIds.add(docId);
+    if (options.pendingDeletes.has(docId)) return; // flagged deleted — never re-upsert
+    if (options.pendingVerify?.has(docId)) return; // ledger owns it — verify before trusting local
     const known = ledgerCopy.get(docId);
-    const json = opJson(payload, false);
-    if (known?.json === json) return;
+    if (known?.deleted) return; // acked tombstone wins forever (ids are never reused)
+    if (known?.sig === opSig(payload, false)) return;
     ops.push({ type, id, payload, deleted: false });
   };
 
@@ -123,6 +139,9 @@ export function diffLedgerState(
   for (const payment of state.debtPayments) {
     upsertIfChanged('debt-payment', payment.id, payment);
   }
+  for (const adjustment of state.debtAdjustments) {
+    upsertIfChanged('debt-adjustment', adjustment.id, adjustment);
+  }
   for (const account of state.accounts) {
     upsertIfChanged('account', account.id, account);
   }
@@ -135,29 +154,11 @@ export function diffLedgerState(
     currency: state.currency,
   });
 
-  // Explicit tombstones for entries deleted this session.
-  for (const deletedId of options.localDeletedEntryIds) {
-    const docId = ledgerDocId('expense', deletedId);
+  // Tombstones for flagged deletions the ledger still holds live.
+  for (const docId of options.pendingDeletes) {
     const known = ledgerCopy.get(docId);
-    localDocIds.add(docId); // handled here — keep the absence pass off this doc
-    if (known && known.deleted) continue; // ledger already has the tombstone
-    if (!known) continue;                 // never reached the ledger — nothing to kill
-    ops.push({ type: 'expense', id: deletedId, payload: null, deleted: true });
-  }
-
-  // Absence tombstones: the ledger has a live record this hydrated device no
-  // longer holds (deleted debt payment, removed debt, …) → propagate deletion.
-  if (options.includeAbsenceTombstones) {
-    const absenceOps: LedgerOp[] = [];
-    for (const [docId, known] of ledgerCopy) {
-      if (known.deleted || localDocIds.has(docId)) continue;
-      if (known.type === 'limits' || known.type === 'meta') continue; // singletons always exist
-      absenceOps.push({ type: known.type, id: known.id, payload: null, deleted: true });
-    }
-    if (absenceOps.length <= (options.maxAbsenceTombstones ?? DEFAULT_MAX_ABSENCE_TOMBSTONES)) {
-      ops.push(...absenceOps);
-    }
-    // else: dropped — a stale hydration must never bulk-delete family history.
+    if (!known || known.deleted) continue; // never reached the ledger, or already acked
+    ops.push({ type: known.type, id: known.id, payload: null, deleted: true });
   }
 
   return ops;
@@ -167,75 +168,81 @@ export interface ApplyLedgerResult {
   entries: ExpenseEntry[];
   accountAdjustments: AccountBalanceAdjustment[];
   debtPayments: DebtPayment[];
+  debtAdjustments: DebtAdjustment[];
   accounts: AssetAccount[];
   debts: DebtAccount[];
   limits: ExpenseLimit[];
   monthlyIncome: number;
   currency: string | null;
   changed: boolean;
-  /** Entry ids tombstoned by the incoming changes (caller adds to its session set). */
-  deletedEntryIds: string[];
+  /** Doc ids whose ACKED tombstone arrived — caller clears its delete flags. */
+  tombstonedDocIds: string[];
 }
 
 /**
- * Applies incoming ledger changes to local state.
- * Guard per record: if the local copy diverges from `prevJson` (the ledger copy
- * this device previously knew), a local un-pushed edit exists — skip the
- * incoming record; the next diff push resolves the conflict (last writer wins).
+ * Applies incoming (server-acked) ledger changes to local state.
+ * Flag rule: a live incoming record whose doc id carries a pending delete flag
+ * is never applied. Divergence guard: local differing from the last-acked copy
+ * means a local un-pushed edit — incoming skipped, next diff push wins.
  */
 export function applyLedgerChanges(
   state: LedgerStateView,
   changes: readonly LedgerChange[],
-  localDeletedEntryIds: ReadonlySet<string>
+  pendingDeletes: ReadonlySet<string>
 ): ApplyLedgerResult {
   const entries = new Map(state.entries.map((entry) => [entry.id, entry]));
   const adjustments = new Map(state.accountAdjustments.map((item) => [item.id, item]));
   const payments = new Map(state.debtPayments.map((item) => [item.id, item]));
+  const debtAdjustments = new Map(state.debtAdjustments.map((item) => [item.id, item]));
   const accounts = new Map(state.accounts.map((item) => [item.id, item]));
   const debts = new Map(state.debts.map((item) => [item.id, item]));
   let limits = state.limits as ExpenseLimit[];
   let monthlyIncome = state.monthlyIncome;
   let currency: string | null = null;
   let changed = false;
-  const deletedEntryIds: string[] = [];
+  const tombstonedDocIds: string[] = [];
 
-  const localJsonFor = (type: LedgerRecordType, id: string): string | null => {
+  const localSigFor = (type: LedgerRecordType, id: string): string | null => {
     switch (type) {
       case 'expense': {
         const local = entries.get(id);
-        return local ? opJson(stripReceipt(local), false) : null;
+        return local ? opSig(stripReceipt(local), false) : null;
       }
-      case 'adjustment': return adjustments.has(id) ? opJson(adjustments.get(id), false) : null;
-      case 'debt-payment': return payments.has(id) ? opJson(payments.get(id), false) : null;
-      case 'account': return accounts.has(id) ? opJson(accounts.get(id), false) : null;
-      case 'debt': return debts.has(id) ? opJson(debts.get(id), false) : null;
-      case 'limits': return opJson({ limits }, false);
-      case 'meta': return opJson({ monthlyIncome, currency: state.currency }, false);
+      case 'adjustment': return adjustments.has(id) ? opSig(adjustments.get(id), false) : null;
+      case 'debt-payment': return payments.has(id) ? opSig(payments.get(id), false) : null;
+      case 'debt-adjustment': return debtAdjustments.has(id) ? opSig(debtAdjustments.get(id), false) : null;
+      case 'account': return accounts.has(id) ? opSig(accounts.get(id), false) : null;
+      case 'debt': return debts.has(id) ? opSig(debts.get(id), false) : null;
+      case 'limits': return opSig({ limits }, false);
+      case 'meta': return opSig({ monthlyIncome, currency: state.currency }, false);
     }
   };
 
-  for (const { record, prevJson } of changes) {
-    const incomingJson = opJson(record.payload, record.deleted);
-    const localJson = localJsonFor(record.type, record.id);
+  for (const { record, prevSig } of changes) {
+    const docId = ledgerDocId(record.type, record.id);
+    const incomingSig = opSig(record.payload, record.deleted);
+    const localSig = localSigFor(record.type, record.id);
 
-    if (localJson === incomingJson) continue; // already in sync (incl. own echo)
-    if (record.deleted && localJson === null) continue; // already gone locally
-
-    // Local divergence guard: local exists AND differs from what the ledger
-    // previously held → local un-pushed edit wins; our push overwrites remote.
-    if (localJson !== null && prevJson !== null && localJson !== prevJson) continue;
-    // Locally deleted this session but tombstone not pushed yet → keep deletion.
-    if (record.type === 'expense' && localDeletedEntryIds.has(record.id) && !record.deleted) continue;
+    if (record.deleted) {
+      // Acked tombstone: always honor it (locally too), and report it so the
+      // caller clears the matching delete flag.
+      tombstonedDocIds.push(docId);
+      if (localSig === null) continue; // already gone locally
+    } else {
+      if (localSig === incomingSig) continue; // in sync (incl. own echo)
+      // THE FLAG RULE: user deleted this record — a snapshot must never bring it back.
+      if (pendingDeletes.has(docId)) continue;
+      // Local divergence: un-pushed local edit wins until pushed (LWW).
+      if (localSig !== null && prevSig !== null && localSig !== prevSig) continue;
+    }
 
     changed = true;
     if (record.deleted) {
       switch (record.type) {
-        case 'expense':
-          entries.delete(record.id);
-          deletedEntryIds.push(record.id);
-          break;
+        case 'expense': entries.delete(record.id); break;
         case 'adjustment': adjustments.delete(record.id); break;
         case 'debt-payment': payments.delete(record.id); break;
+        case 'debt-adjustment': debtAdjustments.delete(record.id); break;
         case 'account': accounts.delete(record.id); break;
         case 'debt': debts.delete(record.id); break;
         default: break; // singletons are never tombstoned
@@ -254,23 +261,23 @@ export function applyLedgerChanges(
         break;
       }
       case 'adjustment': {
-        const incoming = record.payload as AccountBalanceAdjustment;
-        adjustments.set(incoming.id, incoming);
+        adjustments.set(record.id, record.payload as AccountBalanceAdjustment);
         break;
       }
       case 'debt-payment': {
-        const incoming = record.payload as DebtPayment;
-        payments.set(incoming.id, incoming);
+        payments.set(record.id, record.payload as DebtPayment);
+        break;
+      }
+      case 'debt-adjustment': {
+        debtAdjustments.set(record.id, record.payload as DebtAdjustment);
         break;
       }
       case 'account': {
-        const incoming = record.payload as AssetAccount;
-        accounts.set(incoming.id, incoming);
+        accounts.set(record.id, record.payload as AssetAccount);
         break;
       }
       case 'debt': {
-        const incoming = record.payload as DebtAccount;
-        debts.set(incoming.id, incoming);
+        debts.set(record.id, record.payload as DebtAccount);
         break;
       }
       case 'limits': {
@@ -292,12 +299,13 @@ export function applyLedgerChanges(
       .sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? '')),
     accountAdjustments: Array.from(adjustments.values()),
     debtPayments: Array.from(payments.values()),
+    debtAdjustments: Array.from(debtAdjustments.values()),
     accounts: Array.from(accounts.values()),
     debts: Array.from(debts.values()),
     limits,
     monthlyIncome,
     currency,
     changed,
-    deletedEntryIds,
+    tombstonedDocIds,
   };
 }

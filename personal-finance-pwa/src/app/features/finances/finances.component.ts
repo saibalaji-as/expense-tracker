@@ -20,6 +20,8 @@ import {
   AssetAccountType,
   DebtAccount,
   DebtAccountType,
+  DebtAdjustment,
+  DebtAdjustmentKind,
   DebtPayment,
 } from '../../core/models';
 import { CurrencyService } from '../../core/services/currency.service';
@@ -521,6 +523,9 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                         {{ 'finances.cards.payBill' | translate }}
                       </button>
                     }
+                    <button type="button" class="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent" (click)="startCardAdjustment(card)">
+                      {{ 'finances.cardAdjust.open' | translate }}
+                    </button>
                     <button type="button" class="grid h-8 w-8 place-items-center rounded-xl border border-border text-muted-foreground transition hover:bg-accent" (click)="startCardEdit(card)" [attr.aria-label]="'common.edit' | translate">
                       <lucide-icon name="pencil" class="h-4 w-4" />
                     </button>
@@ -555,6 +560,79 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                       </button>
                     </div>
                   </form>
+                }
+
+                @if (adjustingCard()?.id === card.id) {
+                  <form [formGroup]="cardAdjustmentForm" (ngSubmit)="saveCardAdjustment()" class="mt-4 grid gap-3 rounded-2xl border border-border bg-muted/30 p-3 sm:grid-cols-[170px_1fr_1fr_minmax(160px,1fr)_auto] sm:items-end">
+                    <label class="space-y-1">
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.cardAdjust.kind' | translate }}<span class="text-destructive ml-0.5">*</span></span>
+                      <app-themed-select formControlName="kind" [options]="cardAdjustmentKindOptions()" size="sm" />
+                    </label>
+                    <label class="space-y-1">
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.amount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
+                      <input appClearable type="number" min="0.01" step="0.01" formControlName="amount" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
+                    </label>
+                    <label class="space-y-1">
+                      <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'common.date' | translate }}<span class="text-destructive ml-0.5">*</span></span>
+                      <input appClearable type="date" formControlName="date" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
+                    </label>
+                    @if (cardAdjustKind() === 'cash-withdrawal') {
+                      <label class="space-y-1">
+                        <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.cardAdjust.cashAccount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
+                        <app-themed-select formControlName="accountId" [options]="paymentAccountOptions()" size="sm" />
+                      </label>
+                    } @else {
+                      <label class="space-y-1">
+                        <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.cardAdjust.reason' | translate }}<span class="text-muted-foreground ml-0.5">{{ 'common.optional' | translate }}</span></span>
+                        <input appClearable type="text" formControlName="reason" class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" [placeholder]="'finances.cardAdjust.reasonPlaceholder' | translate" />
+                      </label>
+                    }
+                    <div class="flex gap-2">
+                      <button type="button" class="rounded-xl border border-border px-3 py-2 text-xs font-semibold text-muted-foreground" (click)="cancelCardAdjustment()">{{ 'common.cancel' | translate }}</button>
+                      <button type="submit" class="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-60" [disabled]="saving() || (cardAdjustKind() === 'cash-withdrawal' && activeAccounts().length === 0)">
+                        {{ 'finances.cardAdjust.save' | translate }}
+                      </button>
+                    </div>
+                    <p class="text-[10px] leading-relaxed text-muted-foreground sm:col-span-full">{{ ('finances.cardAdjust.hint.' + cardAdjustKind()) | translate }}</p>
+                  </form>
+                }
+
+                @if (debtAdjustmentsForCard(card.id).length > 0) {
+                  <div class="mt-4 rounded-2xl border border-border bg-muted/20 p-3">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.cardAdjust.history' | translate }}</p>
+                    <div class="mt-2 grid gap-2">
+                      @for (adjustment of debtAdjustmentsForCard(card.id); track adjustment.id) {
+                        <div class="flex flex-wrap items-start justify-between gap-2 rounded-xl bg-background/70 px-3 py-2 text-xs">
+                          <div class="min-w-0">
+                            <p
+                              class="font-semibold tabular-nums"
+                              [class.text-destructive]="adjustment.kind !== 'refund'"
+                              [style.color]="adjustment.kind === 'refund' ? 'var(--success)' : null"
+                            >
+                              {{ adjustment.kind === 'refund' ? '−' : '+' }}{{ adjustment.amount | currencyFormat }}
+                            </p>
+                            <p class="text-muted-foreground">
+                              {{ adjustment.date | dateFormat }}@if (adjustment.linkedAccountId) {<span> · {{ accountName(adjustment.linkedAccountId) }}</span>}
+                            </p>
+                            @if (adjustment.reason) {
+                              <p class="mt-0.5 break-words text-foreground">{{ adjustment.reason }}</p>
+                            }
+                          </div>
+                          <div class="flex shrink-0 items-center gap-2">
+                            @if (expenseStore.pendingSyncIds().includes(adjustment.id)) {
+                              <span class="flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
+                                <lucide-icon name="cloud-off" class="h-2.5 w-2.5" />
+                                {{ 'finances.adjust.localOnly' | translate }}
+                              </span>
+                            }
+                            <span class="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                              {{ cardAdjustmentKindLabel(adjustment.kind) }}
+                            </span>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  </div>
                 }
 
                 <div class="mt-4 rounded-2xl border border-border bg-muted/20 p-3">
@@ -812,6 +890,9 @@ export class FinancesComponent {
   readonly editingDebt = signal<DebtAccount | null>(null);
   readonly editingDebtPayment = signal<DebtPayment | null>(null);
   readonly adjustingAccount = signal<AssetAccount | null>(null);
+  readonly adjustingCard = signal<DebtAccount | null>(null);
+  /** Mirrors cardAdjustmentForm.kind for OnPush template reactivity. */
+  readonly cardAdjustKind = signal<DebtAdjustmentKind>('refund');
   readonly payingDebt = signal<DebtAccount | null>(null);
   readonly deleteTarget = signal<AssetAccount | null>(null);
   readonly deleteDebtTarget = signal<DebtAccount | null>(null);
@@ -867,6 +948,23 @@ export class FinancesComponent {
     accountId: [''],
     comment: [''],
   });
+
+  /**
+   * Non-purchase card movements: refund (outstanding ↓), cash withdrawal
+   * (outstanding ↑ + receiving account ↑), fee/charge (outstanding ↑).
+   * None of these are expenses — see ExpenseStore.recordDebtAdjustment.
+   */
+  readonly cardAdjustmentForm = new FormBuilder().nonNullable.group({
+    kind: ['refund' as DebtAdjustmentKind, Validators.required],
+    amount: [0, [Validators.required, Validators.min(0.01)]],
+    date: [toLocalDateString(), Validators.required],
+    accountId: [''],
+    reason: [''],
+  });
+
+  constructor() {
+    this.cardAdjustmentForm.get('kind')!.valueChanges.subscribe((kind) => this.cardAdjustKind.set(kind));
+  }
 
   startCreate(): void {
     this.editingAccount.set(null);
@@ -1369,6 +1467,79 @@ export class FinancesComponent {
 
   adjustmentKindLabel(kind: AccountBalanceAdjustment['kind']): string {
     return this.i18n.t(`finances.adjust.${kind}`);
+  }
+
+  startCardAdjustment(card: DebtAccount): void {
+    this.adjustingCard.set(card);
+    this.cardAdjustmentForm.reset({
+      kind: 'refund',
+      amount: 0,
+      date: toLocalDateString(),
+      accountId: this.expenseStore.defaultAccount()?.id ?? this.activeAccounts()[0]?.id ?? '',
+      reason: '',
+    });
+  }
+
+  cancelCardAdjustment(): void {
+    this.adjustingCard.set(null);
+  }
+
+  cardAdjustmentKindOptions(): ThemedSelectOption[] {
+    return [
+      { value: 'refund', label: this.i18n.t('finances.cardAdjust.refund'), icon: 'credit-card' },
+      { value: 'cash-withdrawal', label: this.i18n.t('finances.cardAdjust.cashWithdrawal'), icon: 'wallet-cards' },
+      { value: 'charge', label: this.i18n.t('finances.cardAdjust.charge'), icon: 'badge-indian-rupee' },
+    ];
+  }
+
+  cardAdjustmentKindLabel(kind: DebtAdjustmentKind): string {
+    return this.i18n.t(kind === 'cash-withdrawal' ? 'finances.cardAdjust.cashWithdrawal' : `finances.cardAdjust.${kind}`);
+  }
+
+  debtAdjustmentsForCard(debtId: string): DebtAdjustment[] {
+    return this.expenseStore.debtAdjustments()
+      .filter((adjustment) => adjustment.debtId === debtId)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async saveCardAdjustment(): Promise<void> {
+    const card = this.adjustingCard();
+    if (!card) return;
+    const value = this.cardAdjustmentForm.getRawValue();
+    const needsAccount = value.kind === 'cash-withdrawal';
+    if (this.cardAdjustmentForm.invalid || (needsAccount && !value.accountId)) {
+      this.cardAdjustmentForm.markAllAsTouched();
+      this.feedback.warning(
+        this.i18n.t('finances.feedback.reviewCardAdjustment'),
+        this.i18n.t('finances.feedback.reviewCardAdjustmentDetail')
+      );
+      return;
+    }
+
+    this.saving.set(true);
+    try {
+      await this.expenseStore.recordDebtAdjustment({
+        debtId: card.id,
+        kind: value.kind,
+        amount: value.amount,
+        date: value.date,
+        ...(needsAccount ? { linkedAccountId: value.accountId } : {}),
+        reason: value.reason,
+      });
+      const formattedAmount = this.currencyService.format(value.amount, this.i18n.locale());
+      this.feedback.success(
+        this.i18n.t('finances.feedback.cardAdjustmentSaved'),
+        this.i18n.t('finances.feedback.cardAdjustmentSavedDetail', { amount: formattedAmount, kind: this.cardAdjustmentKindLabel(value.kind) })
+      );
+      this.cancelCardAdjustment();
+    } catch (error) {
+      this.feedback.error(
+        this.i18n.t('finances.feedback.cardAdjustmentNotSaved'),
+        error instanceof Error ? error.message : this.i18n.t('finances.feedback.tryAgain')
+      );
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   accountAdjustmentsForAccount(accountId: string): AccountBalanceAdjustment[] {

@@ -38,11 +38,13 @@ service cloud.firestore {
       allow update, delete: if false; // deltas are immutable
     }
 
-    // ── LEGACY: family state snapshot (full BackupDocument). Read-only since the
-    // Family Ledger migration — kept so clients can migrate it into the ledger.
-    // Remove (with the doc itself) after both members are on the ledger build. ──
+    // ── LEGACY: family state snapshot (full BackupDocument). WRITE-LOCKED since
+    // Phase 2 — the ledger is the only write path; this doc exists solely so a
+    // fresh device with legacy data can migrate it into the ledger. Remove the
+    // block (and the doc) once no legacy families remain. ──
     match /families/{familyId}/state/{docId} {
-      allow read, write: if request.auth != null && isFamilyMember(familyId);
+      allow read: if request.auth != null && isFamilyMember(familyId);
+      allow write: if false;
     }
 
     // ── Family Ledger: one document per shared record (expense/adjustment/

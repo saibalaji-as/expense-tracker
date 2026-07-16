@@ -11,6 +11,7 @@ export type LedgerRecordType =
   | 'expense'
   | 'adjustment'
   | 'debt-payment'
+  | 'debt-adjustment'
   | 'account'
   | 'debt'
   | 'limits' // singleton: payload = { limits: ExpenseLimit[] }
@@ -46,18 +47,22 @@ export function ledgerDocId(type: LedgerRecordType, id: string): string {
   return `${type}:${id.replace(/\//g, '_')}`;
 }
 
-/** What the local device believes the ledger currently contains, per doc id. */
+/**
+ * What the local device knows the ledger to contain, per doc id — SERVER-ACKED
+ * state only, PERSISTED across restarts (this durability is what makes the
+ * divergence guard and delete flags survive an app kill).
+ */
 export interface LedgerCopyEntry {
-  /** Stable-stringified `{ payload, deleted }` — divergence comparison key. */
-  json: string;
+  /** Content signature (length+hash of stable json) — equality comparisons only. */
+  sig: string;
   deleted: boolean;
   type: LedgerRecordType;
   id: string;
 }
 
-/** A ledger doc change delivered to the store, with the previous known copy. */
+/** A ledger doc change delivered to the store, with the previously known copy. */
 export interface LedgerChange {
   record: LedgerRecord;
-  /** Stable json of the copy this device previously knew, or null if new to us. */
-  prevJson: string | null;
+  /** Signature of the copy this device previously knew, or null if new to us. */
+  prevSig: string | null;
 }

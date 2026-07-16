@@ -92,5 +92,6 @@ export function mergeBackupDocuments(
     accountAdjustments: mergeAddOnly(current.accountAdjustments ?? [], incoming.accountAdjustments ?? []),
     debts: mergeByUpdatedAt(current.debts ?? [], incoming.debts ?? []),
     debtPayments: mergeAddOnly(current.debtPayments ?? [], incoming.debtPayments ?? []),
+    debtAdjustments: mergeAddOnly(current.debtAdjustments ?? [], incoming.debtAdjustments ?? []),
   };
 }

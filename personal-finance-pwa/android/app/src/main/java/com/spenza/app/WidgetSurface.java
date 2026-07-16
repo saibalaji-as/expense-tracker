@@ -61,9 +61,10 @@ final class WidgetSurface {
         glowPaint.setMaskFilter(new BlurMaskFilter(16 * d, BlurMaskFilter.Blur.NORMAL));
         c.drawRoundRect(panel, radius, radius, glowPaint);
 
-        // Frosted white fill: mostly-white translucency, only a whisper of palette tint.
-        int topColor = withAlpha(base, dark ? 190 : 196);
-        int bottomColor = withAlpha(blend(base, primary, dark ? 0.12f : 0.05f), dark ? 178 : 172);
+        // Frosted white fill: mostly-white translucency, only a whisper of palette
+        // tint — kept translucent enough that the wallpaper clearly bleeds through.
+        int topColor = withAlpha(base, dark ? 188 : 176);
+        int bottomColor = withAlpha(blend(base, primary, dark ? 0.12f : 0.05f), dark ? 174 : 150);
         Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         fill.setShader(new LinearGradient(0, panel.top, 0, panel.bottom,
             topColor, bottomColor, Shader.TileMode.CLAMP));

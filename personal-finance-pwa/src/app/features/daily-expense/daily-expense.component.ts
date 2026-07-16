@@ -1792,15 +1792,26 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       label: `${account.name} · ${this.currencyService.format(account.balance, this.i18n.locale())}`,
       icon: 'wallet-cards',
     }));
-    // Cards are only selectable when creating: editing a card-linked entry is
-    // blocked by product rule, and attaching a card during edit would need
-    // reverse/apply support in ExpenseStore.updateEntry.
-    if (this.isEditMode()) return accountOptions;
     const cardOptions: ThemedSelectOption[] = this.activeCreditCards().map((card) => ({
       value: `${DEBT_PAYMENT_OPTION_PREFIX}${card.id}`,
       label: `${card.name} · ${this.i18n.t('daily.paymentCreditCard')}`,
       icon: 'credit-card',
     }));
+    // When editing an entry charged to a card that is no longer active, keep
+    // that card selectable so the entry can be saved without relinking. The
+    // store allows keeping/reversing charges on inactive cards — only NEW
+    // charges require an active card.
+    const editingDebtId = this.editingEntry()?.debtId;
+    if (editingDebtId && !this.activeCreditCards().some((card) => card.id === editingDebtId)) {
+      const card = this.expenseStore.debts().find((debt) => debt.id === editingDebtId);
+      if (card) {
+        cardOptions.push({
+          value: `${DEBT_PAYMENT_OPTION_PREFIX}${card.id}`,
+          label: `${card.name} · ${this.i18n.t('daily.paymentCreditCard')}`,
+          icon: 'credit-card',
+        });
+      }
+    }
     return [...accountOptions, ...cardOptions];
   });
   readonly splitCategoryOptions = computed<ThemedSelectOption[]>(() =>
@@ -2030,7 +2041,12 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const value = this.form.get('accountId')?.value ?? '';
     if (typeof value === 'string' && value.startsWith(DEBT_PAYMENT_OPTION_PREFIX)) {
       const debtId = value.slice(DEBT_PAYMENT_OPTION_PREFIX.length);
-      return this.activeCreditCards().some((card) => card.id === debtId) ? { debtId } : {};
+      // During edit, the original entry's card stays valid even if it has been
+      // archived since — keeping the link must not silently drop the charge.
+      const isValidCard =
+        this.activeCreditCards().some((card) => card.id === debtId) ||
+        this.editingEntry()?.debtId === debtId;
+      return isValidCard ? { debtId } : {};
     }
     const accountId = this.selectedPaymentAccountId();
     return accountId ? { accountId } : {};
@@ -3082,7 +3098,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     const savings = (limit ?? 0) - (amount ?? 0);
     const comment = this.form.get('comment')?.value || undefined;
     const date = this.form.get('date')?.value ?? originalEntry.date;
-    const accountId = this.selectedPaymentAccountId();
+    // Resolve account OR card explicitly: spreading originalEntry must not
+    // leave a stale debtId/accountId behind when the payment source changed.
+    const paymentLink = this.selectedPaymentLink();
     const { receipt: uploadedReceipt, failed: receiptFailed } = await this.tryUploadSelectedReceipt(originalEntry.id, date);
     const actor = this.activityActor();
 
@@ -3095,7 +3113,8 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
       savings,
       comment,
       receipt: uploadedReceipt ?? originalEntry.receipt,
-      accountId,
+      accountId: paymentLink.accountId,
+      debtId: paymentLink.debtId,
       timestamp: new Date().toISOString(),
       updatedByEmail: actor.email,
       updatedByRole: actor.role,
@@ -3149,7 +3168,9 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Edit entry ───────────────────────────────────────────────────────────
   canManageEntry(entry: ExpenseEntry): boolean {
-    return entry.source !== 'debt-payment' && !entry.debtId;
+    // Card purchases are editable/deletable (the store reverses the card
+    // charge); only repayments stay managed in Finances.
+    return entry.source !== 'debt-payment';
   }
 
   editEntry(entry: ExpenseEntry): void {
@@ -3159,13 +3180,16 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     this.editingEntry.set(entry);
     this.clearSelectedReceipt();
     
-    // Populate form with entry data
+    // Populate form with entry data. Card-linked entries pre-select their
+    // card via the prefixed selector value.
     this.form.patchValue({
       expenseType: entry.type,
       amount: entry.amount,
       limit: entry.limit,
       date: entry.date,
-      accountId: entry.accountId ?? this.defaultAccountId(),
+      accountId: entry.debtId
+        ? `${DEBT_PAYMENT_OPTION_PREFIX}${entry.debtId}`
+        : (entry.accountId ?? this.defaultAccountId()),
       comment: entry.comment || '',
     });
 

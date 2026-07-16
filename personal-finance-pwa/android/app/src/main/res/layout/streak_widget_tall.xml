@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Daily Streak widget, medium tier (~2 launcher rows).
+<!-- Daily Streak widget, roomy tier (portrait height >= 150dp). Same ids as streak_widget.xml, scaled up for launchers with tall cells.
      Row 1: flame badge + streak count hero + status/best column.
      Row 2: 7-day dot tracker, centered in the leftover height.
      A single launcher row uses streak_widget_compact instead; badge/pill/dot
@@ -22,10 +22,10 @@
         android:layout_height="match_parent"
         android:background="@android:color/transparent"
         android:orientation="vertical"
-        android:paddingLeft="16dp"
-        android:paddingTop="10dp"
-        android:paddingRight="16dp"
-        android:paddingBottom="8dp">
+        android:paddingLeft="18dp"
+        android:paddingTop="13dp"
+        android:paddingRight="18dp"
+        android:paddingBottom="12dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -35,10 +35,10 @@
 
             <ImageView
                 android:id="@+id/streak_flame_badge"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:background="@drawable/streak_flame_badge"
-                android:padding="10dp"
+                android:padding="12dp"
                 android:src="@drawable/ic_widget_flame" />
 
             <LinearLayout
@@ -62,7 +62,7 @@
                         android:singleLine="true"
                         android:text="0"
                         android:textColor="@color/spenza_flame_end"
-                        android:textSize="28sp"
+                        android:textSize="38sp"
                         android:textStyle="bold" />
 
                     <TextView
@@ -75,7 +75,7 @@
                         android:singleLine="true"
                         android:text="day streak"
                         android:textColor="@color/spenza_widget_muted"
-                        android:textSize="12sp"
+                        android:textSize="14sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
@@ -88,7 +88,7 @@
                     android:singleLine="true"
                     android:text="Log an expense to start your streak."
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="11sp" />
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -101,16 +101,16 @@
                 <TextView
                     android:id="@+id/streak_status"
                     android:layout_width="wrap_content"
-                    android:layout_height="24dp"
+                    android:layout_height="30dp"
                     android:background="@drawable/streak_status_pill"
                     android:gravity="center"
-                    android:minWidth="64dp"
+                    android:minWidth="76dp"
                     android:paddingLeft="11dp"
                     android:paddingRight="11dp"
                     android:singleLine="true"
                     android:text="On track"
                     android:textColor="@color/spenza_food"
-                    android:textSize="11sp"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -122,7 +122,7 @@
                     android:singleLine="true"
                     android:text="Best 0"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
@@ -145,8 +145,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day0"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl0"
@@ -156,7 +156,7 @@
                     android:includeFontPadding="false"
                     android:text="S"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -167,8 +167,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day1"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl1"
@@ -178,7 +178,7 @@
                     android:includeFontPadding="false"
                     android:text="M"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -189,8 +189,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day2"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl2"
@@ -200,7 +200,7 @@
                     android:includeFontPadding="false"
                     android:text="T"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -211,8 +211,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day3"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl3"
@@ -222,7 +222,7 @@
                     android:includeFontPadding="false"
                     android:text="W"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -233,8 +233,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day4"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl4"
@@ -244,7 +244,7 @@
                     android:includeFontPadding="false"
                     android:text="T"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -255,8 +255,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day5"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_off" />
                 <TextView
                     android:id="@+id/streak_lbl5"
@@ -266,7 +266,7 @@
                     android:includeFontPadding="false"
                     android:text="F"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -277,8 +277,8 @@
                 android:orientation="vertical">
                 <ImageView
                     android:id="@+id/streak_day6"
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="17dp"
+                    android:layout_height="17dp"
                     android:src="@drawable/streak_day_dot_today" />
                 <TextView
                     android:id="@+id/streak_lbl6"
@@ -288,7 +288,7 @@
                     android:includeFontPadding="false"
                     android:text="S"
                     android:textColor="@color/spenza_widget_muted"
-                    android:textSize="10sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

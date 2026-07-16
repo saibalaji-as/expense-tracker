@@ -1,7 +1,7 @@
 # Family Sync Centralization Plan ("Family Ledger")
 
-**Date:** 2026-07-14
-**Status:** Proposed
+**Date:** 2026-07-14 · **Hardened:** 2026-07-15 (see §6)
+**Status:** Phase 1 implemented + delivery hardening
 **Problem:** Entries logged from the widget/notification are not reaching the partner. Opening the app doesn't sync them; only editing some expense (which triggers `pushFamilyState`) does. This is the third family-sync loss bug in one month (clobbering fix 2026-07-11, widget sync-tag fix 2026-07-11, this one). The architecture makes this bug class recurring.
 
 ---
@@ -114,7 +114,13 @@ Two members, a few hundred records/month → hundreds of doc writes + reads/mont
 4. CF `commitFamilyLedger` + worker points at it. Tag semantics preserved.
 5. Two-device test matrix: app↔app, widget→closed partner, notification→closed partner, offline logging → reconnect, simultaneous edits of same entry.
 
-**Phase 2 — cleanup + hardening:** delete Java Drive leg, `family-state-merge.ts`, CF merge code, state-doc listener; derived balances; convert flush to pure local-apply + commit.
+**Phase 2 — cleanup (DONE 2026-07-15, scope adjusted):**
+- Java Drive-merge leg removed for Firestore-family mode only (worker = CF push + tag, early return; queue consumed by app flush). Single/legacy modes KEEP the Drive leg — it is their only background backup, and deleting it would reintroduce the "entry exists only in widget prefs until app open" uninstall-loss risk. Bonus: removes the widget-insight double count (untagged item in both snapshot and queue).
+- Legacy CF `syncWidgetExpenseToFamily` source deleted + unexported. **Undeploy manually: `firebase functions:delete syncWidgetExpenseToFamily`.**
+- `families/{id}/state/{docId}` rules → read-only (migration is the only remaining reader).
+- Flush bookkeeping (`widgetFamilyPushNeeded`/`owesFamilyPush`) deleted — flush ends with an unconditional (no-op-when-in-sync) `pushFamilyLedger()` reconciliation.
+- `family-state-merge.ts` is KEPT (plan change): its merge utils now power the family-mode Drive-load merge (§6).
+- Derived balances deliberately deferred to their own pass — not mixed into the post-incident observation window.
 
 **Phase 3 — nice-to-haves:** see §4.
 
@@ -139,3 +145,57 @@ Two members, a few hundred records/month → hundreds of doc writes + reads/mont
 - Family-push bookkeeping inside `flushPendingWidgetExpenses`
 
 One write path, one read path, zero hand-rolled offline queues on the Angular side. New entry points (future: Wear OS, shortcuts, import) just call `commit()` and are family-safe by construction.
+
+---
+
+## 6. 2026-07-15 incident + delivery hardening (the "delete flag" rules)
+
+Two field failures after Phase 1 deploy: (1) a partner's app-logged expense never arrived until re-logged; (2) a deleted expense resurrected after app reopen, then disappeared on both devices minutes later.
+
+**Root causes (all in Phase 1's delivery discipline, not the ledger model):**
+1. Pushes were gated on the listener's first snapshot (`isPrimed`) — a device that logged and closed early pushed NOTHING, not even into the offline queue.
+2. Commits were fire-and-forget — "saved" toast ≠ delivered; a stranded tombstone sat in the queue across a restart.
+3. The ledger-copy map and deleted-ids set were in-memory — after every restart the divergence guard collapsed to "ledger wins," so the still-live server record resurrected the deleted expense.
+4. Drive loads wholesale-replaced state, dropping ledger-applied partner records mid-session; the (racy) absence-tombstone heuristic then non-deterministically deleted or re-persisted records.
+5. `settings.component` called `getFirestore()` directly — could silently downgrade the session to a memory-only cache.
+
+**Hardening (implemented 2026-07-15):**
+- **Persisted delete flags** (`spenza_family_pending_deletes_v1`): on any delete (entry, debt payment + linked expense, debt, account + adjustments) the ledger doc id is flagged to disk BEFORE the mutation. Enforced both ways until server ack: apply never resurrects a flagged record; diff never re-uploads one and emits its tombstone. Acked tombstones clear the flag. Acked tombstones in the copy win forever (ids are UUIDs, never reused).
+- **Persisted, ack-only ledger copy** (`spenza_family_ledger_copy_v1`, content signatures only): snapshot docs with `hasPendingWrites` are skipped — the copy tracks SERVER truth, so diff pushes keep re-producing an op until it is acked. Restored on start; the divergence guard now survives restarts (offline edits can no longer be overwritten at boot).
+- **No listener gate:** `primeNow()` loads the copy on demand (persisted → one `getDocs`); a push can always proceed.
+- **Ack-tracked pushes:** `familyPushPending` stays true until Firestore confirms the server ack; resume/online re-pushes anything undelivered. `pendingAckCount` signal exposed for diagnostics.
+- **Drive loads merge, never clobber** in family mode (`mergeBackupDocumentForFamily`): union with current state, filtered by ledger tombstones + delete flags; the enriched doc is written back to Drive.
+- **Absence-tombstone heuristic DELETED** — durable explicit flags made it unnecessary; it was the racy component in failure (2).
+- `settings.component` routed through `getSharedFirestore()`.
+
+Verified: app tsc clean, family-ledger.util spec 20/20 (incl. end-to-end delete→restart→snapshot resurrection scenario), expense-store 37/37. Same pending deploy/build/matrix-test checklist as Phase 1, plus two new manual cases: log → force-stop within 3 s → reopen (entry must reach partner); delete offline → kill app → reopen online (must NOT resurrect, partner must see deletion).
+
+---
+
+## 7. 2026-07-16 update-revert fix (verify flags)
+
+**Field failure:** owner logs from widget → partner receives it → the record is edited (v2, synced) → when the owner's app later opens, both devices revert to the original v1.
+
+**Root cause:** the widget queue payload is a *capture-time snapshot*. The `familySynced` tag says the CF already wrote it to the ledger, but the owner's app flush still inserted it as fresh local truth. Since the owner's persisted ledger copy had never seen the record (the CF wrote it server-side while the app was closed), the diff concluded "the ledger is missing this" and pushed v1 — overwriting v2; the partner's LWW apply then reverted too.
+
+**Fix — verify flags (same durable-flag method as deletes):**
+- Flush flags every `familySynced`-tagged item's doc id in persisted `spenza_family_pending_verify_v1` (expenses + adjustments). The diff NEVER pushes a flagged record.
+- `pushFamilyLedger` first calls `FamilySyncService.verifyDocs()` — a SERVER-only fetch (`getDocsFromServer`; a cache miss must not masquerade as "CF never wrote it") of the flagged docs. Found docs are ingested into the copy and emitted through `changes$`, so a newer partner version replaces the stale queue payload locally instead of being reverted. Docs missing server-side (CF skipped/never wrote) simply clear the flag and the normal push delivers them.
+- Offline: verify throws, flags persist, records stay un-pushed (still visible locally from the flush insert), `familyPushPending` stays set so resume/online retries.
+
+Verified: tsc clean, ledger util spec 23/23 (verify-skip, cleared-flag push, stale-payload-corrected cases), expense-store 37/37. Manual case to add to the matrix: widget log (app closed) → partner edits it → owner opens app → owner must show the EDITED version and partner must keep it.
+
+---
+
+## 8. 2026-07-16 widget two-way sync (partner expenses on the widget, app closed)
+
+**Feature:** a partner's logged expense appears on the other member's home-screen widget within seconds, without opening the app.
+
+**Design — display-only overlay, NOT a new sync path:**
+- CF `notifyPartnerLedgerWrite` (Firestore trigger on `families/{id}/ledger/{recordId}`): forwards EXPENSE records (live ones only when expense date ≤ 7 days old — caps FCM bursts from bulk reconciles; tombstones always) as high-priority FCM DATA messages to the other member's native device tokens (`users` registry, `ownerUid` + `platform == 'native'`).
+- `MyFirebaseMessagingService` (already existed, data payloads were ignored): validates family mode + not-own-record, stores it in `spenza_widget_partner_pending_v1` via new `PartnerPendingStore`, repaints widgets. Runs with the app process dead (not force-stopped).
+- Widget render: `snapshot expenses ⊕ overlay ⊕ own queue`. Overlay records override/remove snapshot copies by id (partner edits/deletes reflected); records received at/before the snapshot's `savedAt` are superseded and pruned — once the app's ledger listener rewrites the snapshot, the overlay copy is redundant. Cap 100 records / 14 days.
+- INVARIANT: the overlay never touches the queue, the snapshot doc, or any authoritative state. The app's ledger listener remains the single real sync path (AI_RULES). Losing an FCM message loses nothing — only widget freshness until the next app open.
+- Requires the partner's device to have notifications enabled (FCM token registered); otherwise the feature silently degrades to today's behavior.
+
+Deploy: `firebase deploy --only functions` (first Firestore-trigger deploy may ask to enable Eventarc/Cloud Run APIs — accept), Gradle build both devices. Test: partner logs/edits/deletes an expense while your app is closed → your widget total and "PARTNER LOGGED LAST" header update within seconds; open the app → totals identical (no double count).

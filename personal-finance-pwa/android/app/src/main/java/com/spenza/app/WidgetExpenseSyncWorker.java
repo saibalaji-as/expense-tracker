@@ -71,7 +71,8 @@ public class WidgetExpenseSyncWorker extends Worker {
         // items are NEVER dropped by the Drive leg below, and their presence forces
         // Result.retry() — a failed family push can no longer be silently lost.
         boolean familyPushPending = false;
-        if (isFirestoreFamily(prefs)) {
+        boolean firestoreFamily = isFirestoreFamily(prefs);
+        if (firestoreFamily) {
             JSONArray familyExpenses = new JSONArray();
             JSONArray familyAdjustments = new JSONArray();
             List<JSONObject> pushedItems = new ArrayList<>();
@@ -111,6 +112,21 @@ public class WidgetExpenseSyncWorker extends Worker {
                     familyPushPending = true;
                 }
             }
+        }
+
+        // ── Family Ledger mode: Firestore IS the delivery + durability channel.
+        // Once the CF push is acked (familySynced tag), the records are safe
+        // server-side and the partner has them; the Drive backup is written by
+        // the app on next open when it consumes the queue. The old Java
+        // Drive-merge leg is deleted for this mode (Phase 2 cleanup,
+        // docs/family-sync-centralization-plan.md §3) — it duplicated the merge
+        // logic in a third language and double-counted untagged items in the
+        // widget insight (snapshot + queue).
+        if (firestoreFamily) {
+            Log.d(TAG, familyPushPending
+                ? "Family ledger push pending — WorkManager will retry."
+                : "Family ledger push complete; queue awaits app-side consumption.");
+            return familyPushPending ? Result.retry() : Result.success();
         }
 
         String token = validAccessToken(prefs);

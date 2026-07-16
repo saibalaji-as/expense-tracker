@@ -1,11 +1,9 @@
 package com.spenza.app;
 
-import android.appwidget.AppWidgetManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.widget.RemoteViews;
 
@@ -104,17 +102,16 @@ final class WidgetTheme {
         );
     }
 
-    /** Renders the themed body bitmap into the given ImageView. Falls back silently to the
-     *  layout's static background drawable if rendering fails. */
-    void applySurface(Context context, RemoteViews views, int imageViewId, Bundle options) {
+    /** Renders the themed body bitmap into the given ImageView, sized for the given
+     *  orientation-specific widget dimensions. Falls back silently to the layout's
+     *  static background drawable if rendering fails. */
+    void applySurface(Context context, RemoteViews views, int imageViewId, int widthDp, int heightDp) {
         try {
             DisplayMetrics metrics = context.getResources().getDisplayMetrics();
             float density = metrics.density <= 0 ? 1f : metrics.density;
 
-            int widthDp = options == null ? 0 : options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
-            int heightDp = options == null ? 0 : options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
             if (widthDp <= 0) widthDp = 300;
-            if (heightDp <= 0) heightDp = 180;
+            if (heightDp <= 0) heightDp = 140;
 
             int widthPx = Math.round(widthDp * density);
             int heightPx = Math.round(heightDp * density);
