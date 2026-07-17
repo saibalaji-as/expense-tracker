@@ -2,7 +2,8 @@ import { computed, effect, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { Subject } from 'rxjs';
-import { budgetThresholdExceeded$ } from './budget-events';
+import { budgetThresholdExceeded$, cardUtilizationCrossed$ } from './budget-events';
+import { crossedUtilizationThreshold, utilizationPercent } from '../utils/credit-card-insights';
 import { FamilySyncService } from './family-sync.service';
 import {
   AccountBalanceAdjustment,
@@ -829,7 +830,24 @@ export const ExpenseStore = signalStore(
       return !!currentEmail && item.userEmail === currentEmail;
     };
 
-    const flushPendingWidgetExpenses = async (): Promise<boolean> => {
+    // CONCURRENCY GUARD: the flush is fired from several independent places that
+    // can overlap at startup (loadFromLocalCache fire-and-forget, the app's
+    // focus/resume handler ~200ms later, loadFromDrive, the widget event
+    // listener). Two overlapping runs both snapshot store.entries() BEFORE either
+    // patches state, so the same queue item passes the existingIds duplicate
+    // check twice and is inserted twice ("duplicated entry, both Syncing").
+    // Serialize: concurrent callers join the in-flight run; the queue is
+    // re-read on the next call, so nothing is ever dropped.
+    let widgetFlushInFlight: Promise<boolean> | null = null;
+    const flushPendingWidgetExpenses = (): Promise<boolean> => {
+      if (widgetFlushInFlight) return widgetFlushInFlight;
+      widgetFlushInFlight = flushPendingWidgetExpensesInner().finally(() => {
+        widgetFlushInFlight = null;
+      });
+      return widgetFlushInFlight;
+    };
+
+    const flushPendingWidgetExpensesInner = async (): Promise<boolean> => {
       const rawQueue = await readWidgetExpenseQueue();
       if (rawQueue.length === 0) return false;
 
@@ -1287,6 +1305,21 @@ export const ExpenseStore = signalStore(
       };
     };
 
+    // HEAL: drop duplicate expense ids (first occurrence wins). A past
+    // concurrent-widget-flush race could insert the same queue item twice; the
+    // duplicates were then persisted. Deletion filters by id (removes both
+    // copies) while debt reversal applies once — so duplicates must be healed
+    // on load, not left for the user to delete.
+    const dedupeExpensesById = (expenses: ExpenseEntry[]): ExpenseEntry[] => {
+      const seen = new Set<string>();
+      const deduped = expenses.filter((entry) => {
+        if (seen.has(entry.id)) return false;
+        seen.add(entry.id);
+        return true;
+      });
+      return deduped.length === expenses.length ? expenses : deduped;
+    };
+
     const applyBackupDocument = (
       fileId: string,
       doc: Awaited<ReturnType<GoogleDriveService['readBackupFile']>>,
@@ -1300,6 +1333,11 @@ export const ExpenseStore = signalStore(
       if (backupModeService.getMode() === 'family' && backupModeService.getFamilyId()) {
         effectiveDoc = mergeBackupDocumentForFamily(normalizedDoc);
         familyMergeChanged = stableStringify(effectiveDoc) !== stableStringify(normalizedDoc);
+      }
+      const dedupedExpenses = dedupeExpensesById(effectiveDoc.expenses);
+      if (dedupedExpenses !== effectiveDoc.expenses) {
+        effectiveDoc = { ...effectiveDoc, expenses: dedupedExpenses };
+        familyMergeChanged = true; // duplicate removal must be written back to Drive
       }
 
       patchState(store, {
@@ -1590,7 +1628,7 @@ export const ExpenseStore = signalStore(
         } catch { /* ignore parse errors */ }
 
         patchState(store, {
-          entries: snapshot.doc.expenses,
+          entries: dedupeExpensesById(snapshot.doc.expenses),
           limits: snapshot.doc.limits,
           accounts: backupAccounts(snapshot.doc),
           accountAdjustments: backupAccountAdjustments(snapshot.doc),
@@ -2195,7 +2233,7 @@ export const ExpenseStore = signalStore(
           updatedAccounts = applyAccountDeltas(store.accounts(), new Map([[account.id, amount]]));
         }
 
-        const outstandingDelta = input.kind === 'refund' ? -amount : amount;
+        const outstandingDelta = input.kind === 'refund' || input.kind === 'cashback' ? -amount : amount;
         const nextRemainingBalance = Math.max(0, roundMoney(card.remainingBalance + outstandingDelta));
 
         const now = new Date().toISOString();
@@ -2816,6 +2854,36 @@ export const ExpenseStore = signalStore(
         await backupModeService.clearFamilyState();
         await backupModeService.setMode('single');
       })();
+    });
+
+    // Card utilization alerts (30% / 80% of creditLimit): compare each card's
+    // outstanding against the previous emission and fire on upward threshold
+    // crossings. Watching debts() covers EVERY mutation path — manual entries,
+    // widget flushes, adjustments, and partner records applied from the family
+    // ledger. The first run only snapshots (no compare), so cold-start data
+    // loads never alert; a card seen for the first time is likewise only
+    // snapshotted.
+    let utilizationSnapshot: Map<string, number> | null = null;
+    effect(() => {
+      const debts = store.debts();
+      const previous = utilizationSnapshot;
+      const next = new Map<string, number>();
+      for (const debt of debts) {
+        if (debt.type !== 'credit-card') continue;
+        next.set(debt.id, debt.remainingBalance);
+        if (previous === null || !previous.has(debt.id)) continue;
+        const threshold = crossedUtilizationThreshold(debt, previous.get(debt.id)!, debt.remainingBalance);
+        if (threshold !== null) {
+          cardUtilizationCrossed$.next({
+            cardId: debt.id,
+            cardName: debt.name,
+            percent: utilizationPercent(debt, debt.remainingBalance) ?? threshold,
+            threshold,
+            timestamp: Date.now(),
+          });
+        }
+      }
+      utilizationSnapshot = next;
     });
 
     // Keep the native credit-card bill ladder and the salary fallback reminder

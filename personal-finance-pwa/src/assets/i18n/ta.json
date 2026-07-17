@@ -723,5 +723,16 @@
   "finances.feedback.reviewCardAdjustmentDetail": "பூஜ்ஜியத்தை விட அதிக தொகையை உள்ளிடவும்; பணம் எடுத்தலுக்கு பணம் பெற்ற கணக்கை தேர்ந்தெடுக்கவும்.",
   "finances.feedback.cardAdjustmentSaved": "கார்டு சரிசெய்தல் சேமிக்கப்பட்டது.",
   "finances.feedback.cardAdjustmentSavedDetail": "{kind} — {amount} கார்டில் பதிவு செய்யப்பட்டது.",
-  "finances.feedback.cardAdjustmentNotSaved": "கார்டு சரிசெய்தல் சேமிக்கப்படவில்லை."
+  "finances.feedback.cardAdjustmentNotSaved": "கார்டு சரிசெய்தல் சேமிக்கப்படவில்லை.",
+  "finances.cycle.title": "நடப்பு சுழற்சி",
+  "finances.cycle.spent": "இந்த சுழற்சியில் செலவு",
+  "finances.cycle.statementDue": "அறிக்கை நிலுவை",
+  "finances.cycle.payBy": "செலுத்த வேண்டிய தேதி",
+  "finances.cycle.cashbackEarned": "பெற்ற கேஷ்பேக்",
+  "finances.cardAdjust.cashback": "கேஷ்பேக் / வெகுமதி",
+  "finances.cardAdjust.hint.cashback": "இந்த கார்டுக்கு வரவு வைக்கப்பட்ட கேஷ்பேக் அல்லது வெகுமதி நிலுவையை குறைக்கிறது; வருமானமாகவோ செலவாகவோ அல்ல, வெகுமதியாக கண்காணிக்கப்படுகிறது.",
+  "finances.cardAdjust.matchTitle": "அசல் கொள்முதலுடன் இணைக்கவும்",
+  "finances.cardAdjust.matchHint": "விருப்பத்தேர்வு — பொருந்தும் கொள்முதலை தட்டி இந்த பணத்திரும்பத்தை அதனுடன் இணைக்கலாம்.",
+  "daily.overspendToast.title": "பட்ஜெட் எச்சரிக்கை: {category}",
+  "daily.overspendToast.detail": "கடந்த மாதம் {category} பிரிவில் {overspent} அதிகமாக செலவழித்தீர்கள் ({limit} வரம்பில் {spent} செலவு). இந்த செலவு அவசியமா என்று யோசியுங்கள்."
 }

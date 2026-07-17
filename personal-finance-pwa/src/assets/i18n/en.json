@@ -723,5 +723,16 @@
   "finances.feedback.reviewCardAdjustmentDetail": "Enter an amount greater than zero, and for cash withdrawals choose the account that received the cash.",
   "finances.feedback.cardAdjustmentSaved": "Card adjustment saved.",
   "finances.feedback.cardAdjustmentSavedDetail": "{kind} of {amount} recorded on the card.",
-  "finances.feedback.cardAdjustmentNotSaved": "Card adjustment was not saved."
+  "finances.feedback.cardAdjustmentNotSaved": "Card adjustment was not saved.",
+  "finances.cycle.title": "Current cycle",
+  "finances.cycle.spent": "Spent this cycle",
+  "finances.cycle.statementDue": "Statement due",
+  "finances.cycle.payBy": "Pay by",
+  "finances.cycle.cashbackEarned": "Cashback earned",
+  "finances.cardAdjust.cashback": "Cashback / reward",
+  "finances.cardAdjust.hint.cashback": "Cashback or reward points credited to this card reduce its outstanding and are tracked as rewards earned — not as income or expense.",
+  "finances.cardAdjust.matchTitle": "Link to original purchase",
+  "finances.cardAdjust.matchHint": "Optional — tap a matching purchase to link this refund to it for your records.",
+  "daily.overspendToast.title": "Budget alert: {category}",
+  "daily.overspendToast.detail": "You overspent {category} last month by {overspent} (spent {spent} of the {limit} limit). Consider if this expense is necessary."
 }

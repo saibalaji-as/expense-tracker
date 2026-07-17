@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
 import { SyncDiagnosticEvent, setDriveDiagnosticSink } from './google-drive.service';
+import { setAuthDiagnosticSink } from './auth.service';
 
 const DIAGNOSTICS_KEY = 'spenza_sync_diagnostics_v1';
 const MAX_EVENTS = 50;
@@ -19,10 +20,17 @@ export class SyncDiagnosticsService {
   /** Read-only view for any debug UI. */
   readonly events = this.#events.asReadonly();
 
-  /** Registers this service as the Drive diagnostic sink. Call once at startup. */
+  /** Registers this service as the Drive + auth diagnostic sink. Call once at startup. */
   async init(): Promise<void> {
-    await this.#load();
+    // Sinks FIRST, then load history: the startup silent token renewal runs in
+    // parallel with this init, so registering after the (async) Preferences read
+    // could drop the very failure the user is trying to diagnose. #load merges
+    // behind anything recorded in the meantime.
     setDriveDiagnosticSink((event) => this.record(event));
+    // Auth failures (silent token refresh, Cloud Function mint) were previously
+    // only visible via adb logcat — route them into the same on-device log.
+    setAuthDiagnosticSink((event) => this.record(event));
+    await this.#load();
   }
 
   record(event: SyncDiagnosticEvent): void {
@@ -48,7 +56,10 @@ export class SyncDiagnosticsService {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as SyncDiagnosticEvent[];
-      if (Array.isArray(parsed)) this.#events.set(parsed.slice(0, MAX_EVENTS));
+      if (Array.isArray(parsed)) {
+        // Merge behind events recorded while the load was in flight (newest first).
+        this.#events.set([...this.#events(), ...parsed].slice(0, MAX_EVENTS));
+      }
     } catch {
       // Corrupt buffer is non-critical — start fresh.
     }

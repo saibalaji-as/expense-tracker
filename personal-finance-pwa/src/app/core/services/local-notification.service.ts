@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
-import { budgetThresholdExceeded$ } from './budget-events';
+import { budgetThresholdExceeded$, cardUtilizationCrossed$, CardUtilizationEvent } from './budget-events';
 import { getDailyReminderContent } from '../utils/reminder-message';
 import { AccountBalanceAdjustment, DebtAccount, DebtPayment, ExpenseEntry } from '../models';
 import { CurrencyService } from './currency.service';
@@ -59,6 +59,12 @@ export class LocalNotificationService {
    * Key: category name, Value: timestamp of last alert
    */
   private recentBudgetAlerts = new Map<string, number>();
+
+  /**
+   * Recent card-utilization alerts (deduplication) — one alert per
+   * card+threshold within a 6-hour window.
+   */
+  private recentUtilizationAlerts = new Map<string, number>();
 
   constructor(
     private storageService: StorageService,
@@ -559,13 +565,61 @@ export class LocalNotificationService {
   }
 
   /**
+   * Immediate alert when a card's utilization crosses 30% or 80% of its
+   * credit limit. Deduplicated per card+threshold within a 6-hour window
+   * (paying down and re-crossing later still alerts). Uses the existing
+   * budget-alerts channel and honors the budgetWarningsEnabled preference
+   * (checked by the subscriber in initialize()).
+   */
+  async scheduleCardUtilizationAlert(event: CardUtilizationEvent): Promise<void> {
+    try {
+      const dedupeKey = `${event.cardId}:${event.threshold}`;
+      const last = this.recentUtilizationAlerts.get(dedupeKey);
+      const now = Date.now();
+      if (last && now - last < 6 * 3600000) return;
+      this.recentUtilizationAlerts.set(dedupeKey, now);
+
+      const title = event.threshold >= 80 ? 'Card utilization high' : 'Card utilization rising';
+      const body = event.threshold >= 80
+        ? `${event.cardName} is at ${event.percent}% of its credit limit. High utilization can hurt your credit score.`
+        : `${event.cardName} crossed ${event.threshold}% of its credit limit (now ${event.percent}%).`;
+
+      if (this.isNativePlatform) {
+        const notificationId = 1000 + Math.floor(Math.random() * 9000);
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: notificationId,
+              title,
+              body,
+              schedule: { at: new Date(Date.now() + 1000), allowWhileIdle: true },
+              channelId: 'budget-alerts',
+              extra: { route: '/finances', cardId: event.cardId },
+              sound: 'default',
+              smallIcon: 'ic_stat_icon_config_sample',
+              iconColor: event.threshold >= 80 ? '#EF4444' : '#F59E0B',
+              ongoing: false,
+              autoCancel: true,
+            },
+          ],
+        });
+      } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body, tag: `card-utilization-${dedupeKey}` });
+      }
+      if (isDevMode()) { console.log(`[LocalNotificationService] Utilization alert: ${event.cardName} ${event.threshold}%`); }
+    } catch (error) {
+      console.error('[LocalNotificationService] Failed to schedule utilization alert:', error);
+    }
+  }
+
+  /**
    * Show budget alert for web platform using browser Notification API
-   * 
+   *
    * Displays an immediate notification for budget threshold alerts on web platforms.
-   * 
+   *
    * @param category - Expense category name
    * @param percent - Percentage of budget used
-   * 
+   *
    * Requirements: 1.5, 8.1
    */
   private async showWebBudgetAlert(category: string, percent: number): Promise<void> {
@@ -814,6 +868,19 @@ export class LocalNotificationService {
       } catch (error) {
         console.error('[LocalNotificationService] Failed to subscribe to budget threshold events:', error);
         // Don't throw - allow app to continue even if subscription fails
+      }
+
+      // Step 4: Subscribe to card utilization crossings (30% / 80% of creditLimit).
+      try {
+        cardUtilizationCrossed$.subscribe(async (event) => {
+          if (isDevMode()) { console.log('[LocalNotificationService] Card utilization crossed:', event); }
+          const currentPrefs = await this.storageService.getNotificationPreferences();
+          if (currentPrefs.budgetWarningsEnabled && this.permissionStatus() === 'granted') {
+            await this.scheduleCardUtilizationAlert(event);
+          }
+        });
+      } catch (error) {
+        console.error('[LocalNotificationService] Failed to subscribe to card utilization events:', error);
       }
 
       if (isDevMode()) { console.log('[LocalNotificationService] Initialization complete'); }

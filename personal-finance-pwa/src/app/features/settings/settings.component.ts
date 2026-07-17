@@ -33,6 +33,7 @@ import { AppLanguage, I18nService } from '../../core/services/i18n.service';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
 import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
 import { SpendNotificationAccessService } from '../../core/services/spend-notification-access.service';
+import { SyncDiagnosticsService } from '../../core/services/sync-diagnostics.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { DailyExpenseDraftService } from '../../core/services/daily-expense-draft.service';
 import { PaymentService } from '../../core/services/payment.service';
@@ -810,6 +811,63 @@ interface BeforeInstallPromptEvent extends Event {
 
       </app-section-card>
 
+      <!-- Sync & sign-in log: on-device view of SyncDiagnosticsService so sync and
+           silent sign-in failures are inspectable without adb logcat. -->
+      <app-section-card
+        title="Sync & sign-in log"
+        description="Recent Google Drive sync and sign-in failures recorded on this device. Empty means no failures."
+      >
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            (click)="showSyncLog.set(!showSyncLog())"
+            class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40"
+          >
+            {{ showSyncLog() ? 'Hide log' : 'Show log' }} ({{ syncDiagnostics.events().length }})
+          </button>
+          @if (showSyncLog() && syncDiagnostics.events().length > 0) {
+            <button
+              type="button"
+              (click)="copySyncLog()"
+              class="inline-flex items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-2.5 text-xs font-medium hover:border-primary/40"
+            >
+              {{ syncLogCopied() ? 'Copied ✓' : 'Copy all' }}
+            </button>
+            <button
+              type="button"
+              (click)="clearSyncLog()"
+              class="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              Clear
+            </button>
+          }
+        </div>
+        @if (showSyncLog()) {
+          @if (syncDiagnostics.events().length === 0) {
+            <p class="mt-3 text-xs text-muted-foreground">
+              No sync or sign-in failures recorded. If something isn't syncing, reproduce the
+              problem (e.g. reopen the app), then check here again.
+            </p>
+          } @else {
+            <ul class="mt-3 max-h-72 space-y-2 overflow-y-auto">
+              @for (event of syncDiagnostics.events(); track $index) {
+                <li class="rounded-lg border border-border bg-card/40 p-2.5 text-[11px] leading-relaxed">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-semibold break-all">{{ event.operation }}</span>
+                    <span class="shrink-0 text-muted-foreground">{{ syncLogTime(event.at) }}</span>
+                  </div>
+                  <div class="text-muted-foreground">
+                    status {{ event.status }} · attempt {{ event.attempt }} ·
+                    {{ event.willRetry ? 'will retry' : 'gave up' }}
+                  </div>
+                  <div class="break-words">{{ event.message }}</div>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </app-section-card>
+
       <!-- Receipt folder card removed: receipts now live in the private Drive
            appDataFolder (drive.appdata scope) — no user-visible folder to set up. -->
 
@@ -1500,9 +1558,39 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private readonly payService = inject(PaymentService);
   private readonly familyApiService = inject(FamilyApiService);
   private readonly familySyncService = inject(FamilySyncService);
+  readonly syncDiagnostics = inject(SyncDiagnosticsService);
 
   readonly isNativePlatform = Capacitor.isNativePlatform();
   readonly isProduction = environment.production;
+
+  // ── Sync & sign-in log (on-device diagnostics — no adb needed) ─────────────
+  readonly showSyncLog = signal(false);
+  readonly syncLogCopied = signal(false);
+
+  syncLogTime(at: string): string {
+    const d = new Date(at);
+    return isNaN(d.getTime())
+      ? at
+      : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  async copySyncLog(): Promise<void> {
+    const text = this.syncDiagnostics
+      .events()
+      .map((e) => `${e.at} ${e.operation} status=${e.status} attempt=${e.attempt} willRetry=${e.willRetry} :: ${e.message}`)
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(text || 'no events recorded');
+      this.syncLogCopied.set(true);
+      window.setTimeout(() => this.syncLogCopied.set(false), 2000);
+    } catch {
+      // Clipboard unavailable (older WebView) — the list is still readable on screen.
+    }
+  }
+
+  async clearSyncLog(): Promise<void> {
+    await this.syncDiagnostics.clear();
+  }
 
   // ─── Theme options ────────────────────────────────────────────────────────────
   readonly themeOptions = [

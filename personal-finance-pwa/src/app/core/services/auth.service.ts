@@ -47,6 +47,31 @@ export interface SignInResult {
 }
 
 /**
+ * Auth-side diagnostic sink (mirrors setDriveDiagnosticSink in google-drive.service —
+ * defined here separately to avoid a module cycle, since google-drive imports auth).
+ * SyncDiagnosticsService registers itself so silent-token / sign-in failures are
+ * visible on-device in the Settings sync log instead of only in adb logcat.
+ * Shape is structurally identical to SyncDiagnosticEvent.
+ */
+export interface AuthDiagnosticEvent {
+  operation: string;
+  status: number;
+  attempt: number;
+  willRetry: boolean;
+  message: string;
+  at: string;
+}
+let authDiagnosticSink: ((e: AuthDiagnosticEvent) => void) | null = null;
+export function setAuthDiagnosticSink(sink: ((e: AuthDiagnosticEvent) => void) | null): void {
+  authDiagnosticSink = sink;
+}
+function recordAuthDiagnostic(operation: string, message: string, status = 0): void {
+  try {
+    authDiagnosticSink?.({ operation, status, attempt: 1, willRetry: true, message, at: new Date().toISOString() });
+  } catch { /* diagnostics must never break auth */ }
+}
+
+/**
  * Thrown when Google sign-in succeeded but the user did not grant the Drive
  * AppData scope (unticked checkbox on Google's granular-consent screen).
  * Without this scope every Drive call returns 403, which previously produced
@@ -282,15 +307,51 @@ export class AuthService {
    * Single entry point for every native Google sign-in (silent OR interactive).
    * Collapses concurrent callers onto one in-flight SocialLogin.login() so the
    * user can never be shown multiple account pickers / Credential Manager sheets
-   * at once. An interactive request that arrives while a silent one is in flight
-   * simply awaits the same promise; the caller re-checks token validity after.
+   * at once.
+   *
+   * MODE-AWARE dedupe (regression fix): an INTERACTIVE request must never be
+   * satisfied by an in-flight SILENT attempt. A silent attempt can settle with
+   * no token and no UI; blindly returning its promise to an interactive caller
+   * swallowed the sign-in popup entirely (ensureToken's fallback resolved with
+   * no token → Drive sync silently dead until the user signed in manually).
+   * This overlap happens on every cold start now that the startup silent
+   * renewal runs in parallel with the rest of bootstrap. Rules:
+   *  - silent caller + anything in flight → join it (any outcome is acceptable);
+   *  - interactive caller + interactive in flight → join it;
+   *  - interactive caller + SILENT in flight → wait for the silent attempt,
+   *    reuse its token if it produced one, otherwise chain a real interactive
+   *    sign-in. Still never two pickers at once.
    */
+  #nativeSignInIsSilent = false;
+
   #requestNativeSignIn(opts: { silent?: boolean } = {}): Promise<SignInResult> {
-    if (this.#nativeSignInPromise) return this.#nativeSignInPromise;
-    this.#nativeSignInPromise = this.#nativeSignIn(opts).finally(() => {
-      this.#nativeSignInPromise = null;
+    const inFlight = this.#nativeSignInPromise;
+    if (inFlight) {
+      if (opts.silent === true || !this.#nativeSignInIsSilent) {
+        return inFlight;
+      }
+      const chained: Promise<SignInResult> = inFlight
+        .catch(() => null)
+        .then((result) => {
+          if (this.#hasValidCachedToken()) {
+            return result ?? { email: this.userEmail(), accountChanged: false };
+          }
+          return this.#nativeSignIn({});
+        });
+      this.#nativeSignInIsSilent = false;
+      const wrapped: Promise<SignInResult> = chained.finally(() => {
+        if (this.#nativeSignInPromise === wrapped) this.#nativeSignInPromise = null;
+      });
+      this.#nativeSignInPromise = wrapped;
+      return wrapped;
+    }
+
+    this.#nativeSignInIsSilent = opts.silent === true;
+    const started: Promise<SignInResult> = this.#nativeSignIn(opts).finally(() => {
+      if (this.#nativeSignInPromise === started) this.#nativeSignInPromise = null;
     });
-    return this.#nativeSignInPromise;
+    this.#nativeSignInPromise = started;
+    return started;
   }
 
   /**
@@ -394,8 +455,11 @@ export class AuthService {
         // Route through the shared guard so a silent refresh can never run
         // alongside (and double up with) an interactive sign-in.
         await this.#requestNativeSignIn({ silent: true });
-        return this.#hasValidCachedToken() ? this.#accessToken : null;
-      } catch {
+        if (this.#hasValidCachedToken()) return this.#accessToken;
+        recordAuthDiagnostic('auth.silentRefresh', 'silent sign-in completed but produced no valid token');
+        return null;
+      } catch (err) {
+        recordAuthDiagnostic('auth.silentRefresh', `silent sign-in threw: ${String((err as Error)?.message ?? err)}`);
         return null;
       }
     }
@@ -719,10 +783,14 @@ export class AuthService {
       clearTimeout(timer);
       const ready = res.status === 400;
       if (ready) this.#offlineExchangeReadyCache = true;
-      else console.warn('[AuthService] Offline-exchange preflight not ready: HTTP', res.status);
+      else {
+        console.warn('[AuthService] Offline-exchange preflight not ready: HTTP', res.status);
+        recordAuthDiagnostic('auth.offlinePreflight', `exchangeGoogleAuthCode preflight expected 400, got HTTP ${res.status} — offline flow disabled, sign-in falls back to online mode (no refresh token will be stored)`, res.status);
+      }
       return ready;
     } catch (err) {
       console.warn('[AuthService] Offline-exchange preflight failed:', err);
+      recordAuthDiagnostic('auth.offlinePreflight', `preflight threw: ${String((err as Error)?.message ?? err)} — offline flow disabled this session`);
       return false;
     }
   }
@@ -775,6 +843,12 @@ export class AuthService {
     // sign-in re-consents. Loud log for device testing (adb logcat).
     if (!exchange.hasRefreshToken) {
       console.warn('[AuthService] Offline sign-in OK but NO refresh token on file — silent renewal unavailable until re-consent.');
+      recordAuthDiagnostic(
+        'auth.offlineExchange',
+        'sign-in OK but NO refresh token stored — Google only issues one on FIRST consent. Revoke Spenza at myaccount.google.com → Security → Third-party access, then sign in again.'
+      );
+    } else {
+      recordAuthDiagnostic('auth.offlineExchange', 'refresh token stored — silent renewal enabled (this is success, not an error)');
     }
 
     // Same granular-consent guard as the online flow: a token without drive.appdata
@@ -819,10 +893,14 @@ export class AuthService {
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         console.warn('[AuthService] exchangeGoogleAuthCode HTTP', res.status, detail);
+        recordAuthDiagnostic('auth.offlineExchange', `exchangeGoogleAuthCode HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status);
         return null;
       }
       const body = await res.json();
-      if (!body?.accessToken) return null;
+      if (!body?.accessToken) {
+        recordAuthDiagnostic('auth.offlineExchange', 'exchange 200 but no accessToken in body');
+        return null;
+      }
       return {
         accessToken: String(body.accessToken),
         expiresIn: Number(body.expiresIn) || 3300,
@@ -832,6 +910,7 @@ export class AuthService {
       };
     } catch (err) {
       console.warn('[AuthService] exchangeGoogleAuthCode request failed:', err);
+      recordAuthDiagnostic('auth.offlineExchange', `exchange request threw: ${String((err as Error)?.message ?? err)}`);
       return null;
     }
   }
@@ -845,15 +924,38 @@ export class AuthService {
   async #mintGoogleTokenFromServer(): Promise<string | null> {
     try {
       const idToken = await this.getFirebaseIdToken();
-      if (!idToken) return null;
+      if (!idToken) {
+        recordAuthDiagnostic('auth.mintToken', 'no Firebase ID token (Firebase session not restored — cannot call getGoogleAccessToken)');
+        return null;
+      }
+      // 12s cap: without it a hanging connection (flaky mobile network, cold
+      // Cloud Function that never answers) holds every caller — including the
+      // no-cache startup path — until the 30s loading timeout fires. On abort
+      // this returns null and the caller falls back exactly like any other failure.
+      // Feature-detected: on an outdated WebView without AbortSignal.timeout a
+      // direct call would throw here EVERY time, permanently killing the silent
+      // refresh path. No support → no timeout, same as the original behavior.
+      const timeoutSignal =
+        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(12_000)
+          : undefined;
       const res = await fetch(`${environment.firebaseFunctionsUrl}/getGoogleAccessToken`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        signal: timeoutSignal,
       });
-      if (!res.ok) return null; // 404 (no refresh token) / 410 (revoked) → caller falls back
+      if (!res.ok) {
+        // 404 (no refresh token / no Google identity) / 410 (revoked) → caller falls back
+        const detail = await res.text().catch(() => '');
+        recordAuthDiagnostic('auth.mintToken', `getGoogleAccessToken HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status);
+        return null;
+      }
       const body = await res.json();
       const accessToken = body?.accessToken ? String(body.accessToken) : null;
-      if (!accessToken) return null;
+      if (!accessToken) {
+        recordAuthDiagnostic('auth.mintToken', 'getGoogleAccessToken 200 but no accessToken in body');
+        return null;
+      }
 
       const expiresAt = Date.now() + (Number(body.expiresIn) > 0 ? Number(body.expiresIn) : 3300) * 1000;
       this.#accessToken = accessToken;
@@ -866,6 +968,7 @@ export class AuthService {
       return accessToken;
     } catch (err) {
       console.warn('[AuthService] Server token mint failed:', err);
+      recordAuthDiagnostic('auth.mintToken', `mint fetch threw: ${String((err as Error)?.message ?? err)}`);
       return null;
     }
   }

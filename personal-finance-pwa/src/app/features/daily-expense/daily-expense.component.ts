@@ -150,45 +150,9 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
         </div>
       }
 
-      <!-- Overspending warning -->
-      @if (lastMonthOverspend(); as warning) {
-        <div
-          class="mb-4 rounded-2xl border border-warning/40 bg-warning/10 p-4"
-          role="alert"
-          aria-live="assertive"
-        >
-          <div class="flex items-start gap-3">
-            <div class="shrink-0 mt-0.5">
-              <lucide-icon name="alert-triangle" class="h-5 w-5 text-warning" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <h3 class="text-sm font-semibold text-warning-foreground mb-1">
-                ⚠️ Budget Alert: {{ getCatName(warning.type) }}
-              </h3>
-              <p class="text-sm text-warning-foreground mb-2">
-                You overspent on <strong>{{ getCatName(warning.type) }}</strong> last month by 
-                <strong>{{ warning.overspentAmount | currencyFormat }}</strong>.
-              </p>
-              <div class="flex items-center gap-4 text-xs text-warning mb-3">
-                <span>Last Month Spent: <strong>{{ warning.lastMonthSpent | currencyFormat }}</strong></span>
-                <span>•</span>
-                <span>Monthly Limit: <strong>{{ warning.lastMonthLimit | currencyFormat }}</strong></span>
-              </div>
-              <p class="text-xs text-warning italic">
-                💡 Consider if this expense is necessary to avoid overspending again this month.
-              </p>
-            </div>
-            <button
-              type="button"
-              (click)="dismissOverspendWarning(warning.type)"
-              aria-label="Dismiss warning"
-              class="shrink-0 grid h-6 w-6 place-items-center rounded-lg text-warning transition-all hover:bg-warning/20"
-            >
-              <lucide-icon name="x" class="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      }
+      <!-- Overspending warning is delivered as a persistent toast (see the
+           lastMonthOverspend effect in the constructor) so it is visible
+           without scrolling and stays until the user dismisses it. -->
 
       <!-- Hero glass card -->
       <div class="mb-4 glass-card relative overflow-hidden p-5 md:p-8">
@@ -879,7 +843,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                     </div>
                     <p class="truncate text-xs text-muted-foreground">
                       @if (group.count === 1) {
-                        {{ formatEntryTime(group.entries[0].timestamp) }} · {{ expenseActorLabel(group.entries[0]) }}@if (accountName(group.entries[0].accountId)) {<span> · {{ accountName(group.entries[0].accountId) }}</span>}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
+                        {{ formatEntryTime(group.entries[0].timestamp) }} · {{ expenseActorLabel(group.entries[0]) }}@if (paymentSourceLabel(group.entries[0])) {<span> · {{ paymentSourceLabel(group.entries[0]) }}</span>}@if (group.entries[0].comment) {<span> · {{ group.entries[0].comment }}</span>}
                       } @else {
                         {{ i18n.t('daily.entries.multiple', { count: group.count }) }} · {{ groupActorSummary(group.entries) }}
                       }
@@ -1002,10 +966,10 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                   <lucide-icon name="users" class="h-3.5 w-3.5" />
                   {{ expenseActorLabel(entry) }}
                 </div>
-                @if (accountName(entry.accountId)) {
+                @if (paymentSourceLabel(entry)) {
                   <div class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/50 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-                    <lucide-icon name="wallet-cards" class="h-3.5 w-3.5" />
-                    {{ accountName(entry.accountId) }}
+                    <lucide-icon [name]="isCardEntry(entry) ? 'credit-card' : 'wallet-cards'" class="h-3.5 w-3.5" />
+                    {{ paymentSourceLabel(entry) }}
                   </div>
                 }
               </div>
@@ -1144,7 +1108,7 @@ const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
                           }
                         </div>
                         <p class="text-[10px] text-muted-foreground">
-                          {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}@if (accountName(entry.accountId)) {<span> · {{ accountName(entry.accountId) }}</span>}
+                          {{ formatEntryTime(entry.timestamp) }} · {{ expenseActorLabel(entry) }}@if (paymentSourceLabel(entry)) {<span> · {{ paymentSourceLabel(entry) }}</span>}
                         </p>
                       </div>
                       <!-- Action buttons -->
@@ -1845,6 +1809,30 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   private suppressDraftSave = false;
 
   constructor() {
+    // Last-month overspend alert as a PERSISTENT toast (stays until the user
+    // dismisses it) — the old inline banner sat at the top of the page and was
+    // easy to miss. Shown once per category per session: marking the type
+    // acknowledged immediately flips the computed back to null.
+    effect(() => {
+      const warning = this.lastMonthOverspend();
+      if (!warning) return;
+      untracked(() => {
+        this.acknowledgedWarnings.add(warning.type);
+        this.acknowledgedTick.update((n) => n + 1);
+        const locale = this.i18n.locale();
+        this.feedback.warning(
+          this.i18n.t('daily.overspendToast.title', { category: this.getCatName(warning.type) }),
+          this.i18n.t('daily.overspendToast.detail', {
+            category: this.getCatName(warning.type),
+            overspent: this.currencyService.format(warning.overspentAmount, locale),
+            spent: this.currencyService.format(warning.lastMonthSpent, locale),
+            limit: this.currencyService.format(warning.lastMonthLimit, locale),
+          }),
+          true
+        );
+      });
+    });
+
     effect(() => {
       const extraction = this.receiptExtraction();
       const applied = this.receiptExtractionApplied();
@@ -2057,6 +2045,23 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     return this.expenseStore.accounts().find((account) => account.id === accountId)?.name ?? '';
   }
 
+  isCardEntry(entry: ExpenseEntry): boolean {
+    return !!entry.debtId;
+  }
+
+  /**
+   * Payment source tag for an entry — asset account name, or the credit card
+   * name marked as such ("Axis Ace · Credit card"). Empty when unlinked.
+   */
+  paymentSourceLabel(entry: ExpenseEntry): string {
+    if (entry.debtId) {
+      const card = this.expenseStore.debts().find((debt) => debt.id === entry.debtId);
+      const cardTag = this.i18n.t('daily.paymentCreditCard');
+      return card ? `${card.name} · ${cardTag}` : cardTag;
+    }
+    return this.accountName(entry.accountId);
+  }
+
   // ─── Helper: map type name → category ID ─────────────────────────────────
   getCatId(type: string): string {
     const categoryId = getCategoryIdByName(type);
@@ -2143,11 +2148,6 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   }
 
   // ─── Dismiss overspend warning ────────────────────────────────────────────
-  dismissOverspendWarning(type: string): void {
-    this.acknowledgedWarnings.add(type);
-    this.acknowledgedTick.update(n => n + 1); // Trigger computed re-evaluation
-  }
-
   // ─── Helper: check if a category chip is active ───────────────────────────
   isActiveCat(cat: CategoryChoice): boolean {
     return this.form.get('expenseType')?.value === cat.name;

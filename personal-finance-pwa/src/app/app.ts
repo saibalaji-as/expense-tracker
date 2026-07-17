@@ -46,9 +46,23 @@ export class App implements OnInit, OnDestroy {
   // very first paint (e.g. a hard reload of /#/daily must show the loading
   // screen, not the blank public branch). Kept in sync via NavigationEnd below.
   private readonly currentUrl = signal(this.readInitialUrl());
+  /** Flips true once AuthService has restored persisted auth state (fast, local). */
+  private readonly authRestored = signal(false);
   readonly isPublicPage = computed(() => {
     const url = this.currentUrl().split('?')[0].split('#')[0];
-    return url === '/' || url === '' || url === '/privacy' || url === '/terms';
+    if (url === '/privacy' || url === '/terms') return true;
+    if (url === '/' || url === '') {
+      // Native: '/' is simply the cold-start URL (hash not set yet), NOT a
+      // marketing visit. Rendering the landing page there flashed it on every
+      // app open for signed-in users. Treat '/' as public on native only once
+      // auth restore has settled AND the user is actually signed out; until
+      // then the loading screen shows and bootstrap redirects to /daily.
+      if (Capacitor.isNativePlatform()) {
+        return this.authRestored() && !this.authService.isAuthenticated();
+      }
+      return true;
+    }
+    return false;
   });
 
   private readInitialUrl(): string {
@@ -111,6 +125,7 @@ export class App implements OnInit, OnDestroy {
       this.authService.sessionRestored,
       this.backupModeService.initialized,
     ]);
+    this.authRestored.set(true);
 
     if (isDevMode()) { console.log('[App] sessionRestored — isAuthenticated:', this.authService.isAuthenticated()); }
 
@@ -137,19 +152,39 @@ export class App implements OnInit, OnDestroy {
     // account picker on the first Drive read. Renew it silently up-front (no-op when
     // the cached token is still valid; never shows UI). This is what stops the app
     // demanding sign-in on every open within the hour.
+    //
+    // PERF (critical): start the renewal but DO NOT await it before trying the local
+    // cache. Rendering cached data needs no Google token, and when the token has
+    // expired (every first open after ~1h) this call chains: Firebase JS chunk load →
+    // authStateReady() → ID-token network refresh → Cloud Functions getGoogleAccessToken
+    // round trip (cold start: several seconds) → possible Credential Manager fallback.
+    // Awaiting it here was the single biggest cause of the long startup spinner.
+    // The promise is handed to bootstrapDriveInBackground, which awaits it BEFORE the
+    // first Drive call — so the "silent refresh always completes before any Drive
+    // request could trigger an interactive fallback" guarantee is unchanged; the
+    // refresh just overlaps the cache read + first render instead of preceding them.
+    let silentTokenRenewal: Promise<unknown> | null = null;
     if (Capacitor.isNativePlatform()) {
-      await this.authService.getTokenSilent();
+      silentTokenRenewal = this.authService.getTokenSilent();
     }
 
+    const bootStartedAt = Date.now();
     const loadedCachedData = await this.tryLoadCachedStartupData();
     if (loadedCachedData) {
       this.clearLoadingTimeout();
       this.loadingError.set(null);
       this.isLoading.set(false);
       this.hasRenderedCachedData = true;
+      console.info(`[Perf] Startup: cached data rendered in ${Date.now() - bootStartedAt}ms (token renewal continues in background)`);
       await this.redirectAfterDataAvailable();
-      void this.bootstrapDriveInBackground();
+      void this.bootstrapDriveInBackground(silentTokenRenewal);
       return;
+    }
+
+    // No local cache (first run / new device / mode change): Drive access is genuinely
+    // required before anything can render, so NOW wait for the silent token renewal.
+    if (silentTokenRenewal) {
+      await silentTokenRenewal;
     }
 
     // Returning web user whose short-lived access token expired still has the
@@ -262,6 +297,16 @@ export class App implements OnInit, OnDestroy {
 
     const needsIncomeSetup = this.expenseStore.monthlyIncome() <= 0;
 
+    // Native cold start lands on '/' (no hash yet). A signed-in user with data
+    // must go straight into the app — never see the public landing page.
+    // (Web keeps its landing behavior; WelcomeComponent handles that redirect.)
+    if (Capacitor.isNativePlatform() && (currentUrl === '/' || currentUrl === '')) {
+      await this.router.navigate([needsIncomeSetup ? '/limits' : '/daily'], {
+        queryParams: needsIncomeSetup ? { onboarding: 'income' } : undefined,
+      });
+      return;
+    }
+
     if (isSetupRoute) {
       await this.router.navigate([needsIncomeSetup ? '/limits' : '/daily'], {
         queryParams: needsIncomeSetup ? { onboarding: 'income' } : undefined,
@@ -280,8 +325,17 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private async bootstrapDriveInBackground(): Promise<void> {
+  private async bootstrapDriveInBackground(
+    silentTokenRenewal: Promise<unknown> | null = null,
+  ): Promise<void> {
     try {
+      // Ordering guarantee: the startup silent token renewal must settle before the
+      // first Drive request, so an expired token is refreshed with no UI instead of
+      // a Drive call racing it into the interactive fallback. Failure is fine —
+      // loadFromDrive()'s own ensureToken() path handles it exactly as before.
+      if (silentTokenRenewal) {
+        await silentTokenRenewal.catch(() => {});
+      }
       await this.backupModeService.loadFromDrive();
       this.checkLegacyFamilyMode();
 

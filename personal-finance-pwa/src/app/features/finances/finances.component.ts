@@ -23,7 +23,16 @@ import {
   DebtAdjustment,
   DebtAdjustmentKind,
   DebtPayment,
+  ExpenseEntry,
 } from '../../core/models';
+import {
+  cashbackEarned,
+  currentCycleWindow,
+  cycleSpend,
+  matchRefundCandidates,
+  statementDueWithAdjustments,
+  type CycleWindow,
+} from '../../core/utils/credit-card-insights';
 import { CurrencyService } from '../../core/services/currency.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { I18nService } from '../../core/services/i18n.service';
@@ -504,6 +513,33 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                       </div>
                     }
 
+                    @if (cardCycle(card); as cycle) {
+                      <div class="mt-3 rounded-xl border border-border/60 bg-muted/20 p-2.5">
+                        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          <span class="font-semibold uppercase tracking-wider text-[10px]">{{ 'finances.cycle.title' | translate }}</span>
+                          <span>{{ cycleDateLabel(cycle.billDate) }} → {{ cycleDateLabel(cycle.nextBillDate) }}</span>
+                        </div>
+                        <div class="mt-1.5 grid gap-1 text-xs sm:grid-cols-3">
+                          <span class="text-muted-foreground">{{ 'finances.cycle.spent' | translate }}: <strong class="tabular-nums text-foreground">{{ cardCycleSpend(card, cycle) | currencyFormat }}</strong></span>
+                          <span class="text-muted-foreground">{{ 'finances.cycle.statementDue' | translate }}: <strong class="tabular-nums" [class.text-destructive]="cardStatementDue(card, cycle) > 0">{{ cardStatementDue(card, cycle) | currencyFormat }}</strong></span>
+                          @if (cycle.dueDate) {
+                            <span class="font-medium text-amber-600 dark:text-amber-400">{{ 'finances.cycle.payBy' | translate }} {{ cycleDateLabel(cycle.dueDate) }}</span>
+                          }
+                        </div>
+                        @if (cardCashback(card) > 0) {
+                          <p class="mt-1.5 text-[11px]" [style.color]="'var(--success)'">
+                            <lucide-icon name="star" class="inline h-3 w-3 align-[-2px]" />
+                            {{ 'finances.cycle.cashbackEarned' | translate }}: <strong class="tabular-nums">{{ cardCashback(card) | currencyFormat }}</strong>
+                          </p>
+                        }
+                      </div>
+                    } @else if (cardCashback(card) > 0) {
+                      <p class="mt-2 text-[11px]" [style.color]="'var(--success)'">
+                        <lucide-icon name="star" class="inline h-3 w-3 align-[-2px]" />
+                        {{ 'finances.cycle.cashbackEarned' | translate }}: <strong class="tabular-nums">{{ cardCashback(card) | currencyFormat }}</strong>
+                      </p>
+                    }
+
                     <div class="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
                       @if (card.paymentDueDay) {
                         <span class="font-medium text-amber-600 dark:text-amber-400">Due: {{ card.paymentDueDay }}{{ daySuffix(card.paymentDueDay) }} every month</span>
@@ -594,6 +630,29 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                       </button>
                     </div>
                     <p class="text-[10px] leading-relaxed text-muted-foreground sm:col-span-full">{{ ('finances.cardAdjust.hint.' + cardAdjustKind()) | translate }}</p>
+                    @if (cardAdjustKind() === 'refund' && refundMatchCandidates().length > 0) {
+                      <div class="sm:col-span-full">
+                        <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.cardAdjust.matchTitle' | translate }}</p>
+                        <div class="mt-1.5 flex flex-wrap gap-1.5">
+                          @for (candidate of refundMatchCandidates(); track candidate.id) {
+                            <button
+                              type="button"
+                              (click)="toggleRefundMatch(candidate.id)"
+                              class="rounded-xl border px-2.5 py-1.5 text-left text-[11px] transition"
+                              [class.border-primary]="selectedRefundMatchId() === candidate.id"
+                              [class.bg-primary/10]="selectedRefundMatchId() === candidate.id"
+                              [class.text-primary]="selectedRefundMatchId() === candidate.id"
+                              [class.border-border]="selectedRefundMatchId() !== candidate.id"
+                              [class.text-muted-foreground]="selectedRefundMatchId() !== candidate.id"
+                            >
+                              <span class="block font-semibold">{{ refundMatchLabel(candidate) }}</span>
+                              <span class="block tabular-nums">{{ candidate.amount | currencyFormat }} · {{ candidate.date | dateFormat }}</span>
+                            </button>
+                          }
+                        </div>
+                        <p class="mt-1 text-[10px] text-muted-foreground">{{ 'finances.cardAdjust.matchHint' | translate }}</p>
+                      </div>
+                    }
                   </form>
                 }
 
@@ -606,14 +665,17 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                           <div class="min-w-0">
                             <p
                               class="font-semibold tabular-nums"
-                              [class.text-destructive]="adjustment.kind !== 'refund'"
-                              [style.color]="adjustment.kind === 'refund' ? 'var(--success)' : null"
+                              [class.text-destructive]="!isCardCredit(adjustment.kind)"
+                              [style.color]="isCardCredit(adjustment.kind) ? 'var(--success)' : null"
                             >
-                              {{ adjustment.kind === 'refund' ? '−' : '+' }}{{ adjustment.amount | currencyFormat }}
+                              {{ isCardCredit(adjustment.kind) ? '−' : '+' }}{{ adjustment.amount | currencyFormat }}
                             </p>
                             <p class="text-muted-foreground">
                               {{ adjustment.date | dateFormat }}@if (adjustment.linkedAccountId) {<span> · {{ accountName(adjustment.linkedAccountId) }}</span>}
                             </p>
+                            @if (linkedExpenseLabel(adjustment)) {
+                              <p class="mt-0.5 text-[10px] text-muted-foreground">↩ {{ linkedExpenseLabel(adjustment) }}</p>
+                            }
                             @if (adjustment.reason) {
                               <p class="mt-0.5 break-words text-foreground">{{ adjustment.reason }}</p>
                             }
@@ -891,8 +953,24 @@ export class FinancesComponent {
   readonly editingDebtPayment = signal<DebtPayment | null>(null);
   readonly adjustingAccount = signal<AssetAccount | null>(null);
   readonly adjustingCard = signal<DebtAccount | null>(null);
-  /** Mirrors cardAdjustmentForm.kind for OnPush template reactivity. */
+  /** Mirror signals for cardAdjustmentForm controls (OnPush template reactivity). */
   readonly cardAdjustKind = signal<DebtAdjustmentKind>('refund');
+  readonly cardAdjustAmount = signal(0);
+  readonly cardAdjustDate = signal(toLocalDateString());
+  /** Refund auto-match: the original purchase the user chose to link. */
+  readonly selectedRefundMatchId = signal<string | null>(null);
+  /** Suggested original purchases for the refund being entered (same card, same amount, ≤90 days). */
+  readonly refundMatchCandidates = computed<ExpenseEntry[]>(() => {
+    const card = this.adjustingCard();
+    if (!card || this.cardAdjustKind() !== 'refund') return [];
+    return matchRefundCandidates(
+      this.expenseStore.entries(),
+      this.expenseStore.debtAdjustments(),
+      card.id,
+      this.cardAdjustAmount(),
+      this.cardAdjustDate()
+    );
+  });
   readonly payingDebt = signal<DebtAccount | null>(null);
   readonly deleteTarget = signal<AssetAccount | null>(null);
   readonly deleteDebtTarget = signal<DebtAccount | null>(null);
@@ -964,6 +1042,8 @@ export class FinancesComponent {
 
   constructor() {
     this.cardAdjustmentForm.get('kind')!.valueChanges.subscribe((kind) => this.cardAdjustKind.set(kind));
+    this.cardAdjustmentForm.get('amount')!.valueChanges.subscribe((amount) => this.cardAdjustAmount.set(Number(amount) || 0));
+    this.cardAdjustmentForm.get('date')!.valueChanges.subscribe((date) => this.cardAdjustDate.set(date || toLocalDateString()));
   }
 
   startCreate(): void {
@@ -1471,6 +1551,7 @@ export class FinancesComponent {
 
   startCardAdjustment(card: DebtAccount): void {
     this.adjustingCard.set(card);
+    this.selectedRefundMatchId.set(null);
     this.cardAdjustmentForm.reset({
       kind: 'refund',
       amount: 0,
@@ -1482,6 +1563,7 @@ export class FinancesComponent {
 
   cancelCardAdjustment(): void {
     this.adjustingCard.set(null);
+    this.selectedRefundMatchId.set(null);
   }
 
   cardAdjustmentKindOptions(): ThemedSelectOption[] {
@@ -1489,11 +1571,53 @@ export class FinancesComponent {
       { value: 'refund', label: this.i18n.t('finances.cardAdjust.refund'), icon: 'credit-card' },
       { value: 'cash-withdrawal', label: this.i18n.t('finances.cardAdjust.cashWithdrawal'), icon: 'wallet-cards' },
       { value: 'charge', label: this.i18n.t('finances.cardAdjust.charge'), icon: 'badge-indian-rupee' },
+      { value: 'cashback', label: this.i18n.t('finances.cardAdjust.cashback'), icon: 'star' },
     ];
   }
 
   cardAdjustmentKindLabel(kind: DebtAdjustmentKind): string {
     return this.i18n.t(kind === 'cash-withdrawal' ? 'finances.cardAdjust.cashWithdrawal' : `finances.cardAdjust.${kind}`);
+  }
+
+  /** Refund reduces the outstanding — shown green with a − sign; cashback too. */
+  isCardCredit(kind: DebtAdjustmentKind): boolean {
+    return kind === 'refund' || kind === 'cashback';
+  }
+
+  toggleRefundMatch(entryId: string): void {
+    this.selectedRefundMatchId.set(this.selectedRefundMatchId() === entryId ? null : entryId);
+  }
+
+  refundMatchLabel(entry: ExpenseEntry): string {
+    return entry.comment?.trim() || entry.type;
+  }
+
+  linkedExpenseLabel(adjustment: DebtAdjustment): string {
+    if (!adjustment.linkedExpenseId) return '';
+    const entry = this.expenseStore.entries().find((e) => e.id === adjustment.linkedExpenseId);
+    return entry ? `${entry.comment?.trim() || entry.type} · ${entry.date}` : '';
+  }
+
+  // ─── Statement cycle & cashback (pure helpers from credit-card-insights) ──
+
+  cardCycle(card: DebtAccount): CycleWindow | null {
+    return currentCycleWindow(card, new Date());
+  }
+
+  cardCycleSpend(card: DebtAccount, cycle: CycleWindow): number {
+    return cycleSpend(card, this.expenseStore.entries(), this.expenseStore.debtAdjustments(), cycle);
+  }
+
+  cardStatementDue(card: DebtAccount, cycle: CycleWindow): number {
+    return statementDueWithAdjustments(card, this.expenseStore.entries(), this.expenseStore.debtAdjustments(), cycle);
+  }
+
+  cardCashback(card: DebtAccount): number {
+    return cashbackEarned(this.expenseStore.debtAdjustments(), card.id);
+  }
+
+  cycleDateLabel(date: Date): string {
+    return date.toLocaleDateString(this.i18n.locale(), { day: 'numeric', month: 'short' });
   }
 
   debtAdjustmentsForCard(debtId: string): DebtAdjustment[] {
@@ -1518,12 +1642,20 @@ export class FinancesComponent {
 
     this.saving.set(true);
     try {
+      // Refund auto-match: only pass the link when the chosen purchase is
+      // still among the current candidates (amount/date edits invalidate it).
+      const matchId = this.selectedRefundMatchId();
+      const linkedExpenseId =
+        value.kind === 'refund' && matchId && this.refundMatchCandidates().some((entry) => entry.id === matchId)
+          ? matchId
+          : undefined;
       await this.expenseStore.recordDebtAdjustment({
         debtId: card.id,
         kind: value.kind,
         amount: value.amount,
         date: value.date,
         ...(needsAccount ? { linkedAccountId: value.accountId } : {}),
+        ...(linkedExpenseId ? { linkedExpenseId } : {}),
         reason: value.reason,
       });
       const formattedAmount = this.currencyService.format(value.amount, this.i18n.locale());

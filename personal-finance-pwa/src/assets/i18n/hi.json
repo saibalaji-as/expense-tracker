@@ -723,5 +723,16 @@
   "finances.feedback.reviewCardAdjustmentDetail": "शून्य से अधिक राशि दर्ज करें; नकद निकासी के लिए नकद प्राप्त खाता चुनें।",
   "finances.feedback.cardAdjustmentSaved": "कार्ड समायोजन सहेजा गया।",
   "finances.feedback.cardAdjustmentSavedDetail": "{kind} — {amount} कार्ड पर दर्ज किया गया।",
-  "finances.feedback.cardAdjustmentNotSaved": "कार्ड समायोजन सहेजा नहीं गया।"
+  "finances.feedback.cardAdjustmentNotSaved": "कार्ड समायोजन सहेजा नहीं गया।",
+  "finances.cycle.title": "वर्तमान साइकिल",
+  "finances.cycle.spent": "इस साइकिल में खर्च",
+  "finances.cycle.statementDue": "स्टेटमेंट बकाया",
+  "finances.cycle.payBy": "भुगतान तिथि",
+  "finances.cycle.cashbackEarned": "अर्जित कैशबैक",
+  "finances.cardAdjust.cashback": "कैशबैक / रिवॉर्ड",
+  "finances.cardAdjust.hint.cashback": "इस कार्ड पर आया कैशबैक या रिवॉर्ड बकाया घटाता है; इसे आय या खर्च नहीं, रिवॉर्ड के रूप में ट्रैक किया जाता है।",
+  "finances.cardAdjust.matchTitle": "मूल खरीद से जोड़ें",
+  "finances.cardAdjust.matchHint": "वैकल्पिक — मिलती-जुलती खरीद पर टैप करके इस रिफ़ंड को उससे जोड़ें।",
+  "daily.overspendToast.title": "बजट चेतावनी: {category}",
+  "daily.overspendToast.detail": "पिछले महीने आपने {category} पर {overspent} अधिक खर्च किया ({limit} सीमा में से {spent} खर्च)। सोचें कि क्या यह खर्च ज़रूरी है।"
 }

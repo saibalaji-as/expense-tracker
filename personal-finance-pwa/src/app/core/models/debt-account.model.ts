@@ -85,8 +85,10 @@ export interface UpdateDebtAccountInput {
  *   moved, not spent; spending the cash later is logged normally (avoids
  *   double counting).
  * - 'charge': card fee / interest / other non-purchase debit → outstanding ↑.
+ * - 'cashback': rewards credited to the card → outstanding ↓; tracked
+ *   separately so total cashback earned per card can be shown.
  */
-export type DebtAdjustmentKind = 'refund' | 'cash-withdrawal' | 'charge';
+export type DebtAdjustmentKind = 'refund' | 'cash-withdrawal' | 'charge' | 'cashback';
 
 export interface DebtAdjustment {
   id: string;
