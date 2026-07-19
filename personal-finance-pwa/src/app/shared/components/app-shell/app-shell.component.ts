@@ -14,7 +14,10 @@ import {
   Settings,
   Bell,
   Inbox,
+  Users,
 } from 'lucide-angular';
+import { Preferences } from '@capacitor/preferences';
+import { PENDING_CIRCLE_JOIN_KEY } from '../../../core/models/circle.model';
 import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
 import { CreditCardPickerComponent } from '../credit-card-picker/credit-card-picker.component';
 import { AuthService } from '../../../core/services/auth.service';
@@ -40,7 +43,7 @@ interface NavItem {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, WalletCards, LayoutDashboard, Settings, Bell, Inbox }),
+      useValue: new LucideIconProvider({ CalendarDays, CalendarRange, SlidersHorizontal, WalletCards, LayoutDashboard, Settings, Bell, Inbox, Users }),
     },
   ],
   styles: [`
@@ -254,6 +257,16 @@ interface NavItem {
           <div class="flex items-center gap-1">
             @if (showNavigation()) {
               <a
+                routerLink="/splits"
+                routerLinkActive
+                #raSplits="routerLinkActive"
+                class="top-icon-btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                [class.active]="raSplits.isActive"
+                aria-label="Splits"
+              >
+                <lucide-icon [img]="usersIcon" class="h-5 w-5" style="stroke-width: 2.25;" aria-hidden="true" />
+              </a>
+              <a
                 routerLink="/notifications"
                 routerLinkActive
                 #raInbox="routerLinkActive"
@@ -392,6 +405,7 @@ export class AppShellComponent {
   readonly bellIcon = Bell;
   readonly settingsIcon = Settings;
   readonly inboxIcon = Inbox;
+  readonly usersIcon = Users;
 
 
 
@@ -402,6 +416,7 @@ export class AppShellComponent {
     { path: '/limits',    labelKey: 'nav.limits',    shortLabel: 'Limits',   icon: SlidersHorizontal },
     { path: '/finances',  labelKey: 'nav.finances',  shortLabel: 'Finance',  icon: WalletCards },
     { path: '/dashboard', labelKey: 'nav.dashboard', shortLabel: 'Dash',     icon: LayoutDashboard },
+    { path: '/splits',    labelKey: 'nav.splits',    shortLabel: 'Splits',   icon: Users },
     { path: '/notifications', labelKey: 'nav.notifications', shortLabel: 'Inbox', icon: Inbox },
     { path: '/reminders', labelKey: 'nav.reminders', shortLabel: 'Alerts',   icon: Bell },
     { path: '/settings',  labelKey: 'nav.settings',  shortLabel: 'Settings', icon: Settings },
@@ -425,6 +440,16 @@ export class AppShellComponent {
     // Populate the notification-inbox badge; the /notifications screen
     // reloads on open, so this initial read keeps the count fresh enough.
     void this.notificationInbox.load();
+
+    // Resume a Circle Link join parked before sign-in — a fresh user who
+    // arrived via /join/:code lands here after auth/setup and must not need
+    // to know that the Splits screen exists (docs/circle-splits-plan.md §6).
+    void Preferences.get({ key: PENDING_CIRCLE_JOIN_KEY }).then((pending) => {
+      if (pending.value) {
+        void Preferences.remove({ key: PENDING_CIRCLE_JOIN_KEY });
+        void this.router.navigate(['/join', pending.value]);
+      }
+    });
 
     this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
       if (event instanceof NavigationEnd) {

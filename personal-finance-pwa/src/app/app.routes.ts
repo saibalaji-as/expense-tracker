@@ -111,6 +111,31 @@ export const routes: Routes = [
     canActivate: [authGuard, setupGuard],
   },
   {
+    path: 'splits',
+    loadComponent: () =>
+      import('./features/splits/splits-list.component').then(
+        (m) => m.SplitsListComponent
+      ),
+    canActivate: [authGuard, setupGuard],
+  },
+  {
+    path: 'splits/:id',
+    loadComponent: () =>
+      import('./features/splits/circle-detail.component').then(
+        (m) => m.CircleDetailComponent
+      ),
+    canActivate: [authGuard, setupGuard],
+  },
+  {
+    // Public Circle Link landing — the component parks the code and routes to
+    // sign-in when unauthenticated (docs/circle-splits-plan.md §6).
+    path: 'join/:code',
+    loadComponent: () =>
+      import('./features/splits/join-circle.component').then(
+        (m) => m.JoinCircleComponent
+      ),
+  },
+  {
     path: 'notifications',
     loadComponent: () =>
       import('./features/notifications/notifications.component').then(

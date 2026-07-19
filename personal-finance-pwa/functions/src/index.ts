@@ -14,6 +14,7 @@ import { parseVoiceReminder } from './ai-reminder';
 // Re-import locally only when testing with the Firebase emulator.
 import { createFamily, createFamilyInvite, redeemFamilyInvite, dissolveFamily, leaveFamily } from './family';
 import { commitFamilyLedger } from './family-ledger';
+import { createCircle, createCircleInvite, redeemCircleInvite, previewCircleInvite, updateCircle, settleCircle } from './circles';
 import { notifyPartnerLedgerWrite } from './ledger-push';
 import { exchangeGoogleAuthCode, getGoogleAccessToken } from './google-tokens';
 
@@ -42,6 +43,12 @@ export {
   dissolveFamily,
   leaveFamily,
   commitFamilyLedger,
+  createCircle,
+  createCircleInvite,
+  redeemCircleInvite,
+  previewCircleInvite,
+  updateCircle,
+  settleCircle,
   notifyPartnerLedgerWrite,
   exchangeGoogleAuthCode,
   getGoogleAccessToken,
