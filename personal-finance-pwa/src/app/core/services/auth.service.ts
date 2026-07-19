@@ -334,6 +334,13 @@ export class AuthService {
         .catch(() => null)
         .then((result) => {
           if (this.#hasValidCachedToken()) {
+            // Sync-log visibility: the user tapped Sign in but no picker appears
+            // because the in-flight silent renewal already produced a valid token.
+            // Without this entry that looks identical to a swallowed popup.
+            recordAuthDiagnostic(
+              'auth.signInShortCircuit',
+              'interactive sign-in satisfied by in-flight silent renewal — no picker shown, no offline exchange ran (expected when a refresh token already exists server-side)'
+            );
             return result ?? { email: this.userEmail(), accountChanged: false };
           }
           return this.#nativeSignIn({});
@@ -723,6 +730,14 @@ export class AuthService {
         // cancelled by user" first-attempt failure on fresh installs. The user can
         // simply tap Sign in again.
         if (this.#isUserCancellation(err)) throw err;
+        // Sync-log visibility (was a blind spot: a sign-in that lands here used to
+        // leave ZERO diagnostic entries — the user ends up signed in online with no
+        // refresh token and no trace of why). The error message identifies the throw
+        // site (e.g. "Expected offline Google login response with serverAuthCode").
+        recordAuthDiagnostic(
+          'auth.offlineFallback',
+          `offline sign-in threw: ${String((err as Error)?.message ?? err)} — falling back to ONLINE mode (NO refresh token stored; hourly re-login will return)`
+        );
         // Non-cancel failure after the picker completed (usually the backend exchange,
         // e.g. bad client secret — the preflight cannot detect that). Don't retry the
         // offline flow again this session: go single-popup online on later attempts.

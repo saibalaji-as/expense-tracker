@@ -733,6 +733,18 @@
   "finances.cardAdjust.hint.cashback": "Cashback or reward points credited to this card reduce its outstanding and are tracked as rewards earned — not as income or expense.",
   "finances.cardAdjust.matchTitle": "Link to original purchase",
   "finances.cardAdjust.matchHint": "Optional — tap a matching purchase to link this refund to it for your records.",
+  "finances.statement.generated": "Statement of",
+  "finances.statement.estimated": "estimated",
+  "finances.statement.confirmHint": "Check your bank's bill and confirm — edit the amount if it differs.",
+  "finances.statement.confirm": "Confirm",
+  "finances.statement.edit": "Edit",
+  "finances.statement.confirmedLabel": "Statement confirmed",
+  "finances.statement.amount": "Statement amount",
+  "finances.statement.minDue": "Min due (optional)",
+  "finances.statement.save": "Save",
+  "finances.statement.confirmedToast": "Statement saved",
+  "finances.statement.confirmedToastDetail": "Bill reminders will use this amount.",
+  "finances.statement.notSaved": "Statement not saved",
   "daily.overspendToast.title": "Budget alert: {category}",
   "daily.overspendToast.detail": "You overspent {category} last month by {overspent} (spent {spent} of the {limit} limit). Consider if this expense is necessary."
 }

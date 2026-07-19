@@ -64,6 +64,45 @@ service cloud.firestore {
       allow write: if false; // Firebase Functions only
     }
 
+    // ── Circle Splits: N-member group expense sharing (docs/circle-splits-plan.md).
+    // FREE tier by design — no Pro gate (growth loop). Circle docs are
+    // Functions-only; membership/status changes are server-authoritative. ──
+    match /circles/{circleId} {
+      allow read: if request.auth != null &&
+        request.auth.uid in resource.data.memberUids;
+      allow write: if false; // Firebase Functions only
+    }
+
+    // ── Circle expenses: members read; author writes own records; tombstones
+    // only (deleted: true) — no document deletes. Writes blocked once the
+    // circle is settled. ──
+    match /circles/{circleId}/expenses/{expenseId} {
+      allow read: if request.auth != null && isCircleMember(circleId);
+      allow create: if request.auth != null &&
+        isActiveCircleMember(circleId) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        request.resource.data.circleId == circleId &&
+        request.resource.data.deleted == false;
+      // Author edits/tombstones their own record; the circle owner may also
+      // edit (cleanup of placeholder-member spends). authorUid is immutable.
+      allow update: if request.auth != null &&
+        isActiveCircleMember(circleId) &&
+        request.resource.data.authorUid == resource.data.authorUid &&
+        request.resource.data.circleId == circleId &&
+        (resource.data.authorUid == request.auth.uid || isCircleOwner(circleId));
+      allow delete: if false; // tombstones only
+    }
+
+    // ── Circle invites: multi-use Circle Link codes. Owner reads their own;
+    // any signed-in user can read an unrevoked code to preview the circle
+    // before joining. Writes: Functions only. ──
+    match /circleInvites/{inviteCode} {
+      allow read: if request.auth != null &&
+        (resource.data.ownerUid == request.auth.uid ||
+         resource.data.revoked == false);
+      allow write: if false; // Firebase Functions only
+    }
+
     // ── Google OAuth refresh tokens: SERVER ONLY (Cloud Functions via Admin SDK). ──
     // Clients must never read or write these — they hold long-lived Drive access.
     match /googleTokens/{uid} {
@@ -76,6 +115,23 @@ service cloud.firestore {
       return familyDoc != null &&
              (familyDoc.data.ownerUid == request.auth.uid ||
               familyDoc.data.partnerUid == request.auth.uid);
+    }
+
+    function isCircleMember(circleId) {
+      let circleDoc = get(/databases/$(database)/documents/circles/$(circleId));
+      return circleDoc != null && request.auth.uid in circleDoc.data.memberUids;
+    }
+
+    function isActiveCircleMember(circleId) {
+      let circleDoc = get(/databases/$(database)/documents/circles/$(circleId));
+      return circleDoc != null &&
+             request.auth.uid in circleDoc.data.memberUids &&
+             circleDoc.data.status == 'active';
+    }
+
+    function isCircleOwner(circleId) {
+      let circleDoc = get(/databases/$(database)/documents/circles/$(circleId));
+      return circleDoc != null && circleDoc.data.ownerUid == request.auth.uid;
     }
 
     function isProUser(uid) {

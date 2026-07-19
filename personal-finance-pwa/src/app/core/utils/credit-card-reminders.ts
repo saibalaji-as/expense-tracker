@@ -1,4 +1,4 @@
-import { DebtAccount, DebtPayment, ExpenseEntry } from '../models';
+import { DebtAccount, DebtAdjustment, DebtPayment, ExpenseEntry } from '../models';
 
 /**
  * Pure planning logic for credit-card bill notifications.
@@ -104,21 +104,40 @@ function shortDate(date: Date): string {
 }
 
 /**
- * Statement amount actually due for the cycle billed on `billDate`:
- * current remaining balance minus charges made after the bill was generated.
- * (Payments since the bill already reduced remainingBalance, so they are
- * implicitly subtracted — this equals statement balance minus payments made.)
+ * Fallback estimate of the amount still due for the cycle billed on
+ * `billDate`, used only when the card has no statement snapshot for that
+ * bill: current remaining balance minus post-bill charges (purchases AND
+ * debit adjustments) plus post-bill credits (refunds/cashback). Payments
+ * since the bill already reduced remainingBalance, so they are implicitly
+ * subtracted — this equals statement balance minus payments made.
  */
 export function statementDueAmount(
   card: DebtAccount,
   entries: readonly ExpenseEntry[],
-  billDate: Date
+  billDate: Date,
+  adjustments: readonly DebtAdjustment[] = []
 ): number {
   const billStr = toDateStr(billDate);
   const chargesSinceBill = entries
     .filter((e) => e.debtId === card.id && e.source !== 'debt-payment' && e.date > billStr)
     .reduce((sum, e) => sum + e.amount, 0);
-  return Math.max(0, Number((card.remainingBalance - chargesSinceBill).toFixed(2)));
+  const adjustmentsSinceBill = adjustments
+    .filter((a) => a.debtId === card.id && a.date > billStr)
+    .reduce((sum, a) => sum + (a.kind === 'refund' || a.kind === 'cashback' ? -a.amount : a.amount), 0);
+  return Math.max(0, Number((card.remainingBalance - chargesSinceBill - adjustmentsSinceBill).toFixed(2)));
+}
+
+/**
+ * Amount still due for a snapshotted statement: the (possibly user-corrected)
+ * statement amount minus payments recorded after the bill date.
+ * Duplicated from credit-card-statement.ts to keep this planner dependency-light.
+ */
+function snapshotRemainingDue(card: DebtAccount, payments: readonly DebtPayment[]): number {
+  const statement = card.statement!;
+  const paidSinceBill = payments
+    .filter((p) => p.debtId === card.id && p.date > statement.billDateStr)
+    .reduce((sum, p) => sum + p.amount, 0);
+  return Math.max(0, Number((statement.amount - paidSinceBill).toFixed(2)));
 }
 
 /** A payment recorded on/after the cycle start suppresses due-day and overdue nudges. */
@@ -131,7 +150,8 @@ export function buildCreditCardReminderPlan(
   entries: readonly ExpenseEntry[],
   payments: readonly DebtPayment[],
   now: Date,
-  formatMoney: (amount: number) => string
+  formatMoney: (amount: number) => string,
+  adjustments: readonly DebtAdjustment[] = []
 ): PlannedCcNotification[] {
   const plan: PlannedCcNotification[] = [];
 
@@ -144,14 +164,16 @@ export function buildCreditCardReminderPlan(
     const dueDay = card.paymentDueDay!;
     const dueDate = nextOccurrence(dueDay, now);
 
-    // "Statement ready" ping on the next bill-generation day (amount-free by design).
+    // "Statement ready" ping on the next bill-generation day. Amount-free by
+    // design — it now asks the user to confirm the estimated statement so
+    // later reminders carry the exact bank amount.
     if (card.billGenerationDay && card.remainingBalance > 0) {
       const nextBill = nextOccurrence(card.billGenerationDay, now);
       plan.push({
         id: base + SLOT_BILL_READY,
         debtId: card.id,
         title: `${card.name} statement is ready`,
-        body: `Your ${card.name} bill was generated today. Open Spenza to review what's due.`,
+        body: `Your ${card.name} bill was generated today. Confirm the statement amount in Spenza so reminders match your bank's bill.`,
         at: nextBill,
       });
     }
@@ -161,15 +183,31 @@ export function buildCreditCardReminderPlan(
       ? lastOccurrenceOnOrBefore(card.billGenerationDay, dueDate)
       : null;
     const statementKnown = billDate !== null && billDate <= now;
-    const dueAmount = statementKnown ? statementDueAmount(card, entries, billDate) : card.remainingBalance;
+
+    // Best amount available, most-trusted first:
+    //  1. statement snapshot for this bill (user-confirmed or derived) minus
+    //     payments made since the bill,
+    //  2. live estimate netting post-bill charges/adjustments,
+    //  3. raw outstanding when no bill day is configured.
+    const snapshotCurrent =
+      statementKnown && !!card.statement && card.statement.billDateStr === toDateStr(billDate);
+    const dueAmount = snapshotCurrent
+      ? snapshotRemainingDue(card, payments)
+      : statementKnown
+        ? statementDueAmount(card, entries, billDate, adjustments)
+        : card.remainingBalance;
+    const confirmed = snapshotCurrent && card.statement!.source === 'user';
+    // Unconfirmed amounts are honest about being estimates — the user can
+    // correct any bank discrepancy from the Finances screen.
+    const estimateHint = statementKnown && !confirmed ? ' (estimated — confirm in Spenza)' : '';
     const cycleStartStr = statementKnown ? toDateStr(billDate) : toDateStr(addDays(dueDate, -30));
     const alreadyPaid = paidSince(payments, card.id, cycleStartStr);
 
     const nothingDue = dueAmount <= 0;
-    const minDueHint =
-      card.minimumPaymentAmount && card.minimumPaymentAmount > 0
-        ? ` Min due ${formatMoney(card.minimumPaymentAmount)}.`
-        : '';
+    const minDue = snapshotCurrent && card.statement!.minDue !== undefined
+      ? card.statement!.minDue
+      : card.minimumPaymentAmount;
+    const minDueHint = minDue && minDue > 0 ? ` Min due ${formatMoney(minDue)}.` : '';
 
     if (!nothingDue) {
       const dueSoonAt = addDays(dueDate, -3);
@@ -179,7 +217,7 @@ export function buildCreditCardReminderPlan(
           debtId: card.id,
           title: `${card.name} bill due ${shortDate(dueDate)}`,
           body: statementKnown
-            ? `${formatMoney(dueAmount)} due on ${shortDate(dueDate)}.${minDueHint}`
+            ? `${formatMoney(dueAmount)}${estimateHint} due on ${shortDate(dueDate)}.${minDueHint}`
             : `${card.name}: ${formatMoney(dueAmount)} outstanding. Due on ${shortDate(dueDate)}.`,
           at: dueSoonAt,
         });
@@ -191,7 +229,7 @@ export function buildCreditCardReminderPlan(
             id: base + SLOT_DUE_TODAY,
             debtId: card.id,
             title: `${card.name} bill due today`,
-            body: `${formatMoney(dueAmount)} is due today.${minDueHint} Record the payment in Spenza once done.`,
+            body: `${formatMoney(dueAmount)}${estimateHint} is due today.${minDueHint} Record the payment in Spenza once done.`,
             at: dueDate,
           });
         }
@@ -200,7 +238,7 @@ export function buildCreditCardReminderPlan(
           debtId: card.id,
           title: `Did you miss ${card.name}'s bill?`,
           body: minDueHint
-            ? `Yesterday was the due date. Paying at least the minimum (${formatMoney(card.minimumPaymentAmount!)}) avoids late fees.`
+            ? `Yesterday was the due date. Paying at least the minimum (${formatMoney(minDue!)}) avoids late fees.`
             : `Yesterday was the due date. Pay soon to avoid late fees and interest.`,
           at: addDays(dueDate, 1),
         });

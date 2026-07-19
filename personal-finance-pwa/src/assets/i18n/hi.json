@@ -733,6 +733,18 @@
   "finances.cardAdjust.hint.cashback": "इस कार्ड पर आया कैशबैक या रिवॉर्ड बकाया घटाता है; इसे आय या खर्च नहीं, रिवॉर्ड के रूप में ट्रैक किया जाता है।",
   "finances.cardAdjust.matchTitle": "मूल खरीद से जोड़ें",
   "finances.cardAdjust.matchHint": "वैकल्पिक — मिलती-जुलती खरीद पर टैप करके इस रिफ़ंड को उससे जोड़ें।",
+  "finances.statement.generated": "स्टेटमेंट",
+  "finances.statement.estimated": "अनुमानित",
+  "finances.statement.confirmHint": "बैंक के बिल से मिलाकर पुष्टि करें — राशि अलग हो तो संपादित करें।",
+  "finances.statement.confirm": "पुष्टि करें",
+  "finances.statement.edit": "संपादित करें",
+  "finances.statement.confirmedLabel": "स्टेटमेंट की पुष्टि हो गई",
+  "finances.statement.amount": "स्टेटमेंट राशि",
+  "finances.statement.minDue": "न्यूनतम देय (वैकल्पिक)",
+  "finances.statement.save": "सहेजें",
+  "finances.statement.confirmedToast": "स्टेटमेंट सहेजा गया",
+  "finances.statement.confirmedToastDetail": "बिल रिमाइंडर अब इसी राशि का उपयोग करेंगे।",
+  "finances.statement.notSaved": "स्टेटमेंट सहेजा नहीं गया",
   "daily.overspendToast.title": "बजट चेतावनी: {category}",
   "daily.overspendToast.detail": "पिछले महीने आपने {category} पर {overspent} अधिक खर्च किया ({limit} सीमा में से {spent} खर्च)। सोचें कि क्या यह खर्च ज़रूरी है।"
 }

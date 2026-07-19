@@ -733,6 +733,18 @@
   "finances.cardAdjust.hint.cashback": "இந்த கார்டுக்கு வரவு வைக்கப்பட்ட கேஷ்பேக் அல்லது வெகுமதி நிலுவையை குறைக்கிறது; வருமானமாகவோ செலவாகவோ அல்ல, வெகுமதியாக கண்காணிக்கப்படுகிறது.",
   "finances.cardAdjust.matchTitle": "அசல் கொள்முதலுடன் இணைக்கவும்",
   "finances.cardAdjust.matchHint": "விருப்பத்தேர்வு — பொருந்தும் கொள்முதலை தட்டி இந்த பணத்திரும்பத்தை அதனுடன் இணைக்கலாம்.",
+  "finances.statement.generated": "ஸ்டேட்மென்ட்",
+  "finances.statement.estimated": "மதிப்பீடு",
+  "finances.statement.confirmHint": "வங்கியின் பில்லுடன் சரிபார்த்து உறுதிப்படுத்தவும் — தொகை வேறுபட்டால் திருத்தவும்.",
+  "finances.statement.confirm": "உறுதிப்படுத்து",
+  "finances.statement.edit": "திருத்து",
+  "finances.statement.confirmedLabel": "ஸ்டேட்மென்ட் உறுதிப்படுத்தப்பட்டது",
+  "finances.statement.amount": "ஸ்டேட்மென்ட் தொகை",
+  "finances.statement.minDue": "குறைந்தபட்ச செலுத்த வேண்டியது (விருப்பம்)",
+  "finances.statement.save": "சேமி",
+  "finances.statement.confirmedToast": "ஸ்டேட்மென்ட் சேமிக்கப்பட்டது",
+  "finances.statement.confirmedToastDetail": "பில் நினைவூட்டல்கள் இந்தத் தொகையைப் பயன்படுத்தும்.",
+  "finances.statement.notSaved": "ஸ்டேட்மென்ட் சேமிக்கப்படவில்லை",
   "daily.overspendToast.title": "பட்ஜெட் எச்சரிக்கை: {category}",
   "daily.overspendToast.detail": "கடந்த மாதம் {category} பிரிவில் {overspent} அதிகமாக செலவழித்தீர்கள் ({limit} வரம்பில் {spent} செலவு). இந்த செலவு அவசியமா என்று யோசியுங்கள்."
 }

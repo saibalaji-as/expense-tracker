@@ -6,7 +6,7 @@ import {
   nextOccurrence,
   statementDueAmount,
 } from './credit-card-reminders';
-import { DebtAccount, DebtPayment, ExpenseEntry } from '../models';
+import { DebtAccount, DebtAdjustment, DebtPayment, ExpenseEntry } from '../models';
 
 const money = (n: number) => `₹${n}`;
 
@@ -162,6 +162,68 @@ describe('credit-card-reminders planner', () => {
       );
       const base = creditCardNotificationBase('cc-1');
       expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹250');
+    });
+
+    it('nets post-bill debt adjustments in the fallback estimate (fees up, refunds down)', () => {
+      const adjustments: DebtAdjustment[] = [
+        { id: 'a1', debtId: 'cc-1', kind: 'charge', amount: 500, date: '2026-06-24', createdAt: '2026-06-24T10:00:00Z' },
+        { id: 'a2', debtId: 'cc-1', kind: 'refund', amount: 200, date: '2026-06-23', createdAt: '2026-06-23T10:00:00Z' },
+      ];
+      // 5000 outstanding − 500 post-bill fee + 200 post-bill refund = 4700 statement due
+      const plan = buildCreditCardReminderPlan([card()], [], [], now, money, adjustments);
+      const base = creditCardNotificationBase('cc-1');
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹4700');
+    });
+
+    it('labels derived amounts as estimates and asks for confirmation', () => {
+      const plan = buildCreditCardReminderPlan([card()], [], [], now, money);
+      const base = creditCardNotificationBase('cc-1');
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('estimated');
+      expect(plan.find((p) => p.id === base + 2)!.body).toContain('estimated');
+    });
+
+    it('uses the statement snapshot amount when it covers the resolved bill', () => {
+      // Snapshot for the 20 Jun bill says the bank billed 4200 (user-corrected),
+      // even though outstanding is 5000. Reminder must show 4200, unlabeled.
+      const c = card({
+        statement: { billDateStr: '2026-06-20', amount: 4200, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
+      });
+      const plan = buildCreditCardReminderPlan([c], [charge(800, '2026-06-24')], [], now, money);
+      const base = creditCardNotificationBase('cc-1');
+      const dueSoon = plan.find((p) => p.id === base + 1)!;
+      expect(dueSoon.body).toContain('₹4200');
+      expect(dueSoon.body).not.toContain('estimated');
+    });
+
+    it('subtracts payments made after the bill from the snapshot amount', () => {
+      const c = card({
+        statement: { billDateStr: '2026-06-20', amount: 4200, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
+      });
+      const plan = buildCreditCardReminderPlan([c], [], [payment(1200, '2026-06-22')], now, money);
+      const base = creditCardNotificationBase('cc-1');
+      // due-day/overdue suppressed by the payment; due-3 shows 4200 − 1200
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹3000');
+    });
+
+    it('ignores a stale snapshot from a previous cycle', () => {
+      const c = card({
+        statement: { billDateStr: '2026-05-20', amount: 999, source: 'user', updatedAt: '2026-05-21T00:00:00Z' },
+      });
+      const plan = buildCreditCardReminderPlan([c], [], [], now, money);
+      const base = creditCardNotificationBase('cc-1');
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹5000');
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('estimated');
+    });
+
+    it('prefers the statement-level min due over the card static minimum', () => {
+      const c = card({
+        minimumPaymentAmount: 250,
+        statement: { billDateStr: '2026-06-20', amount: 4200, minDue: 420, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
+      });
+      const plan = buildCreditCardReminderPlan([c], [], [], now, money);
+      const base = creditCardNotificationBase('cc-1');
+      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹420');
+      expect(plan.find((p) => p.id === base + 1)!.body).not.toContain('₹250');
     });
 
     it('cancel IDs include the legacy monthly-repeat ID range', () => {

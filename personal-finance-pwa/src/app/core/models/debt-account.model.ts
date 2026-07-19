@@ -1,6 +1,24 @@
 export type DebtAccountType = 'credit-card' | 'personal-loan' | 'vehicle-loan' | 'home-loan' | 'other';
 export type DebtAccountStatus = 'active' | 'paid' | 'archived';
 
+/**
+ * Snapshot of the latest generated credit-card statement (one per card,
+ * replaced each cycle). `source: 'derived'` = auto-reconstructed by Spenza at
+ * bill generation; `source: 'user'` = confirmed/corrected by the user against
+ * the actual bank statement. Reminders show `amount` minus payments recorded
+ * after `billDateStr`, and label derived amounts as estimates.
+ */
+export interface CardStatement {
+  /** Bill-generation date this snapshot covers, local 'YYYY-MM-DD'. */
+  billDateStr: string;
+  /** Payable statement amount for that bill. */
+  amount: number;
+  /** Statement-specific minimum due (overrides the card's static minimum). */
+  minDue?: number;
+  source: 'derived' | 'user';
+  updatedAt: string;
+}
+
 export interface DebtAccount {
   id: string;
   name: string;
@@ -21,6 +39,8 @@ export interface DebtAccount {
   cardLast4?: string;
   /** Total credit limit — enables utilization display. */
   creditLimit?: number;
+  /** Latest statement snapshot — credit cards only. See CardStatement. */
+  statement?: CardStatement;
   createdAt: string;
   updatedAt: string;
   createdByEmail?: string;

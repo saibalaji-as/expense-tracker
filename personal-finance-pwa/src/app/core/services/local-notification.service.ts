@@ -5,7 +5,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { StorageService } from './storage.service';
 import { budgetThresholdExceeded$, cardUtilizationCrossed$, CardUtilizationEvent } from './budget-events';
 import { getDailyReminderContent } from '../utils/reminder-message';
-import { AccountBalanceAdjustment, DebtAccount, DebtPayment, ExpenseEntry } from '../models';
+import { AccountBalanceAdjustment, DebtAccount, DebtAdjustment, DebtPayment, ExpenseEntry } from '../models';
 import { CurrencyService } from './currency.service';
 import {
   buildCreditCardReminderPlan,
@@ -902,7 +902,8 @@ export class LocalNotificationService {
   async scheduleCreditCardDueReminders(
     debts: readonly DebtAccount[],
     entries: readonly ExpenseEntry[] = [],
-    payments: readonly DebtPayment[] = []
+    payments: readonly DebtPayment[] = [],
+    adjustments: readonly DebtAdjustment[] = []
   ): Promise<void> {
     if (!this.isNativePlatform) return;
     await this.refreshNativePermissionStatus();
@@ -925,7 +926,8 @@ export class LocalNotificationService {
       entries,
       payments,
       new Date(),
-      (amount) => this.currencyService.format(amount)
+      (amount) => this.currencyService.format(amount),
+      adjustments
     );
     if (plan.length === 0) return;
 

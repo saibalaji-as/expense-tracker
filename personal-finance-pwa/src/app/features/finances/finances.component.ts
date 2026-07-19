@@ -18,6 +18,7 @@ import {
   AccountBalanceAdjustment,
   AssetAccount,
   AssetAccountType,
+  CardStatement,
   DebtAccount,
   DebtAccountType,
   DebtAdjustment,
@@ -33,6 +34,7 @@ import {
   statementDueWithAdjustments,
   type CycleWindow,
 } from '../../core/utils/credit-card-insights';
+import { statementIsCurrent, statementRemainingDue } from '../../core/utils/credit-card-statement';
 import { CurrencyService } from '../../core/services/currency.service';
 import { ExpenseStore } from '../../core/services/expense-store.service';
 import { I18nService } from '../../core/services/i18n.service';
@@ -526,6 +528,54 @@ import { CurrencyFormatPipe, DateFormatPipe, TranslatePipe } from '../../shared/
                             <span class="font-medium text-amber-600 dark:text-amber-400">{{ 'finances.cycle.payBy' | translate }} {{ cycleDateLabel(cycle.dueDate) }}</span>
                           }
                         </div>
+                        @if (cardStatement(card); as statement) {
+                          @if (statement.source === 'derived') {
+                            <div class="mt-2 rounded-lg border border-amber-300/60 bg-amber-500/10 p-2 text-[11px] leading-relaxed">
+                              <p class="text-amber-700 dark:text-amber-400">
+                                {{ 'finances.statement.generated' | translate }} {{ statementDateLabel(statement) }} ·
+                                <strong class="tabular-nums">{{ statement.amount | currencyFormat }}</strong>
+                                ({{ 'finances.statement.estimated' | translate }})
+                              </p>
+                              <p class="mt-0.5 text-muted-foreground">{{ 'finances.statement.confirmHint' | translate }}</p>
+                              <div class="mt-1.5 flex flex-wrap gap-2">
+                                <button type="button" class="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground transition hover:opacity-90" [disabled]="saving()" (click)="acceptStatement(card)">
+                                  {{ 'finances.statement.confirm' | translate }}
+                                </button>
+                                <button type="button" class="rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground transition hover:bg-accent" (click)="startStatementEdit(card)">
+                                  {{ 'finances.statement.edit' | translate }}
+                                </button>
+                              </div>
+                            </div>
+                          } @else {
+                            <p class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px]">
+                              <span [style.color]="'var(--success)'">
+                                ✓ {{ 'finances.statement.confirmedLabel' | translate }} · {{ statementDateLabel(statement) }} ·
+                                <strong class="tabular-nums">{{ statement.amount | currencyFormat }}</strong>
+                              </span>
+                              <button type="button" class="font-semibold text-muted-foreground underline-offset-2 hover:underline" (click)="startStatementEdit(card)">
+                                {{ 'finances.statement.edit' | translate }}
+                              </button>
+                            </p>
+                          }
+                          @if (editingStatementCard()?.id === card.id) {
+                            <form [formGroup]="statementForm" (ngSubmit)="saveStatement()" class="mt-2 grid gap-2 rounded-lg border border-border bg-background/60 p-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
+                              <label class="space-y-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.statement.amount' | translate }}<span class="text-destructive ml-0.5">*</span></span>
+                                <input appClearable type="number" min="0" step="0.01" formControlName="amount" class="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs" />
+                              </label>
+                              <label class="space-y-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{{ 'finances.statement.minDue' | translate }}</span>
+                                <input appClearable type="number" min="0" step="0.01" formControlName="minDue" class="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs" />
+                              </label>
+                              <button type="submit" class="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition hover:opacity-90" [disabled]="saving()">
+                                {{ 'finances.statement.save' | translate }}
+                              </button>
+                              <button type="button" class="rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold text-muted-foreground transition hover:bg-accent" (click)="cancelStatementEdit()">
+                                {{ 'common.cancel' | translate }}
+                              </button>
+                            </form>
+                          }
+                        }
                         @if (cardCashback(card) > 0) {
                           <p class="mt-1.5 text-[11px]" [style.color]="'var(--success)'">
                             <lucide-icon name="star" class="inline h-3 w-3 align-[-2px]" />
@@ -972,6 +1022,8 @@ export class FinancesComponent {
     );
   });
   readonly payingDebt = signal<DebtAccount | null>(null);
+  /** Card whose statement amount is being edited inline (discrepancy fix). */
+  readonly editingStatementCard = signal<DebtAccount | null>(null);
   readonly deleteTarget = signal<AssetAccount | null>(null);
   readonly deleteDebtTarget = signal<DebtAccount | null>(null);
   readonly confirmingDeletePayment = signal<DebtPayment | null>(null);
@@ -1018,6 +1070,16 @@ export class FinancesComponent {
     paymentDueDay: [0],
     minimumPaymentAmount: [0, Validators.min(0)],
     cardLast4: ['', Validators.pattern(/^\d{4}$/)],
+  });
+
+  /**
+   * Statement confirmation/correction: the derived snapshot is an estimate —
+   * the bank's real bill can differ (interest, fees, EMI conversions Spenza
+   * never sees). The user overrides it here; reminders then use this amount.
+   */
+  readonly statementForm = new FormBuilder().nonNullable.group({
+    amount: [0, [Validators.required, Validators.min(0)]],
+    minDue: [0, Validators.min(0)],
   });
 
   readonly paymentForm = new FormBuilder().nonNullable.group({
@@ -1609,7 +1671,95 @@ export class FinancesComponent {
   }
 
   cardStatementDue(card: DebtAccount, cycle: CycleWindow): number {
+    // Prefer the statement snapshot (user-confirmed bank amount, or the
+    // frozen derived estimate) minus payments since the bill; live derivation
+    // is only the fallback for cards without a snapshot yet.
+    const statement = this.cardStatement(card);
+    if (statement) {
+      return statementRemainingDue(statement, this.expenseStore.debtPayments(), card.id);
+    }
     return statementDueWithAdjustments(card, this.expenseStore.entries(), this.expenseStore.debtAdjustments(), cycle);
+  }
+
+  // ─── Statement snapshot confirm/override (discrepancy fix) ────────────────
+
+  /** The card's snapshot when it covers the latest generated bill, else null. */
+  cardStatement(card: DebtAccount): CardStatement | null {
+    return statementIsCurrent(card, card.statement, new Date()) ? card.statement! : null;
+  }
+
+  statementDateLabel(statement: CardStatement): string {
+    return new Date(`${statement.billDateStr}T00:00:00`).toLocaleDateString(this.i18n.locale(), {
+      day: 'numeric',
+      month: 'short',
+    });
+  }
+
+  /** One-tap confirm: the derived estimate matches the bank's bill. */
+  async acceptStatement(card: DebtAccount): Promise<void> {
+    const statement = this.cardStatement(card);
+    if (!statement) return;
+    this.saving.set(true);
+    try {
+      await this.expenseStore.confirmCardStatement(card.id, {
+        amount: statement.amount,
+        ...(statement.minDue !== undefined ? { minDue: statement.minDue } : {}),
+      });
+      this.feedback.success(
+        this.i18n.t('finances.statement.confirmedToast'),
+        this.i18n.t('finances.statement.confirmedToastDetail')
+      );
+    } catch (error) {
+      this.feedback.error(
+        this.i18n.t('finances.statement.notSaved'),
+        error instanceof Error ? error.message : this.i18n.t('finances.feedback.tryAgain')
+      );
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  startStatementEdit(card: DebtAccount): void {
+    const statement = this.cardStatement(card);
+    if (!statement) return;
+    this.editingStatementCard.set(card);
+    this.statementForm.reset({
+      amount: statement.amount,
+      minDue: statement.minDue ?? card.minimumPaymentAmount ?? 0,
+    });
+  }
+
+  cancelStatementEdit(): void {
+    this.editingStatementCard.set(null);
+  }
+
+  async saveStatement(): Promise<void> {
+    const card = this.editingStatementCard();
+    if (!card) return;
+    if (this.statementForm.invalid) {
+      this.statementForm.markAllAsTouched();
+      return;
+    }
+    const value = this.statementForm.getRawValue();
+    this.saving.set(true);
+    try {
+      await this.expenseStore.confirmCardStatement(card.id, {
+        amount: Number(value.amount),
+        ...(Number(value.minDue) > 0 ? { minDue: Number(value.minDue) } : {}),
+      });
+      this.editingStatementCard.set(null);
+      this.feedback.success(
+        this.i18n.t('finances.statement.confirmedToast'),
+        this.i18n.t('finances.statement.confirmedToastDetail')
+      );
+    } catch (error) {
+      this.feedback.error(
+        this.i18n.t('finances.statement.notSaved'),
+        error instanceof Error ? error.message : this.i18n.t('finances.feedback.tryAgain')
+      );
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   cardCashback(card: DebtAccount): number {

@@ -10,6 +10,7 @@ import {
   AdjustAccountBalanceInput,
   AssetAccount,
   BudgetRuleSummary,
+  CardStatement,
   CreateAssetAccountInput,
   CreateDebtAccountInput,
   DebtAccount,
@@ -35,6 +36,7 @@ import { toLocalDateString } from '../utils/local-date';
 import { applyLedgerChanges, diffLedgerState, stableStringify, type LedgerStateView } from '../utils/family-ledger.util';
 import { ledgerDocId } from '../models/family-ledger.model';
 import { mergeAddOnly, mergeByUpdatedAt, mergeEntries } from '../utils/family-state-merge';
+import { pendingDerivedStatement } from '../utils/credit-card-statement';
 
 const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
 const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
@@ -1527,7 +1529,14 @@ export const ExpenseStore = signalStore(
           accountDeltasForAddedEntries([entry])
         );
         const updatedDebts = applyDebtCharges(store.debts(), debtChargesForAddedEntries([entry]));
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
+        patchState(store, {
+          entries: updatedEntries,
+          accounts: updatedAccounts,
+          debts: updatedDebts,
+          // Tag as pending until persistToDrive confirms the Drive write — the
+          // Daily list shows the "Syncing" chip for ids in this set.
+          pendingSyncIds: [entry.id, ...store.pendingSyncIds()],
+        });
         
         // Task 7.2: Check budget threshold after adding entry
         const limit = store.limitMap()[entry.type];
@@ -1565,7 +1574,12 @@ export const ExpenseStore = signalStore(
           accountDeltasForAddedEntries(entries)
         );
         const updatedDebts = applyDebtCharges(store.debts(), debtChargesForAddedEntries(entries));
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
+        patchState(store, {
+          entries: updatedEntries,
+          accounts: updatedAccounts,
+          debts: updatedDebts,
+          pendingSyncIds: [...entries.map((e) => e.id), ...store.pendingSyncIds()],
+        });
 
         for (const entry of entries) {
           const limit = store.limitMap()[entry.type];
@@ -2165,6 +2179,97 @@ export const ExpenseStore = signalStore(
         await markLocalChangeAndPersist();
       },
 
+      /**
+       * User confirms or corrects the latest statement amount for a credit
+       * card (Finances → statement banner). Stores a `source: 'user'`
+       * snapshot for the card's latest bill date so reminders show the exact
+       * bank amount instead of the derived estimate.
+       */
+      async confirmCardStatement(
+        debtId: string,
+        input: { amount: number; minDue?: number }
+      ): Promise<void> {
+        const existing = store.debts().find((debt) => debt.id === debtId);
+        if (!existing || existing.type !== 'credit-card') {
+          throw new Error('Credit card was not found.');
+        }
+        if (!existing.billGenerationDay) {
+          throw new Error('Set a bill generation day on this card first.');
+        }
+        const amount = roundMoney(Number(input.amount));
+        if (!Number.isFinite(amount) || amount < 0) {
+          throw new Error('Enter a valid statement amount.');
+        }
+        const minDue = input.minDue === undefined ? undefined : roundMoney(Number(input.minDue));
+        if (minDue !== undefined && (!Number.isFinite(minDue) || minDue < 0 || minDue > amount)) {
+          throw new Error('Minimum due must be between 0 and the statement amount.');
+        }
+
+        // Keep the derived snapshot's bill date when it already covers the
+        // latest bill; otherwise resolve it fresh (card had no snapshot yet).
+        const derived = pendingDerivedStatement(
+          existing,
+          store.entries(),
+          store.debtAdjustments(),
+          store.debtPayments(),
+          new Date()
+        );
+        const billDateStr = derived?.billDateStr ?? existing.statement?.billDateStr;
+        if (!billDateStr) {
+          throw new Error('No generated statement to confirm yet.');
+        }
+
+        const now = new Date().toISOString();
+        const actor = activityActor();
+        const statement: CardStatement = {
+          billDateStr,
+          amount,
+          ...(minDue !== undefined && minDue > 0 ? { minDue } : {}),
+          source: 'user',
+          updatedAt: now,
+        };
+        patchState(store, {
+          debts: store.debts().map((debt) =>
+            debt.id === debtId
+              ? { ...debt, statement, updatedAt: now, updatedByEmail: actor.email, updatedByRole: actor.role }
+              : debt
+          ),
+        });
+        await markLocalChangeAndPersist();
+      },
+
+      /**
+       * Auto-snapshots the statement for every active credit card whose
+       * bill-generation day has passed without a snapshot for that bill
+       * (`source: 'derived'`, confirmable in Finances). Idempotent — cards
+       * whose snapshot already covers the latest bill are untouched, so the
+       * watching effect settles after one pass per cycle.
+       */
+      async ensureCardStatements(): Promise<void> {
+        const now = new Date();
+        const entries = store.entries();
+        const adjustments = store.debtAdjustments();
+        const payments = store.debtPayments();
+        const updates = new Map<string, CardStatement>();
+        for (const debt of store.debts()) {
+          const snapshot = pendingDerivedStatement(debt, entries, adjustments, payments, now);
+          if (snapshot) updates.set(debt.id, snapshot);
+        }
+        if (updates.size === 0) return;
+
+        const nowIso = new Date().toISOString();
+        const actor = activityActor();
+        patchState(store, {
+          debts: store.debts().map((debt) => {
+            const statement = updates.get(debt.id);
+            return statement
+              ? { ...debt, statement, updatedAt: nowIso, updatedByEmail: actor.email, updatedByRole: actor.role }
+              : debt;
+          }),
+        });
+        await markLocalChangeAndPersist();
+      },
+
       async deleteDebt(debtId: string): Promise<void> {
         const existing = store.debts().find((debt) => debt.id === debtId);
         if (!existing) {
@@ -2346,6 +2451,9 @@ export const ExpenseStore = signalStore(
               : candidate
           ),
           debtPayments: [payment, ...store.debtPayments()],
+          // The generated Debt Payment expense shows in the Daily list — tag it
+          // pending like any other entry until Drive confirms.
+          pendingSyncIds: [entry.id, ...store.pendingSyncIds()],
         });
         await markLocalChangeAndPersist();
       },
@@ -2534,7 +2642,15 @@ export const ExpenseStore = signalStore(
           store.debts(),
           debtDeltasForEntryUpdate(existingEntry, updatedEntry)
         );
-        patchState(store, { entries: updatedEntries, accounts: updatedAccounts, debts: updatedDebts });
+        patchState(store, {
+          entries: updatedEntries,
+          accounts: updatedAccounts,
+          debts: updatedDebts,
+          // An edited entry is unsynced again until the next Drive write confirms.
+          pendingSyncIds: store.pendingSyncIds().includes(updatedEntry.id)
+            ? store.pendingSyncIds()
+            : [updatedEntry.id, ...store.pendingSyncIds()],
+        });
         await markLocalChangeAndPersist();
       },
 
@@ -2687,17 +2803,23 @@ export const ExpenseStore = signalStore(
           try {
             const revisionBeingPersisted = localRevision;
             const doc = buildBackupDocument();
+            // Snapshot the pending set at the same moment as the doc: anything
+            // tagged AFTER this line (entry added during the awaits below) is NOT
+            // in the uploaded doc and must keep its "Syncing" chip for the
+            // follow-up persist. Clearing pendingSyncIds wholesale here silently
+            // untagged not-yet-uploaded entries.
+            const idsBeingPersisted = new Set(store.pendingSyncIds());
             // Durable-first: write the local snapshot (dirty) BEFORE the network
             // call. If everything below fails, the user's data still survives here.
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), true);
             const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
             persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
-            // Drive write confirmed — all locally pending items are now in Drive.
+            // Drive write confirmed — everything included in THIS doc is in Drive.
             patchState(store, {
               lastKnownDriveModifiedTime: modifiedTime ?? await readModifiedTimeSafely(fileId),
               syncStatus: 'idle',
               isOffline: false,
-              pendingSyncIds: [],
+              pendingSyncIds: store.pendingSyncIds().filter((id) => !idsBeingPersisted.has(id)),
             });
             // Snapshot is now in sync with Drive — clear the dirty flag.
             await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), false);
@@ -2898,12 +3020,33 @@ export const ExpenseStore = signalStore(
         const entries = store.entries();
         const payments = store.debtPayments();
         const adjustments = store.accountAdjustments();
+        const debtAdjustments = store.debtAdjustments();
         if (notificationRefreshTimer) clearTimeout(notificationRefreshTimer);
         notificationRefreshTimer = setTimeout(() => {
           notificationRefreshTimer = null;
-          void localNotificationService.scheduleCreditCardDueReminders(debts, entries, payments);
+          void localNotificationService.scheduleCreditCardDueReminders(debts, entries, payments, debtAdjustments);
           void localNotificationService.scheduleSalaryReminder(adjustments);
         }, 1500);
+      });
+    }
+
+    // Statement snapshots (web + native): when a card's bill-generation day
+    // passes, freeze the derived statement amount so reminders/Finances show
+    // the payable bill, not the live outstanding. Debounced — data loads
+    // patch debts/entries several times in quick succession; idempotent once
+    // every card carries a snapshot for its latest bill.
+    {
+      let statementSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+      effect(() => {
+        store.debts();
+        store.entries();
+        store.debtPayments();
+        store.debtAdjustments();
+        if (statementSnapshotTimer) clearTimeout(statementSnapshotTimer);
+        statementSnapshotTimer = setTimeout(() => {
+          statementSnapshotTimer = null;
+          void methods.ensureCardStatements();
+        }, 2000);
       });
     }
 
