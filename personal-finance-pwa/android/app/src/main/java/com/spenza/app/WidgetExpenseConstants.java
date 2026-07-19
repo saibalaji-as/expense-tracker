@@ -42,6 +42,9 @@ final class WidgetExpenseConstants {
     static final String WIDGET_AMOUNT_KIND_EXPENSE = "expense";
     static final String WIDGET_AMOUNT_KIND_CREDIT = "credit";
     static final String WIDGET_AMOUNT_KIND_CC_PAYMENT = "cc-payment";
+    /** Circle Splits mode: the dialog shows circle fields only (circle picker,
+     *  description, amount) and queues a `circle-expense` item for the app. */
+    static final String WIDGET_AMOUNT_KIND_CIRCLE = "circle";
     static final String WIDGET_IS_CREDIT_CARD_EXTRA = "com.spenza.app.WIDGET_IS_CREDIT_CARD";
     static final String WIDGET_CC_LAST4_EXTRA = "com.spenza.app.WIDGET_CC_LAST4";
     static final String WIDGET_IS_SALARY_EXTRA = "com.spenza.app.WIDGET_IS_SALARY";

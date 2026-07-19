@@ -10,7 +10,8 @@ export interface ExpenseEntry {
   receipt?: ExpenseReceipt; // optional uploaded bill/receipt attachment
   accountId?: string;
   debtId?: string;
-  // 'circle-settle' = personal per-head share posted on Circle Splits Settle Up
+  // 'circle-settle' = per-head share auto-logged when a Circle Splits circle
+  //                   is settled (comment carries the share summary + [circleId]).
   source?: 'manual' | 'widget' | 'notification-prompt' | 'debt-payment' | 'circle-settle';
   createdByEmail?: string;
   createdByRole?: 'owner' | 'partner' | 'single';

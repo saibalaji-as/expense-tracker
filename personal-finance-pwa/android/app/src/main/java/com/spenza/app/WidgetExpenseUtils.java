@@ -139,6 +139,39 @@ final class WidgetExpenseUtils {
         return active;
     }
 
+    /** Circle Splits: payload for a widget-captured group expense. */
+    static JSONObject buildCircleExpense(String circleId, double amount, String description) throws JSONException {
+        JSONObject circleExpense = new JSONObject();
+        circleExpense.put("id", UUID.randomUUID().toString());
+        circleExpense.put("circleId", circleId);
+        circleExpense.put("amount", roundMoney(amount));
+        circleExpense.put("date", localDateToday());
+        if (description != null && !description.trim().isEmpty()) {
+            circleExpense.put("description", description.trim());
+        }
+        return circleExpense;
+    }
+
+    /**
+     * Circle Splits: active circles cached by the Angular app under
+     * `spenza_active_circles_v1` ({ email, circles: [{circleId, name, ...}] }).
+     * Email-scoped like the widget queue; returns empty on any mismatch.
+     */
+    static JSONArray activeCircles(SharedPreferences prefs) {
+        String raw = prefs.getString("spenza_active_circles_v1", null);
+        if (raw == null || raw.trim().isEmpty()) return new JSONArray();
+        try {
+            JSONObject parsed = new JSONObject(raw);
+            String currentEmail = prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null);
+            String cacheEmail = parsed.optString("email", "");
+            if (currentEmail == null || !currentEmail.equals(cacheEmail)) return new JSONArray();
+            JSONArray circles = parsed.optJSONArray("circles");
+            return circles == null ? new JSONArray() : circles;
+        } catch (JSONException error) {
+            return new JSONArray();
+        }
+    }
+
     /** Active credit-card debt accounts from the cached backup document. */
     static JSONArray activeCreditCards(SharedPreferences prefs) {
         JSONObject doc = localBackupDocument(prefs);

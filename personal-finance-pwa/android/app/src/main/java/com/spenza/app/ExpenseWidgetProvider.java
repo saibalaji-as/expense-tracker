@@ -115,8 +115,48 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
         bindButton(context, views, R.id.widget_shopping, WidgetExpenseConstants.TYPE_SHOPPING, 104);
         bindButton(context, views, R.id.widget_more, WidgetExpenseConstants.TYPE_MORE, 105);
         bindCreditButton(context, views, R.id.widget_credit, 106);
+        if (!quickOnly) {
+            // Circle Splits row exists only in the 2-row layouts.
+            bindCircleRow(context, views);
+        }
         applyPredictedHighlight(context, views, showShopping);
         return views;
+    }
+
+    /**
+     * Circle Splits quick-log row: visible only while at least one circle is
+     * active (cache written by the app), labelled with the trip name so the
+     * user always knows this button logs a GROUP expense, not a personal one.
+     */
+    private static void bindCircleRow(Context context, RemoteViews views) {
+        android.content.SharedPreferences prefs =
+            context.getSharedPreferences(WidgetExpenseConstants.PREFS_NAME, Context.MODE_PRIVATE);
+        org.json.JSONArray circles = WidgetExpenseUtils.activeCircles(prefs);
+        if (circles.length() == 0) {
+            views.setViewVisibility(R.id.widget_circle_row, View.GONE);
+            return;
+        }
+        org.json.JSONObject first = circles.optJSONObject(0);
+        String firstName = first == null ? "Circle" : first.optString("name", "Circle");
+        String label = circles.length() == 1
+            ? "◎ " + firstName + " · Circle expense"
+            : "◎ Circle expense · " + circles.length() + " trips";
+        views.setTextViewText(R.id.widget_circle_row, label);
+        views.setViewVisibility(R.id.widget_circle_row, View.VISIBLE);
+
+        Intent intent = new Intent(context, ExpenseWidgetActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.putExtra(
+            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA,
+            WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CIRCLE
+        );
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            context,
+            107,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        views.setOnClickPendingIntent(R.id.widget_circle_row, pendingIntent);
     }
 
     /**

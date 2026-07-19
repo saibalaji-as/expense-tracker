@@ -337,6 +337,7 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
     const newName = cleanName(req.body?.name);
     const rawAddNames = Array.isArray(req.body?.addMemberNames) ? req.body.addMemberNames : [];
     const addMemberNames = rawAddNames.map(cleanName).filter((n) => n.length > 0);
+    const removeMemberId = typeof req.body?.removeMemberId === 'string' ? req.body.removeMemberId.trim() : '';
     try {
         const { uid } = await requireCircleAuth(req);
         const circleRef = admin.firestore().collection('circles').doc(circleId);
@@ -350,6 +351,31 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
             if (circle['status'] !== 'active')
                 throw new Error('Circle is settled');
             const members = { ...circle['members'] };
+            let memberUids = [...(circle['memberUids'] ?? [])];
+            if (removeMemberId) {
+                const target = members[removeMemberId];
+                if (!target)
+                    throw new Error('Member not found');
+                if (target['uid'] === circle['ownerUid'])
+                    throw new Error('Owner cannot be removed');
+                // GUARD: a member who paid for or participated in ANY live expense
+                // cannot be removed — removal would corrupt every balance. Reads
+                // inside the transaction so a concurrent expense write retries.
+                const expensesSnap = await transaction.get(circleRef.collection('expenses'));
+                const involved = expensesSnap.docs.some((d) => {
+                    const e = d.data();
+                    if (e['deleted'] === true)
+                        return false;
+                    return (e['paidByMemberId'] === removeMemberId ||
+                        (e['participantMemberIds'] ?? []).includes(removeMemberId));
+                });
+                if (involved)
+                    throw new Error('Member has expenses');
+                delete members[removeMemberId];
+                if (typeof target['uid'] === 'string') {
+                    memberUids = memberUids.filter((memberUid) => memberUid !== target['uid']);
+                }
+            }
             if (Object.keys(members).length + addMemberNames.length > MAX_MEMBERS) {
                 throw new Error('Circle is full');
             }
@@ -359,6 +385,7 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
             }
             transaction.update(circleRef, {
                 members,
+                memberUids,
                 ...(newName ? { name: newName } : {}),
                 updatedAt: new Date().toISOString(),
             });
@@ -368,11 +395,11 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
     catch (err) {
         console.warn('updateCircle failed:', err);
         const message = err instanceof Error ? err.message : '';
-        if (message.includes('Owner only'))
+        if (message.includes('Owner only') || message.includes('Owner cannot be removed'))
             res.status(403).json({ error: message });
-        else if (message.includes('Circle not found'))
+        else if (message.includes('Circle not found') || message.includes('Member not found'))
             res.status(404).json({ error: message });
-        else if (message.includes('Circle is full') || message.includes('Circle is settled'))
+        else if (message.includes('Circle is full') || message.includes('Circle is settled') || message.includes('Member has expenses'))
             res.status(409).json({ error: message });
         else
             res.status(401).json({ error: 'Unauthorized' });

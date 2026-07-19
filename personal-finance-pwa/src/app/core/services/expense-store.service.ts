@@ -1,7 +1,7 @@
 import { computed, effect, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
-import { Subject } from 'rxjs';
+import { ReplaySubject, Subject } from 'rxjs';
 import { budgetThresholdExceeded$, cardUtilizationCrossed$ } from './budget-events';
 import { crossedUtilizationThreshold, utilizationPercent } from '../utils/credit-card-insights';
 import { FamilySyncService } from './family-sync.service';
@@ -106,7 +106,25 @@ interface WidgetCcPaymentQueueItem extends WidgetExpenseQueueItemBase {
   };
 }
 
-type WidgetExpenseQueueItem = WidgetExpenseEntryQueueItem | WidgetAdjustmentQueueItem | WidgetCcPaymentQueueItem;
+/** A group expense captured by the widget's dedicated Circle button. It never
+ *  becomes a local ExpenseEntry — the app pushes it to the circle's Firestore
+ *  collection (CircleSyncService) and Daily only sees the settle auto-log. */
+interface WidgetCircleExpenseQueueItem extends WidgetExpenseQueueItemBase {
+  kind: 'circle-expense';
+  circleExpense: {
+    id: string;
+    circleId: string;
+    description?: string;
+    amount: number;
+    date: string;
+  };
+}
+
+type WidgetExpenseQueueItem =
+  | WidgetExpenseEntryQueueItem
+  | WidgetAdjustmentQueueItem
+  | WidgetCcPaymentQueueItem
+  | WidgetCircleExpenseQueueItem;
 
 type AccountBalanceDelta = Map<string, number>;
 
@@ -116,6 +134,22 @@ export const driveError$ = new Subject<DriveApiError | DriveParseError>();
 
 /** Emitted when a CC expense is detected from a notification but no credit card account exists in Finances. */
 export const noCcAccountForExpense$ = new Subject<{ amount: number; comment?: string }>();
+
+/**
+ * Circle Splits bridge: a widget-captured circle expense consumed from the
+ * queue. CircleSyncService listens and writes it to the circle's Firestore
+ * collection (durable offline via the SDK's persistent cache; the item id is
+ * reused as the doc id so retries are idempotent). ReplaySubject so a flush
+ * that runs before the service is instantiated is not lost.
+ */
+export interface WidgetCircleExpensePush {
+  id: string;
+  circleId: string;
+  description?: string;
+  amount: number;
+  date: string;
+}
+export const widgetCircleExpensePending$ = new ReplaySubject<WidgetCircleExpensePush>(100);
 
 // ─── State Interface ──────────────────────────────────────────────────────────
 
@@ -784,6 +818,33 @@ export const ExpenseStore = signalStore(
         return null;
       }
 
+      if (record['kind'] === 'circle-expense') {
+        const wrapped = record['circleExpense'];
+        if (typeof wrapped === 'object' && wrapped !== null) {
+          const candidate = wrapped as Record<string, unknown>;
+          if (
+            typeof candidate['id'] === 'string' && candidate['id'].trim() !== '' &&
+            typeof candidate['circleId'] === 'string' && candidate['circleId'].trim() !== '' &&
+            typeof candidate['amount'] === 'number' && Number.isFinite(candidate['amount']) && candidate['amount'] > 0 &&
+            typeof candidate['date'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(candidate['date'])
+          ) {
+            return {
+              kind: 'circle-expense',
+              userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
+              circleExpense: {
+                id: candidate['id'],
+                circleId: candidate['circleId'],
+                description: typeof candidate['description'] === 'string' && candidate['description'].trim() !== '' ? candidate['description'] : undefined,
+                amount: candidate['amount'],
+                date: candidate['date'],
+              },
+              raw,
+            };
+          }
+        }
+        return null;
+      }
+
       const wrappedEntry = record['entry'];
       if (isExpenseEntry(wrappedEntry)) {
         return {
@@ -877,6 +938,7 @@ export const ExpenseStore = signalStore(
       const newAdjustments: AccountBalanceAdjustment[] = [];
       const newPendingCc: PendingCcExpense[] = [];
       const ccPaymentItems: WidgetCcPaymentQueueItem[] = [];
+      const circleExpenseItems: WidgetCircleExpenseQueueItem[] = [];
       let noCcAccountDetected = false;
       // The wrapper-level `familySynced` tag (set by WidgetExpenseSyncWorker after
       // a CF push) means THE LEDGER ALREADY OWNS this record — and the partner may
@@ -998,6 +1060,13 @@ export const ExpenseStore = signalStore(
           continue;
         }
 
+        if (item.kind === 'circle-expense') {
+          // Never touches local state — handed to CircleSyncService which
+          // writes it to Firestore (offline-durable via the SDK cache).
+          circleExpenseItems.push(item);
+          continue;
+        }
+
         const adjustment = item.adjustment;
         if (existingAdjustmentIds.has(adjustment.id)) continue;
         const accountIndex = nextAccounts.findIndex(
@@ -1026,6 +1095,13 @@ export const ExpenseStore = signalStore(
       }
 
       await storageService.set(WIDGET_EXPENSE_QUEUE_KEY, JSON.stringify(remainingRawItems));
+
+      // Circle Splits: emit consumed widget circle expenses for the Firestore
+      // push. Consuming before the push is safe — the SDK's persistent cache
+      // makes the write durable, and the fixed doc id makes retries idempotent.
+      for (const item of circleExpenseItems) {
+        widgetCircleExpensePending$.next(item.circleExpense);
+      }
 
       // Persist pending CC selection queue and emit no-account signal
       if (newPendingCc.length > 0) {

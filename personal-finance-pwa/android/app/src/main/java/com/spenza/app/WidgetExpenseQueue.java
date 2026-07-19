@@ -44,6 +44,20 @@ final class WidgetExpenseQueue {
         ExpenseWidgetPlugin.notifyExpenseQueued();
     }
 
+    static synchronized void enqueueCircleExpense(Context context, JSONObject circleExpense) throws JSONException {
+        SharedPreferences prefs = prefs(context);
+        JSONArray queue = readQueue(context);
+        JSONObject queued = new JSONObject();
+        queued.put("userEmail", prefs.getString(WidgetExpenseConstants.USER_EMAIL_KEY, null));
+        queued.put("kind", "circle-expense");
+        queued.put("circleExpense", circleExpense);
+        queue.put(queued);
+        prefs.edit().putString(WidgetExpenseConstants.QUEUE_KEY, queue.toString()).apply();
+        // No WorkManager schedule: circle expenses live in Firestore, which only
+        // the app (CircleSyncService) can reach — the worker deliberately skips them.
+        ExpenseWidgetPlugin.notifyExpenseQueued();
+    }
+
     static synchronized void enqueueAdjustment(Context context, JSONObject adjustment) throws JSONException {
         SharedPreferences prefs = prefs(context);
         JSONArray queue = readQueue(context);

@@ -25,11 +25,17 @@ Product decisions (agreed with Sai 2026-07-19):
   on behalf of unclaimed members.
 - **Equal split only** in Phase 1 (per-expense participant selection allowed —
   "who was part of this bill"). Exact/percent splits deferred.
-- **Budget integrity rule:** money paid for others is a receivable, NOT a
-  personal expense. Circle expenses never touch `expenses[]`, budgets, limits,
-  streaks, or analytics. Only on **Settle Up** is the member's own per-head
-  share posted as ONE personal `ExpenseEntry` (user picks category,
-  `source: 'circle-settle'`). This keeps budgets truthful.
+- **Budget integrity rule (FINAL, revised 2026-07-19):** circle bills live
+  ONLY in the circle while it is active — they never touch `expenses[]`,
+  budgets, accounts, streaks, or analytics. On **Settle Up**, every member's
+  device AUTO-LOGS one personal `ExpenseEntry` for their per-head share
+  (`source: 'circle-settle'`, category Miscellaneous, comment = the full Share
+  Summary text + `[circleId]` dedupe tag). No user action, no modal.
+  REVERTED alternative (implemented then removed same day, kept here as a
+  decision record): the "linked-entry / full-now-true-up-on-settle" model —
+  paid-by-me bills mirrored into Daily at full amount and were auto-reduced to
+  the share on settle. Rejected by product owner as an unnecessary flow;
+  don't reintroduce without re-reading TASK_HISTORY 2026-07-19.
 - Each member can create/edit/delete **their own** circle expenses and view
   everyone's (enforced by Firestore rules, not just UI).
 

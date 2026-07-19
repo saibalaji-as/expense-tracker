@@ -107,6 +107,9 @@ public class ExpenseWidgetActivity extends Activity {
     private Palette palette;
     private final ArrayList<JSONObject> activeAccounts = new ArrayList<>();
     private final ArrayList<JSONObject> activeCreditCards = new ArrayList<>();
+    // Circle Splits mode: active circles cached by the app (spenza_active_circles_v1).
+    private final ArrayList<JSONObject> activeCircleList = new ArrayList<>();
+    private String selectedCircleId;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -130,7 +133,8 @@ public class ExpenseWidgetActivity extends Activity {
         prefillComment = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_COMMENT_EXTRA);
         String requestedKind = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXTRA);
         if (WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(requestedKind)
-            || WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(requestedKind)) {
+            || WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CC_PAYMENT.equals(requestedKind)
+            || WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CIRCLE.equals(requestedKind)) {
             selectedAmountKind = requestedKind;
         } else {
             selectedAmountKind = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_EXPENSE;
@@ -144,6 +148,12 @@ public class ExpenseWidgetActivity extends Activity {
         inboxItemId = getIntent().getStringExtra(WidgetExpenseConstants.WIDGET_INBOX_ID_EXTRA);
         selectedType = resolveInitialType(requestedType);
         loadActiveAccounts();
+        if (isCircleMode() && activeCircleList.isEmpty()) {
+            // Circle was settled/removed since the widget last drew its button.
+            toast("No active circle. Create one in Splits.");
+            finish();
+            return;
+        }
         parsedDate = WidgetExpenseUtils.localDateToday();
         configureWindow();
         showExpenseForm();
@@ -303,6 +313,12 @@ public class ExpenseWidgetActivity extends Activity {
         cardSelectorContainer.addView(buildCardSelector());
         cardSelectorContainer.setVisibility(isCcPaymentMode() ? View.VISIBLE : View.GONE);
         root.addView(cardSelectorContainer, marginTop(matchWrap(), 14));
+
+        // Circle Splits mode: dedicated circle picker instead of the account/
+        // category fields (which are hidden by updateAmountKindUi).
+        if (isCircleMode()) {
+            root.addView(buildCircleSelector(), marginTop(matchWrap(), 14));
+        }
 
         amountInput = new EditText(this);
         amountInput.setHint("Amount");
@@ -473,6 +489,55 @@ public class ExpenseWidgetActivity extends Activity {
         return container;
     }
 
+    private boolean isCircleMode() {
+        return WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CIRCLE.equals(selectedAmountKind);
+    }
+
+    /**
+     * Circle Splits mode selector: shows WHICH circle this group expense goes
+     * to — a labelled row for a single active circle, a picker for several.
+     */
+    private View buildCircleSelector() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+
+        TextView circleLabel = new TextView(this);
+        circleLabel.setText("Circle");
+        circleLabel.setTextColor(palette.muted);
+        circleLabel.setTextSize(13);
+        circleLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        container.addView(circleLabel, matchWrap());
+
+        if (activeCircleList.size() == 1) {
+            TextView circleName = new TextView(this);
+            circleName.setText(activeCircleList.get(0).optString("name", "Circle"));
+            circleName.setTextColor(palette.text);
+            circleName.setTextSize(16);
+            circleName.setTypeface(Typeface.DEFAULT_BOLD);
+            circleName.setPadding(dp(20), dp(12), dp(20), dp(12));
+            circleName.setBackground(inputBackground());
+            container.addView(circleName, marginTop(matchWrap(), 8));
+        } else {
+            ArrayList<DropdownOption> options = new ArrayList<>();
+            for (JSONObject circle : activeCircleList) {
+                options.add(new DropdownOption(
+                    circle.optString("circleId", ""),
+                    circle.optString("name", "Circle"),
+                    R.drawable.ic_widget_misc,
+                    palette.accountSoft,
+                    palette.account
+                ));
+            }
+            ThemedDropdown dropdown = new ThemedDropdown(
+                options,
+                selectedCircleId == null ? "" : selectedCircleId,
+                value -> selectedCircleId = value == null || value.trim().isEmpty() ? null : value
+            );
+            container.addView(dropdown.view(), marginTop(matchWrap(), 8));
+        }
+        return container;
+    }
+
     /** Card selector shown only in cc-payment mode: which card's bill was paid. */
     private View buildCardSelector() {
         LinearLayout container = new LinearLayout(this);
@@ -551,31 +616,41 @@ public class ExpenseWidgetActivity extends Activity {
     private void updateAmountKindUi() {
         boolean credit = WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind);
         boolean ccPayment = isCcPaymentMode();
+        boolean circleMode = isCircleMode();
         if (eyebrowText != null) {
-            eyebrowText.setText(openedFromSpendPrompt
-                ? (ccPayment ? "Detected bill payment" : (credit ? "Detected credit" : "Detected spend"))
-                : "Quick amount");
+            eyebrowText.setText(circleMode
+                ? "Group expense"
+                : (openedFromSpendPrompt
+                    ? (ccPayment ? "Detected bill payment" : (credit ? "Detected credit" : "Detected spend"))
+                    : "Quick amount"));
         }
         if (titleText != null) {
-            titleText.setText(ccPayment
-                ? "Record card bill payment"
-                : (credit ? (isSalaryCredit ? "Add salary" : "Add received money") : "Add " + displayType(selectedType)));
+            titleText.setText(circleMode
+                ? "Add Circle expense"
+                : (ccPayment
+                    ? "Record card bill payment"
+                    : (credit ? (isSalaryCredit ? "Add salary" : "Add received money") : "Add " + displayType(selectedType))));
         }
         if (helperText != null) {
             String defaultExpenseHelp = (usedPrediction && !openedFromSpendPrompt)
                 ? "Suggested " + displayType(selectedType) + " from your recent habits. Change it anytime."
                 : "Saved locally first. Drive sync follows automatically.";
-            helperText.setText(ccPayment
-                ? "Deducts the paying account and clears the card's outstanding in one step."
-                : (credit
-                    ? "Choose the account to increase. This saves as a Finance adjustment."
-                    : (openedFromSpendPrompt
-                        ? "Review the amount before saving. Nothing is logged until you tap Save."
-                        : defaultExpenseHelp)));
+            helperText.setText(circleMode
+                ? "Split equally in the circle. Your share reaches your Daily when the circle settles."
+                : (ccPayment
+                    ? "Deducts the paying account and clears the card's outstanding in one step."
+                    : (credit
+                        ? "Choose the account to increase. This saves as a Finance adjustment."
+                        : (openedFromSpendPrompt
+                            ? "Review the amount before saving. Nothing is logged until you tap Save."
+                            : defaultExpenseHelp))));
         }
-        boolean hideCategory = credit || ccPayment;
+        boolean hideCategory = credit || ccPayment || circleMode;
         if (typeLabel != null) typeLabel.setVisibility(hideCategory ? View.GONE : View.VISIBLE);
         if (typeSelectorContainer != null) typeSelectorContainer.setVisibility(hideCategory ? View.GONE : View.VISIBLE);
+        // Circle mode has no account link — the group expense lives in the
+        // circle only; personal budgets are touched at Settle Up.
+        if (accountSelectorContainer != null && circleMode) accountSelectorContainer.setVisibility(View.GONE);
         if (accountLabel != null) {
             accountLabel.setText(ccPayment
                 ? "Paid from account"
@@ -1046,6 +1121,10 @@ public class ExpenseWidgetActivity extends Activity {
             return;
         }
 
+        if (isCircleMode()) {
+            saveCircleExpense(amount);
+            return;
+        }
         if (isCcPaymentMode()) {
             saveCcPayment(amount);
             return;
@@ -1085,6 +1164,28 @@ public class ExpenseWidgetActivity extends Activity {
             finishWithAnimation();
         } catch (JSONException error) {
             toast("Could not queue expense.");
+        }
+    }
+
+    /** Queue a Circle Splits group expense — Firestore-bound, resolved by the app. */
+    private void saveCircleExpense(double amount) {
+        if (selectedCircleId == null || selectedCircleId.trim().isEmpty()) {
+            toast(activeCircleList.isEmpty() ? "No active circle. Create one in Splits." : "Choose a circle.");
+            return;
+        }
+        try {
+            JSONObject circleExpense = WidgetExpenseUtils.buildCircleExpense(
+                selectedCircleId.trim(),
+                amount,
+                commentInput.getText().toString()
+            );
+            WidgetExpenseQueue.enqueueCircleExpense(this, circleExpense);
+            ExpenseWidgetProvider.updateAll(this);
+            confirmHaptic();
+            toast("Circle expense queued — open Spenza to sync it.");
+            finishWithAnimation();
+        } catch (JSONException error) {
+            toast("Could not queue circle expense.");
         }
     }
 
@@ -1181,6 +1282,17 @@ public class ExpenseWidgetActivity extends Activity {
         } else {
             JSONObject selected = activeAccounts.get(defaultIndex >= 0 ? defaultIndex : 0);
             selectedAccountId = selected.optString("id", null);
+        }
+
+        JSONArray circles = WidgetExpenseUtils.activeCircles(prefs);
+        for (int i = 0; i < circles.length(); i++) {
+            JSONObject circle = circles.optJSONObject(i);
+            if (circle != null && !circle.optString("circleId", "").isEmpty()) {
+                activeCircleList.add(circle);
+            }
+        }
+        if (!activeCircleList.isEmpty()) {
+            selectedCircleId = activeCircleList.get(0).optString("circleId", null);
         }
 
         // A detected credit-card spend (or bill payment) preselects the credit

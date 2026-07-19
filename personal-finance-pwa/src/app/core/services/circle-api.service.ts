@@ -74,6 +74,8 @@ export class CircleApiService {
     circleId: string;
     name?: string;
     addMemberNames?: string[];
+    /** Owner-only. Server rejects removal when the member has any live expense. */
+    removeMemberId?: string;
   }): Promise<{ success: boolean }> {
     return this.post('updateCircle', input);
   }

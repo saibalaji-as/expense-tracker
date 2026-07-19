@@ -1,27 +1,53 @@
 import { Injectable, inject, signal } from '@angular/core';
-import type { CircleDocument, CircleExpense, CircleMember } from '../models/circle.model';
+import { Preferences } from '@capacitor/preferences';
+import {
+  ACTIVE_CIRCLES_CACHE_KEY,
+  CIRCLE_SETTLE_EXPENSE_SOURCE,
+  type ActiveCircleCacheItem,
+  type CircleDocument,
+  type CircleExpense,
+  type CircleMember,
+} from '../models/circle.model';
+import type { ExpenseEntry } from '../models';
+import { buildShareSummaryText, computeMyShare } from '../utils/circle-settlement';
+import { toLocalDateString } from '../utils/local-date';
 import { AuthService } from './auth.service';
+import { CurrencyService } from './currency.service';
+import {
+  ExpenseStore,
+  widgetCircleExpensePending$,
+  type WidgetCircleExpensePush,
+} from './expense-store.service';
 import { getSharedFirestore } from './firestore-db';
 
 export type CircleSyncStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 /**
- * Firestore sync for Circle Splits (docs/circle-splits-plan.md §6).
+ * Firestore sync for Circle Splits (docs/circle-splits-plan.md).
  *
- * Separate from FamilySyncService by design: circles are N-member,
- * expense-only, free-tier, and ephemeral. Circle documents are read-only for
- * clients (Functions own membership/status); expense records are written
- * directly under security rules (author-owned, tombstone deletes).
+ * Accounting model (simplified 2026-07-19, replacing the linked-entry/true-up
+ * design): circle bills live ONLY in the circle while it is active — they
+ * never touch Daily, budgets, or accounts. When the circle is settled, each
+ * member's device auto-logs ONE Daily expense for their per-head share
+ * (source 'circle-settle') with the Share Summary as the comment.
  *
- * Circle data NEVER enters ExpenseStore/Drive backup — the only bridge is the
- * per-head share posted as one ExpenseEntry on Settle Up, done by the UI.
+ * The service also caches active circles to Preferences for the native
+ * widget's Circle button, and pushes widget-captured circle expenses
+ * (queue kind 'circle-expense') into Firestore.
  */
 @Injectable({ providedIn: 'root' })
 export class CircleSyncService {
   readonly #authService = inject(AuthService);
+  readonly #expenseStore = inject(ExpenseStore);
+  readonly #currencyService = inject(CurrencyService);
 
   readonly circles = signal<CircleDocument[]>([]);
   readonly syncStatus = signal<CircleSyncStatus>('idle');
+
+  /** Circles where the signed-in user holds a claimed seat and status is active. */
+  readonly activeCircles = signal<CircleDocument[]>([]);
 
   /** Expenses of the currently opened circle, tombstones included (UI filters). */
   readonly activeCircleId = signal<string | null>(null);
@@ -31,6 +57,18 @@ export class CircleSyncService {
   #circlesUnsubscribe: (() => void) | null = null;
   #expensesUnsubscribe: (() => void) | null = null;
   #listeningUid: string | null = null;
+  /** Circles already auto-logged this session (entry-comment tag dedupes across sessions). */
+  readonly #settleLogged = new Set<string>();
+
+  constructor() {
+    // Widget Circle-button expenses: the store's queue flush hands them over
+    // here for the Firestore write. ReplaySubject covers flushes that ran
+    // before this service was instantiated; the fixed doc id (= queue item
+    // id) makes any repeat push idempotent.
+    widgetCircleExpensePending$.subscribe((push) => {
+      void this.#pushWidgetCircleExpense(push);
+    });
+  }
 
   /** Attach the my-circles listener. Resolves the uid itself; idempotent per uid. */
   async startListening(): Promise<void> {
@@ -61,7 +99,17 @@ export class CircleSyncService {
             .map((d) => d.data() as CircleDocument)
             .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
           this.circles.set(docs);
+          this.activeCircles.set(
+            docs.filter((c) => c.status === 'active' && this.memberForUid(c, uid) !== null),
+          );
           this.syncStatus.set('connected');
+          void this.#writeWidgetCache(docs, uid);
+          for (const circle of docs) {
+            if (circle.status === 'settled' && !this.#settleLogged.has(circle.circleId)) {
+              this.#settleLogged.add(circle.circleId);
+              void this.#autoLogSettledCircle(circle);
+            }
+          }
         },
         (error) => {
           console.warn('[CircleSync] circles listener error:', error);
@@ -79,6 +127,7 @@ export class CircleSyncService {
     this.#circlesUnsubscribe = null;
     this.#listeningUid = null;
     this.circles.set([]);
+    this.activeCircles.set([]);
   }
 
   stopListening(): void {
@@ -141,7 +190,7 @@ export class CircleSyncService {
       paidByMemberId: string;
       participantMemberIds: string[];
     },
-  ): Promise<void> {
+  ): Promise<string> {
     const authorUid = await this.#requireUid();
     const { doc, setDoc, collection } = await import('firebase/firestore');
     const db = await getSharedFirestore();
@@ -161,6 +210,7 @@ export class CircleSyncService {
       deleted: false,
     };
     await setDoc(ref, record);
+    return ref.id;
   }
 
   async updateExpense(
@@ -189,6 +239,139 @@ export class CircleSyncService {
       deleted: true,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  // ── Settle Up auto-log ────────────────────────────────────────────────────
+
+  /**
+   * When a circle turns settled, log ONE Daily expense for my per-head share
+   * with the Share Summary as the comment. Runs on each member's own device
+   * the moment its circles listener sees the settled status — no user action
+   * needed. Dedupe: the comment carries `[circleId]`; an existing
+   * 'circle-settle' entry with that tag means this device (or another of the
+   * user's devices, via Drive sync) already logged it.
+   */
+  async #autoLogSettledCircle(circle: CircleDocument): Promise<void> {
+    const uid = this.#authService.firebaseUid();
+    const mine = this.memberForUid(circle, uid);
+    if (!mine) return;
+
+    const alreadyLogged = this.#expenseStore
+      .entries()
+      .some(
+        (e) =>
+          e.source === CIRCLE_SETTLE_EXPENSE_SOURCE &&
+          (e.comment ?? '').includes(`[${circle.circleId}]`),
+      );
+    if (alreadyLogged) return;
+
+    try {
+      const { collection, getDocs } = await import('firebase/firestore');
+      const db = await getSharedFirestore();
+      const snapshot = await getDocs(collection(db, 'circles', circle.circleId, 'expenses'));
+      const expenses = snapshot.docs.map((d) => d.data() as CircleExpense);
+      const members = Object.values(circle.members);
+
+      const myShare = computeMyShare(mine.memberId, members, expenses);
+      if (myShare <= 0) return;
+
+      const summary = buildShareSummaryText(circle.name, members, expenses, (n) =>
+        this.#currencyService.format(n),
+      );
+      const type = 'Miscellaneous';
+      const limitAmount =
+        ((this.#expenseStore.limitMap()[type]?.userPercentage ?? 0) *
+          this.#expenseStore.monthlyIncome()) / 100;
+      const entry: ExpenseEntry = {
+        id: crypto.randomUUID(),
+        date: toLocalDateString(),
+        amount: round2(myShare),
+        type,
+        limit: limitAmount,
+        savings: round2(limitAmount - myShare),
+        timestamp: new Date().toISOString(),
+        comment: `${summary}\n[${circle.circleId}]`,
+        source: CIRCLE_SETTLE_EXPENSE_SOURCE,
+      };
+      await this.#expenseStore.addEntry(entry);
+    } catch (err) {
+      console.warn('[CircleSync] settle auto-log failed:', err);
+      this.#settleLogged.delete(circle.circleId); // retry on next snapshot
+    }
+  }
+
+  // ── Widget Circle-button expenses ─────────────────────────────────────────
+
+  /**
+   * Push a widget-captured circle expense to Firestore. Paid by me, split
+   * among all members. The queue item id doubles as the doc id, so replays
+   * are idempotent; the SDK's persistent cache makes the write durable
+   * offline.
+   */
+  async #pushWidgetCircleExpense(push: WidgetCircleExpensePush): Promise<void> {
+    try {
+      const authorUid = await this.#requireUid();
+      let circle = this.circles().find((c) => c.circleId === push.circleId);
+      if (!circle) {
+        await this.startListening();
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        circle = this.circles().find((c) => c.circleId === push.circleId);
+      }
+      if (!circle || circle.status !== 'active') {
+        console.warn('[CircleSync] widget circle expense dropped — circle missing/settled:', push.circleId);
+        return;
+      }
+      const mine = this.memberForUid(circle, authorUid);
+      if (!mine) return;
+
+      const { doc, setDoc } = await import('firebase/firestore');
+      const db = await getSharedFirestore();
+      const now = new Date().toISOString();
+      const record: CircleExpense = {
+        expenseId: push.id,
+        circleId: circle.circleId,
+        description: push.description?.trim() || 'Widget expense',
+        amount: push.amount,
+        date: push.date,
+        paidByMemberId: mine.memberId,
+        participantMemberIds: Object.keys(circle.members),
+        authorUid,
+        createdAt: now,
+        updatedAt: now,
+        deleted: false,
+      };
+      await setDoc(doc(db, 'circles', circle.circleId, 'expenses', push.id), record);
+    } catch (err) {
+      console.warn('[CircleSync] widget circle expense push failed:', err);
+    }
+  }
+
+  // ── Native widget cache ───────────────────────────────────────────────────
+
+  async #writeWidgetCache(circles: CircleDocument[], uid: string): Promise<void> {
+    try {
+      const email = this.#authService.userEmail() ?? '';
+      const items: ActiveCircleCacheItem[] = circles
+        .filter((c) => c.status === 'active')
+        .map((c) => {
+          const mine = this.memberForUid(c, uid);
+          return mine
+            ? {
+                circleId: c.circleId,
+                name: c.name,
+                myMemberId: mine.memberId,
+                memberIds: Object.keys(c.members),
+              }
+            : null;
+        })
+        .filter((c): c is ActiveCircleCacheItem => c !== null);
+      await Preferences.set({
+        key: ACTIVE_CIRCLES_CACHE_KEY,
+        value: JSON.stringify({ email, circles: items }),
+      });
+    } catch (err) {
+      console.warn('[CircleSync] widget cache write failed:', err);
+    }
   }
 
   async #requireUid(): Promise<string> {

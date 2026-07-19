@@ -23,16 +23,17 @@ import {
   ArrowRight,
   CheckCircle2,
   HandCoins,
+  UserPlus,
+  UserMinus,
+  Settings2,
+  X,
 } from 'lucide-angular';
 import {
-  CIRCLE_SETTLE_EXPENSE_SOURCE,
   buildCircleLink,
   type CircleDocument,
   type CircleExpense,
   type CircleMember,
 } from '../../core/models/circle.model';
-import { PREDEFINED_EXPENSE_TYPES } from '../../core/models/category-definitions';
-import type { ExpenseEntry } from '../../core/models';
 import {
   buildShareSummaryText,
   computeMemberBalances,
@@ -42,7 +43,6 @@ import { toLocalDateString } from '../../core/utils/local-date';
 import { AuthService } from '../../core/services/auth.service';
 import { CircleApiService, CircleApiError } from '../../core/services/circle-api.service';
 import { CircleSyncService } from '../../core/services/circle-sync.service';
-import { ExpenseStore } from '../../core/services/expense-store.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { ModalComponent } from '../../shared/components/modal/modal.component';
@@ -66,6 +66,7 @@ type Tab = 'expenses' | 'balances' | 'settle';
       multi: true,
       useValue: new LucideIconProvider({
         Users, Plus, Link2, Share2, Pencil, Trash2, ArrowLeft, ArrowRight, CheckCircle2, HandCoins,
+        UserPlus, UserMinus, Settings2, X,
       }),
     },
   ],
@@ -94,13 +95,24 @@ type Tab = 'expenses' | 'balances' | 'settle';
             </div>
           </div>
           @if (c.status === 'active') {
-            <button
-              (click)="shareInvite()"
-              class="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
-            >
-              <lucide-icon name="link-2" class="h-4 w-4" />
-              {{ 'splits.detail.invite' | translate }}
-            </button>
+            <div class="flex shrink-0 items-center gap-1.5">
+              @if (isOwner()) {
+                <button
+                  (click)="openManageMembers()"
+                  class="rounded-xl border border-border p-2 hover:bg-accent"
+                  [attr.aria-label]="'splits.members.manage' | translate"
+                >
+                  <lucide-icon name="settings-2" class="h-4 w-4" />
+                </button>
+              }
+              <button
+                (click)="shareInvite()"
+                class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+              >
+                <lucide-icon name="link-2" class="h-4 w-4" />
+                {{ 'splits.detail.invite' | translate }}
+              </button>
+            </div>
           }
         </div>
 
@@ -252,14 +264,11 @@ type Tab = 'expenses' | 'balances' | 'settle';
               </button>
             }
 
-            @if (c.status === 'settled' && myBalance() && !mySharePosted()) {
-              <button
-                (click)="openPostShare()"
-                class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow"
-              >
-                <lucide-icon name="hand-coins" class="h-4 w-4" />
-                {{ i18n.t('splits.settle.postShare', { amount: fmt(myBalance()!.share) }) }}
-              </button>
+            @if (c.status === 'settled') {
+              <div class="glass-card flex items-start gap-2.5 rounded-xl p-4">
+                <lucide-icon name="hand-coins" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <p class="text-xs text-muted-foreground">{{ 'splits.settle.autoLogged' | translate }}</p>
+              </div>
             }
           </div>
         }
@@ -313,6 +322,7 @@ type Tab = 'expenses' | 'balances' | 'settle';
                 }
               </div>
             </div>
+
             <div class="flex justify-end gap-3 pt-2">
               <button (click)="isExpenseModalOpen.set(false)"
                 class="rounded-xl px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent">
@@ -346,38 +356,59 @@ type Tab = 'expenses' | 'balances' | 'settle';
           <p class="text-sm text-muted-foreground">{{ 'splits.settle.confirmBody' | translate }}</p>
         </app-modal>
 
-        <!-- ── Post-my-share modal (budget bridge) ── -->
+        <!-- ── Manage members (owner) ── -->
         <app-modal
-          [title]="'splits.settle.postTitle' | translate"
-          [isOpen]="isPostShareOpen()"
+          [title]="'splits.members.manage' | translate"
+          [isOpen]="isManageMembersOpen()"
           [showActions]="false"
-          (cancelled)="isPostShareOpen.set(false)"
+          (cancelled)="isManageMembersOpen.set(false)"
         >
           <div class="space-y-4">
-            <p class="text-sm text-muted-foreground">
-              {{ i18n.t('splits.settle.postBody', { amount: fmt(myBalance()?.share ?? 0), circle: c.name }) }}
-            </p>
-            <div>
-              <label class="mb-1 block text-sm font-medium" for="share-category">{{ 'splits.settle.postCategory' | translate }}</label>
-              <select id="share-category" [(ngModel)]="postCategory"
-                class="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                @for (type of expenseTypes; track type) {
-                  <option [value]="type">{{ type }}</option>
-                }
-              </select>
+            <p class="text-xs text-muted-foreground">{{ 'splits.members.hint' | translate }}</p>
+            <div class="space-y-2">
+              @for (member of membersList(); track member.memberId) {
+                <div class="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-medium">{{ member.name }}</p>
+                    <p class="text-[11px] text-muted-foreground">
+                      {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
+                    </p>
+                  </div>
+                  @if (member.uid !== c.ownerUid) {
+                    <button
+                      (click)="removeMember(member)"
+                      [disabled]="isSaving() || memberInvolved(member.memberId)"
+                      [title]="memberInvolved(member.memberId) ? ('splits.members.removeBlocked' | translate) : ''"
+                      class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
+                      [attr.aria-label]="'splits.members.remove' | translate"
+                    >
+                      <lucide-icon name="user-minus" class="h-4 w-4" />
+                    </button>
+                  }
+                </div>
+              }
             </div>
-            <div class="flex justify-end gap-3 pt-2">
-              <button (click)="isPostShareOpen.set(false)"
-                class="rounded-xl px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent">
-                {{ 'splits.settle.postSkip' | translate }}
-              </button>
-              <button (click)="postMyShare()" [disabled]="isSaving()"
-                class="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">
-                {{ 'splits.settle.postConfirm' | translate }}
+            <div class="flex gap-2">
+              <input
+                [(ngModel)]="newMemberName"
+                (keydown.enter)="addMember()"
+                [placeholder]="'splits.members.addPlaceholder' | translate"
+                maxlength="40"
+                class="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                (click)="addMember()"
+                [disabled]="isSaving() || newMemberName().trim().length === 0"
+                class="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40"
+              >
+                <lucide-icon name="user-plus" class="h-4 w-4" />
+                {{ 'splits.members.add' | translate }}
               </button>
             </div>
+            <p class="text-[11px] text-muted-foreground">{{ 'splits.members.retroNote' | translate }}</p>
           </div>
         </app-modal>
+
       </div>
     } @else {
       <div class="glass-card rounded-xl p-6 text-center text-sm text-muted-foreground">
@@ -391,14 +422,12 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly circleApi = inject(CircleApiService);
   private readonly authService = inject(AuthService);
-  private readonly expenseStore = inject(ExpenseStore);
   private readonly feedback = inject(UserFeedbackService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
   readonly tabs: Tab[] = ['expenses', 'balances', 'settle'];
   readonly activeTab = signal<Tab>('expenses');
-  readonly expenseTypes = PREDEFINED_EXPENSE_TYPES.filter((t) => t !== 'Debt Payment');
 
   private readonly circleId = signal<string>('');
 
@@ -428,13 +457,6 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     return mine ? this.balances().find((b) => b.memberId === mine.memberId) ?? null : null;
   });
   readonly isOwner = computed(() => this.circle()?.ownerUid === this.authService.firebaseUid());
-  /** Already posted my share for this circle? (comment carries the circleId tag) */
-  readonly mySharePosted = computed(() => {
-    const id = this.circleId();
-    return this.expenseStore
-      .entries()
-      .some((e) => e.source === CIRCLE_SETTLE_EXPENSE_SOURCE && (e.comment ?? '').includes(id));
-  });
 
   // Expense form state
   readonly isExpenseModalOpen = signal(false);
@@ -448,8 +470,10 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
 
   readonly deleteTarget = signal<CircleExpense | null>(null);
   readonly isSettleConfirmOpen = signal(false);
-  readonly isPostShareOpen = signal(false);
-  readonly postCategory = signal('Entertainment');
+
+  // Manage members (owner)
+  readonly isManageMembersOpen = signal(false);
+  readonly newMemberName = signal('');
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
@@ -576,6 +600,54 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Manage members (owner) ──
+  openManageMembers(): void {
+    this.newMemberName.set('');
+    this.isManageMembersOpen.set(true);
+  }
+
+  /** True when the member paid for or participates in any live bill — removal
+   *  would corrupt balances, so the button is disabled (server re-checks). */
+  memberInvolved(memberId: string): boolean {
+    return this.circleSync
+      .activeCircleExpenses()
+      .some(
+        (e) =>
+          !e.deleted &&
+          (e.paidByMemberId === memberId || e.participantMemberIds.includes(memberId)),
+      );
+  }
+
+  async addMember(): Promise<void> {
+    const name = this.newMemberName().trim();
+    if (!name || this.isSaving()) return;
+    this.isSaving.set(true);
+    try {
+      await this.circleApi.updateCircle({ circleId: this.circleId(), addMemberNames: [name] });
+      this.newMemberName.set('');
+      this.feedback.success(this.i18n.t('splits.members.added'));
+    } catch (error) {
+      const detail = error instanceof CircleApiError ? error.message : undefined;
+      this.feedback.error(this.i18n.t('splits.members.failed'), detail);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
+  async removeMember(member: CircleMember): Promise<void> {
+    if (this.isSaving() || this.memberInvolved(member.memberId)) return;
+    this.isSaving.set(true);
+    try {
+      await this.circleApi.updateCircle({ circleId: this.circleId(), removeMemberId: member.memberId });
+      this.feedback.success(this.i18n.t('splits.members.removed'));
+    } catch (error) {
+      const detail = error instanceof CircleApiError ? error.message : undefined;
+      this.feedback.error(this.i18n.t('splits.members.failed'), detail);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
   // ── Invite ──
   async shareInvite(): Promise<void> {
     try {
@@ -627,53 +699,15 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     this.isSettleConfirmOpen.set(false);
     try {
       await this.circleApi.settleCircle(this.circleId());
-      this.feedback.success(this.i18n.t('splits.settle.done'));
-      if ((this.myBalance()?.share ?? 0) > 0 && !this.mySharePosted()) {
-        this.openPostShare();
-      }
+      // The per-head share is auto-logged into Daily by CircleSyncService the
+      // moment the listener sees the settled status — no user action needed.
+      this.feedback.success(
+        this.i18n.t('splits.settle.done'),
+        this.i18n.t('splits.settle.autoLogged'),
+      );
     } catch (error) {
       const detail = error instanceof CircleApiError ? error.message : undefined;
       this.feedback.error(this.i18n.t('splits.settle.failed'), detail);
-    }
-  }
-
-  openPostShare(): void {
-    this.postCategory.set('Entertainment');
-    this.isPostShareOpen.set(true);
-  }
-
-  /**
-   * Budget bridge: post ONLY my per-head share as one personal expense.
-   * Amounts paid on behalf of others never touch budgets (plan §1).
-   */
-  async postMyShare(): Promise<void> {
-    const c = this.circle();
-    const share = this.myBalance()?.share ?? 0;
-    if (!c || share <= 0 || this.isSaving()) return;
-    this.isSaving.set(true);
-    try {
-      const type = this.postCategory();
-      const limitAmount =
-        ((this.expenseStore.limitMap()[type]?.userPercentage ?? 0) * this.expenseStore.monthlyIncome()) / 100;
-      const entry: ExpenseEntry = {
-        id: crypto.randomUUID(),
-        date: toLocalDateString(),
-        amount: Math.round(share * 100) / 100,
-        type,
-        limit: limitAmount,
-        savings: Math.round((limitAmount - share) * 100) / 100,
-        timestamp: new Date().toISOString(),
-        comment: this.i18n.t('splits.settle.postComment', { circle: c.name }) + ` [${c.circleId}]`,
-        source: CIRCLE_SETTLE_EXPENSE_SOURCE,
-      };
-      await this.expenseStore.addEntry(entry);
-      this.isPostShareOpen.set(false);
-      this.feedback.success(this.i18n.t('splits.settle.postDone'));
-    } catch (error) {
-      console.warn('[Splits] postMyShare failed:', error);
-      this.feedback.error(this.i18n.t('splits.settle.failed'));
-    } finally {
-      this.isSaving.set(false);
     }
   }
 }

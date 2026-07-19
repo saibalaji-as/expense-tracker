@@ -196,6 +196,12 @@ public class WidgetExpenseSyncWorker extends Worker {
                     // syncing here would break account/card/audit atomicity.
                     continue;
                 }
+                if ("circle-expense".equals(kind)) {
+                    // Circle Splits group expenses live in Firestore, not the
+                    // Drive backup — only the app (CircleSyncService) can push
+                    // them. Keep queued until the app flushes.
+                    continue;
+                }
                 if ("adjustment".equals(kind)) {
                     JSONObject adjustment = queuedItem.optJSONObject("adjustment");
                     if (adjustment == null) {

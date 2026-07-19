@@ -23,6 +23,7 @@ import { CreditCardPickerComponent } from '../credit-card-picker/credit-card-pic
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { ExpenseStore, noCcAccountForExpense$ } from '../../../core/services/expense-store.service';
+import { CircleSyncService } from '../../../core/services/circle-sync.service';
 import { NotificationInboxService } from '../../../core/services/notification-inbox.service';
 import { UserFeedbackService } from '../../../core/services/user-feedback.service';
 import { TranslatePipe } from '../../pipes';
@@ -401,6 +402,7 @@ export class AppShellComponent {
   private readonly feedback = inject(UserFeedbackService);
 
   readonly notificationInbox = inject(NotificationInboxService);
+  private readonly circleSync = inject(CircleSyncService);
 
   readonly bellIcon = Bell;
   readonly settingsIcon = Settings;
@@ -448,6 +450,15 @@ export class AppShellComponent {
       if (pending.value) {
         void Preferences.remove({ key: PENDING_CIRCLE_JOIN_KEY });
         void this.router.navigate(['/join', pending.value]);
+      }
+    });
+
+    // Start the circles listener app-wide: powers the Daily "Circle expense"
+    // checkbox, the widget cache, widget-flush linking, and settle true-up —
+    // none of which can wait for the user to open the Splits screen.
+    void this.authService.sessionRestored?.then?.(() => {
+      if (this.authService.isAuthenticated()) {
+        void this.circleSync.startListening();
       }
     });
 

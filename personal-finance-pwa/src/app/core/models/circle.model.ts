@@ -69,8 +69,24 @@ export interface CircleInvite {
 /** Capacitor Preferences key holding a Circle Link code captured before sign-in. */
 export const PENDING_CIRCLE_JOIN_KEY = 'spenza_pending_circle_join_v1';
 
-/** ExpenseEntry.source tag for the personal share posted on Settle Up. */
+/** ExpenseEntry.source tag for the per-head share auto-logged on Settle Up. */
 export const CIRCLE_SETTLE_EXPENSE_SOURCE = 'circle-settle';
+
+/**
+ * Capacitor Preferences cache of the signed-in user's ACTIVE circles, written
+ * by CircleSyncService. Read by the native Android widget (Java) to show the
+ * "Circle expense" checkbox + circle name label — the widget cannot reach
+ * Firestore. Schema: { email, circles: ActiveCircleCacheItem[] }.
+ */
+export const ACTIVE_CIRCLES_CACHE_KEY = 'spenza_active_circles_v1';
+
+export interface ActiveCircleCacheItem {
+  circleId: string;
+  name: string;
+  /** The cache owner's member seat in this circle. */
+  myMemberId: string;
+  memberIds: string[];
+}
 
 /** Base URL used to build shareable Circle Links. */
 export const CIRCLE_LINK_BASE = 'https://spenza.site';

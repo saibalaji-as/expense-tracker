@@ -31,6 +31,61 @@ const toPaise = (amount: number): number => Math.round(amount * 100);
 const fromPaise = (paise: number): number => paise / 100;
 
 /**
+ * Per-participant equal-split shares of ONE expense, in paise. Participants
+ * are deduped, restricted to `validMemberIds`, and sorted by memberId; the
+ * first `remainder` participants carry one extra paisa — identical logic on
+ * every device.
+ */
+function expenseSharesPaise(
+  expense: CircleExpense,
+  validMemberIds: ReadonlySet<string>,
+): Map<string, number> {
+  const shares = new Map<string, number>();
+  const participants = [...new Set(expense.participantMemberIds)]
+    .filter((id) => validMemberIds.has(id))
+    .sort();
+  if (participants.length === 0) return shares;
+  const totalPaise = toPaise(expense.amount);
+  if (!Number.isFinite(totalPaise) || totalPaise <= 0) return shares;
+  const base = Math.floor(totalPaise / participants.length);
+  const remainder = totalPaise - base * participants.length;
+  participants.forEach((memberId, index) => {
+    shares.set(memberId, base + (index < remainder ? 1 : 0));
+  });
+  return shares;
+}
+
+/** One member's per-head share of a single expense, in currency units. */
+export function computeMyShareOfExpense(
+  memberId: string,
+  expense: CircleExpense,
+  members: CircleMember[],
+): number {
+  if (expense.deleted) return 0;
+  const valid = new Set(members.map((m) => m.memberId));
+  return fromPaise(expenseSharesPaise(expense, valid).get(memberId) ?? 0);
+}
+
+/**
+ * Sum of the member's shares across non-deleted expenses that OTHERS paid.
+ * This is what gets posted to the personal budget on Settle Up — the member's
+ * own paid bills are trued-up in place instead (plan §true-up).
+ */
+export function computeShareOwedToOthers(
+  memberId: string,
+  members: CircleMember[],
+  expenses: CircleExpense[],
+): number {
+  const valid = new Set(members.map((m) => m.memberId));
+  let paise = 0;
+  for (const expense of expenses) {
+    if (expense.deleted || expense.paidByMemberId === memberId) continue;
+    paise += expenseSharesPaise(expense, valid).get(memberId) ?? 0;
+  }
+  return fromPaise(paise);
+}
+
+/**
  * Per-member paid/share/net over the non-deleted expenses.
  * Members with no activity still appear with zeros so the UI can render
  * everyone consistently.
@@ -46,26 +101,18 @@ export function computeMemberBalances(
     sharePaise.set(m.memberId, 0);
   }
 
+  const valid = new Set(members.map((m) => m.memberId));
   for (const expense of expenses) {
     if (expense.deleted) continue;
-    const participants = [...new Set(expense.participantMemberIds)]
-      .filter((id) => paidPaise.has(id))
-      .sort();
-    if (participants.length === 0) continue;
-
-    const totalPaise = toPaise(expense.amount);
-    if (!Number.isFinite(totalPaise) || totalPaise <= 0) continue;
+    const shares = expenseSharesPaise(expense, valid);
+    if (shares.size === 0) continue;
 
     if (paidPaise.has(expense.paidByMemberId)) {
-      paidPaise.set(expense.paidByMemberId, paidPaise.get(expense.paidByMemberId)! + totalPaise);
+      paidPaise.set(expense.paidByMemberId, paidPaise.get(expense.paidByMemberId)! + toPaise(expense.amount));
     }
-
-    const base = Math.floor(totalPaise / participants.length);
-    const remainder = totalPaise - base * participants.length;
-    participants.forEach((memberId, index) => {
-      const extra = index < remainder ? 1 : 0;
-      sharePaise.set(memberId, sharePaise.get(memberId)! + base + extra);
-    });
+    for (const [memberId, share] of shares) {
+      sharePaise.set(memberId, sharePaise.get(memberId)! + share);
+    }
   }
 
   return members.map((m) => {

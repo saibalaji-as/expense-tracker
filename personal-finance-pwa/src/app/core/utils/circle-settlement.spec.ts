@@ -4,7 +4,9 @@ import {
   buildShareSummaryText,
   computeMemberBalances,
   computeMyShare,
+  computeMyShareOfExpense,
   computeSettlementTransfers,
+  computeShareOwedToOthers,
 } from './circle-settlement';
 
 function member(memberId: string, name = memberId): CircleMember {
@@ -152,6 +154,40 @@ describe('computeMyShare', () => {
     ];
     expect(computeMyShare('b', abc, expenses)).toBe(100);
     expect(computeMyShare('nope', abc, expenses)).toBe(0);
+  });
+});
+
+describe('computeMyShareOfExpense', () => {
+  it('returns the per-head share with deterministic rounding', () => {
+    const e = expense({ amount: 100, paidByMemberId: 'a', participantMemberIds: ['a', 'b', 'c'] });
+    expect(computeMyShareOfExpense('a', e, abc)).toBe(33.34);
+    expect(computeMyShareOfExpense('b', e, abc)).toBe(33.33);
+  });
+
+  it('returns 0 for non-participants and deleted expenses', () => {
+    const e = expense({ amount: 100, paidByMemberId: 'a', participantMemberIds: ['a', 'b'] });
+    expect(computeMyShareOfExpense('c', e, abc)).toBe(0);
+    expect(computeMyShareOfExpense('a', { ...e, deleted: true }, abc)).toBe(0);
+  });
+});
+
+describe('computeShareOwedToOthers', () => {
+  it('sums shares of others-paid expenses only', () => {
+    const expenses = [
+      // a paid: a owes nothing here.
+      expense({ expenseId: 'e1', amount: 300, paidByMemberId: 'a', participantMemberIds: ['a', 'b', 'c'] }),
+      // b paid: a's share 200.
+      expense({ expenseId: 'e2', amount: 600, paidByMemberId: 'b', participantMemberIds: ['a', 'b', 'c'] }),
+      // c paid, a not participating: nothing.
+      expense({ expenseId: 'e3', amount: 100, paidByMemberId: 'c', participantMemberIds: ['b', 'c'] }),
+      // deleted: ignored.
+      expense({ expenseId: 'e4', amount: 900, paidByMemberId: 'b', participantMemberIds: ['a', 'b'], deleted: true }),
+    ];
+    expect(computeShareOwedToOthers('a', abc, expenses)).toBe(200);
+    // Consistency: trued-up own share + owed-to-others == total share from balances.
+    const total = computeMyShare('a', abc, expenses);
+    const ownPaidShare = computeMyShareOfExpense('a', expenses[0], abc);
+    expect(ownPaidShare + computeShareOwedToOthers('a', abc, expenses)).toBeCloseTo(total, 10);
   });
 });
 
