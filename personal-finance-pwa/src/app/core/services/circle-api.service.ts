@@ -82,6 +82,8 @@ export class CircleApiService {
     shareExistingForNewMembers?: boolean;
     /** Owner-only. Server rejects removal when the member has any live expense. */
     removeMemberId?: string;
+    /** Owner-only display-name change; memberId and all references stay stable. */
+    renameMember?: { memberId: string; name: string };
     /**
      * Owner-only partial family patch: memberId → head memberId (null clears).
      * Server keeps families flat (head always points to self) and 409s on

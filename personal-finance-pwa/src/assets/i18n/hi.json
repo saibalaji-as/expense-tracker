@@ -837,6 +837,8 @@
   "splits.members.added": "सदस्य जुड़ गया",
   "splits.members.removed": "सदस्य हटा दिया गया",
   "splits.members.failed": "सदस्य नहीं बदले जा सके",
+  "splits.members.rename": "नाम बदलें",
+  "splits.members.renamed": "नाम बदल दिया गया",
   "splits.members.retroNote": "जो सदस्य सिर्फ बिल बांटते हैं उन्हें हटाया जा सकता है — उनका हिस्सा बाकियों में अपने-आप बंट जाएगा. जिन्होंने बिल चुकाया है उन्हें तब तक नहीं हटाया जा सकता जब तक उनके बिल हटाए/बदले न जाएं.",
   "splits.members.retroTitle": "{name} जोड़ें",
   "splits.members.retroBody": "क्या {name} इस सर्कल के मौजूदा बिल भी बांटेंगे?",

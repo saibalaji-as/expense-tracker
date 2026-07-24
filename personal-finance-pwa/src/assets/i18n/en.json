@@ -837,6 +837,8 @@
   "splits.members.added": "Member added",
   "splits.members.removed": "Member removed",
   "splits.members.failed": "Couldn't update members",
+  "splits.members.rename": "Rename member",
+  "splits.members.renamed": "Member renamed",
   "splits.members.retroNote": "Members who only share bills can be removed — their portions re-split among the rest automatically. Members who PAID a bill can't be removed until their bills are deleted or reassigned.",
   "splits.members.retroTitle": "Add {name}",
   "splits.members.retroBody": "Should {name} share the bills already in this circle?",

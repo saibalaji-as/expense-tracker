@@ -328,6 +328,14 @@ export const updateCircle = functions.onRequest(
     const addMemberNames = rawAddNames.map(cleanName).filter((n) => n.length > 0);
     const removeMemberId = typeof req.body?.removeMemberId === 'string' ? req.body.removeMemberId.trim() : '';
     const shareExistingForNewMembers = req.body?.shareExistingForNewMembers === true;
+    const rawRename = req.body?.renameMember;
+    const renameMember =
+      rawRename && typeof rawRename === 'object'
+        ? {
+            memberId: typeof rawRename.memberId === 'string' ? rawRename.memberId.trim() : '',
+            name: cleanName(rawRename.name),
+          }
+        : null;
     // Partial family patch: memberId → headMemberId (null clears). Owner-only
     // like every other member mutation.
     const rawAssign = req.body?.assignFamilies;
@@ -395,6 +403,15 @@ export const updateCircle = functions.onRequest(
           if (typeof target['uid'] === 'string') {
             memberUids = memberUids.filter((memberUid) => memberUid !== target['uid']);
           }
+        }
+
+        if (renameMember && renameMember.memberId) {
+          const target = members[renameMember.memberId];
+          if (!target) throw new Error('Member not found');
+          if (!renameMember.name) throw new Error('Name required');
+          // Rename touches the display name only — memberId (and therefore
+          // every split/family reference) is stable by design.
+          members[renameMember.memberId] = { ...target, name: renameMember.name };
         }
 
         if (Object.keys(assignFamilies).length > 0) {
@@ -481,6 +498,7 @@ export const updateCircle = functions.onRequest(
       const message = err instanceof Error ? err.message : '';
       if (message.includes('Owner only') || message.includes('Owner cannot be removed')) res.status(403).json({ error: message });
       else if (message.includes('Circle not found') || message.includes('Member not found')) res.status(404).json({ error: message });
+      else if (message.includes('Name required')) res.status(400).json({ error: message });
       else if (
         message.includes('Circle is full') ||
         message.includes('Circle is settled') ||

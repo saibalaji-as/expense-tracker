@@ -21,8 +21,11 @@ import {
   Trash2,
   ArrowLeft,
   ArrowRight,
+  Check,
   CheckCircle2,
   HandCoins,
+  Receipt,
+  Scale,
   UserPlus,
   UserMinus,
   Settings2,
@@ -49,6 +52,10 @@ import { CircleSyncService } from '../../core/services/circle-sync.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
 import { ModalComponent } from '../../shared/components/modal/modal.component';
+import {
+  ThemedSelectComponent,
+  type ThemedSelectOption,
+} from '../../shared/components/themed-select/themed-select.component';
 import { TranslatePipe } from '../../shared/pipes';
 
 type Tab = 'expenses' | 'balances' | 'settle';
@@ -62,14 +69,14 @@ type Tab = 'expenses' | 'balances' | 'settle';
   selector: 'app-circle-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, LucideAngularModule, ModalComponent, TranslatePipe],
+  imports: [FormsModule, LucideAngularModule, ModalComponent, ThemedSelectComponent, TranslatePipe],
   providers: [
     {
       provide: LUCIDE_ICONS,
       multi: true,
       useValue: new LucideIconProvider({
-        Users, Plus, Link2, Share2, Pencil, Trash2, ArrowLeft, ArrowRight, CheckCircle2, HandCoins,
-        UserPlus, UserMinus, Settings2, X,
+        Users, Plus, Link2, Share2, Pencil, Trash2, ArrowLeft, ArrowRight, Check, CheckCircle2,
+        HandCoins, Receipt, Scale, UserPlus, UserMinus, Settings2, X,
       }),
     },
   ],
@@ -77,46 +84,66 @@ type Tab = 'expenses' | 'balances' | 'settle';
     @if (circle(); as c) {
       <div class="space-y-5">
 
-        <!-- Header -->
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <button (click)="goBack()" class="rounded-xl p-2 hover:bg-accent" [attr.aria-label]="'common.back' | translate">
-              <lucide-icon name="arrow-left" class="h-5 w-5" />
-            </button>
-            <div>
-              <div class="flex items-center gap-2">
-                <h1 class="text-xl font-bold tracking-tight">{{ c.name }}</h1>
-                @if (c.status === 'settled') {
-                  <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
-                    {{ 'splits.settledChip' | translate }}
-                  </span>
-                }
-              </div>
-              <p class="text-xs text-muted-foreground">
-                {{ i18n.t('splits.detail.total', { amount: fmt(totalSpent()), count: activeExpenses().length }) }}
-              </p>
-            </div>
-          </div>
-          @if (c.status === 'active') {
-            <div class="flex shrink-0 items-center gap-1.5">
-              @if (isOwner()) {
-                <button
-                  (click)="openManageMembers()"
-                  class="rounded-xl border border-border p-2 hover:bg-accent"
-                  [attr.aria-label]="'splits.members.manage' | translate"
-                >
-                  <lucide-icon name="settings-2" class="h-4 w-4" />
-                </button>
-              }
-              <button
-                (click)="shareInvite()"
-                class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
-              >
-                <lucide-icon name="link-2" class="h-4 w-4" />
-                {{ 'splits.detail.invite' | translate }}
+        <!-- Sticky header: title row + tabs stay reachable while scrolling.
+             top offsets clear the app-shell bars (mobile 61px, desktop 65px). -->
+        <div class="sticky top-[61px] z-30 -mx-1 space-y-3 rounded-2xl border border-border/50 bg-background/85 px-3 py-3 shadow-sm backdrop-blur-xl min-[887px]:top-[65px]">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-2">
+              <button (click)="goBack()" class="shrink-0 rounded-xl p-2 hover:bg-accent" [attr.aria-label]="'common.back' | translate">
+                <lucide-icon name="arrow-left" class="h-5 w-5" />
               </button>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h1 class="truncate text-xl font-bold tracking-tight">{{ c.name }}</h1>
+                  @if (c.status === 'settled') {
+                    <span class="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
+                      {{ 'splits.settledChip' | translate }}
+                    </span>
+                  }
+                </div>
+                <p class="truncate text-xs text-muted-foreground">
+                  {{ i18n.t('splits.detail.total', { amount: fmt(totalSpent()), count: activeExpenses().length }) }}
+                </p>
+              </div>
             </div>
-          }
+            @if (c.status === 'active') {
+              <div class="flex shrink-0 items-center gap-1.5">
+                @if (isOwner()) {
+                  <button
+                    (click)="openManageMembers()"
+                    class="rounded-xl border border-border p-2 hover:bg-accent"
+                    [attr.aria-label]="'splits.members.manage' | translate"
+                  >
+                    <lucide-icon name="settings-2" class="h-4 w-4" />
+                  </button>
+                }
+                <button
+                  (click)="shareInvite()"
+                  class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+                >
+                  <lucide-icon name="link-2" class="h-4 w-4" />
+                  {{ 'splits.detail.invite' | translate }}
+                </button>
+              </div>
+            }
+          </div>
+
+          <!-- Segmented tabs — matches the app's pill nav (active = primary + glow) -->
+          <div class="flex gap-1 rounded-full border border-border/60 bg-muted/60 p-1" role="tablist">
+            @for (tab of tabs; track tab) {
+              <button
+                role="tab"
+                [attr.aria-selected]="activeTab() === tab"
+                (click)="activeTab.set(tab)"
+                [class]="activeTab() === tab
+                  ? 'flex flex-1 items-center justify-center gap-1.5 rounded-full bg-primary py-2 text-xs font-semibold text-primary-foreground shadow-glow transition-all'
+                  : 'flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-medium text-muted-foreground transition-all hover:text-foreground'"
+              >
+                <lucide-icon [name]="tabIcon(tab)" class="h-3.5 w-3.5" />
+                {{ ('splits.tab.' + tab) | translate }}
+              </button>
+            }
+          </div>
         </div>
 
         <!-- My position banner -->
@@ -139,20 +166,6 @@ type Tab = 'expenses' | 'balances' | 'settle';
             </p>
           </div>
         }
-
-        <!-- Tabs -->
-        <div class="flex rounded-xl bg-muted p-1 gap-1">
-          @for (tab of tabs; track tab) {
-            <button
-              (click)="activeTab.set(tab)"
-              [class]="activeTab() === tab
-                ? 'flex-1 rounded-lg py-2 text-sm font-medium transition-all bg-background text-foreground shadow-sm'
-                : 'flex-1 rounded-lg py-2 text-sm font-medium transition-all text-muted-foreground'"
-            >
-              {{ ('splits.tab.' + tab) | translate }}
-            </button>
-          }
-        </div>
 
         <!-- ── Expenses tab ── -->
         @if (activeTab() === 'expenses') {
@@ -435,48 +448,77 @@ type Tab = 'expenses' | 'balances' | 'settle';
             <p class="text-xs text-muted-foreground">{{ 'splits.members.hint' | translate }}</p>
             <div class="space-y-2">
               @for (member of membersList(); track member.memberId) {
-                <div class="rounded-xl border border-border px-3 py-2">
-                  <div class="flex items-center justify-between">
-                    <div class="min-w-0">
-                      <p class="truncate text-sm font-medium">{{ member.name }}</p>
-                      <p class="text-[11px] text-muted-foreground">
-                        {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
-                        @if (memberPaid(member.memberId)) {
-                          · {{ 'splits.members.removeBlocked' | translate }}
-                        }
-                        @if (isHeadWithMembers(member.memberId)) {
-                          · {{ 'splits.family.removeBlocked' | translate }}
-                        }
-                      </p>
-                    </div>
-                    @if (member.uid !== c.ownerUid) {
+                <div class="rounded-xl border border-border px-3 py-2.5">
+                  @if (editingMemberId() === member.memberId) {
+                    <div class="flex items-center gap-1.5">
+                      <input
+                        [(ngModel)]="editingMemberName"
+                        (keydown.enter)="saveMemberName(member)"
+                        maxlength="40"
+                        class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
                       <button
-                        (click)="removeMember(member)"
-                        [disabled]="isSaving() || memberPaid(member.memberId) || isHeadWithMembers(member.memberId)"
-                        class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
-                        [attr.aria-label]="'splits.members.remove' | translate"
+                        (click)="saveMemberName(member)"
+                        [disabled]="isSaving() || editingMemberName().trim().length === 0"
+                        class="rounded-lg p-2 text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-30"
+                        [attr.aria-label]="'common.save' | translate"
                       >
-                        <lucide-icon name="user-minus" class="h-4 w-4" />
+                        <lucide-icon name="check" class="h-4 w-4" />
                       </button>
-                    }
-                  </div>
+                      <button
+                        (click)="editingMemberId.set(null)"
+                        class="rounded-lg p-2 text-muted-foreground hover:bg-accent"
+                        [attr.aria-label]="'common.cancel' | translate"
+                      >
+                        <lucide-icon name="x" class="h-4 w-4" />
+                      </button>
+                    </div>
+                  } @else {
+                    <div class="flex items-center justify-between">
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-medium">{{ member.name }}</p>
+                        <p class="text-[11px] text-muted-foreground">
+                          {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
+                          @if (memberPaid(member.memberId)) {
+                            · {{ 'splits.members.removeBlocked' | translate }}
+                          }
+                          @if (isHeadWithMembers(member.memberId)) {
+                            · {{ 'splits.family.removeBlocked' | translate }}
+                          }
+                        </p>
+                      </div>
+                      <div class="flex shrink-0 items-center">
+                        <button
+                          (click)="startEditMember(member)"
+                          [disabled]="isSaving()"
+                          class="rounded-lg p-2 text-muted-foreground hover:bg-accent disabled:opacity-30"
+                          [attr.aria-label]="'splits.members.rename' | translate"
+                        >
+                          <lucide-icon name="pencil" class="h-4 w-4" />
+                        </button>
+                        @if (member.uid !== c.ownerUid) {
+                          <button
+                            (click)="removeMember(member)"
+                            [disabled]="isSaving() || memberPaid(member.memberId) || isHeadWithMembers(member.memberId)"
+                            class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
+                            [attr.aria-label]="'splits.members.remove' | translate"
+                          >
+                            <lucide-icon name="user-minus" class="h-4 w-4" />
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
                   <div class="mt-2 flex items-center gap-2">
-                    <span class="shrink-0 text-[11px] text-muted-foreground">{{ 'splits.family.label' | translate }}</span>
-                    <select
-                      [ngModel]="member.familyHeadMemberId ?? ''"
-                      (ngModelChange)="assignFamily(member, $event)"
-                      [disabled]="isSaving()"
-                      class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="">{{ 'splits.family.individual' | translate }}</option>
-                      @for (head of membersList(); track head.memberId) {
-                        <option [value]="head.memberId">
-                          {{ head.memberId === member.memberId
-                            ? ('splits.family.headSelf' | translate)
-                            : i18n.t('splits.family.inFamilyOf', { name: head.name }) }}
-                        </option>
-                      }
-                    </select>
+                    <span class="w-14 shrink-0 text-[11px] text-muted-foreground">{{ 'splits.family.label' | translate }}</span>
+                    <div class="min-w-0 flex-1">
+                      <app-themed-select
+                        size="sm"
+                        [options]="familyOptionsFor(member.memberId)"
+                        [value]="member.familyHeadMemberId ?? ''"
+                        (valueChange)="assignFamily(member, $event)"
+                      />
+                    </div>
                   </div>
                 </div>
               }
@@ -578,6 +620,15 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
 
   readonly tabs: Tab[] = ['expenses', 'balances', 'settle'];
   readonly activeTab = signal<Tab>('expenses');
+  readonly #tabIcons: Record<Tab, string> = {
+    expenses: 'receipt',
+    balances: 'scale',
+    settle: 'hand-coins',
+  };
+
+  tabIcon(tab: Tab): string {
+    return this.#tabIcons[tab];
+  }
 
   private readonly circleId = signal<string>('');
 
@@ -649,6 +700,9 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   readonly pendingAddName = signal('');
   readonly isRetroChoiceOpen = signal(false);
   readonly isDeleteCircleOpen = signal(false);
+  /** Member whose name is being edited inline in Manage members. */
+  readonly editingMemberId = signal<string | null>(null);
+  readonly editingMemberName = signal('');
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
@@ -854,6 +908,48 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     try {
       await this.circleApi.updateCircle({ circleId: this.circleId(), removeMemberId: member.memberId });
       this.feedback.success(this.i18n.t('splits.members.removed'));
+    } catch (error) {
+      const detail = error instanceof CircleApiError ? error.message : undefined;
+      this.feedback.error(this.i18n.t('splits.members.failed'), detail);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
+  /** ThemedSelect options for a member's family assignment. */
+  familyOptionsFor(memberId: string): ThemedSelectOption[] {
+    return [
+      { value: '', label: this.i18n.t('splits.family.individual') },
+      ...this.membersList().map((head) => ({
+        value: head.memberId,
+        label:
+          head.memberId === memberId
+            ? this.i18n.t('splits.family.headSelf')
+            : this.i18n.t('splits.family.inFamilyOf', { name: head.name }),
+      })),
+    ];
+  }
+
+  startEditMember(member: CircleMember): void {
+    this.editingMemberId.set(member.memberId);
+    this.editingMemberName.set(member.name);
+  }
+
+  async saveMemberName(member: CircleMember): Promise<void> {
+    const name = this.editingMemberName().trim();
+    if (!name || this.isSaving()) return;
+    if (name === member.name) {
+      this.editingMemberId.set(null);
+      return;
+    }
+    this.isSaving.set(true);
+    try {
+      await this.circleApi.updateCircle({
+        circleId: this.circleId(),
+        renameMember: { memberId: member.memberId, name },
+      });
+      this.editingMemberId.set(null);
+      this.feedback.success(this.i18n.t('splits.members.renamed'));
     } catch (error) {
       const detail = error instanceof CircleApiError ? error.message : undefined;
       this.feedback.error(this.i18n.t('splits.members.failed'), detail);
