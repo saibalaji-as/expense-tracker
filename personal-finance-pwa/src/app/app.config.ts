@@ -21,6 +21,7 @@ import { routes } from './app.routes';
 import { provideServiceWorker } from '@angular/service-worker';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { LocalNotificationService } from './core/services/local-notification.service';
+import { NotificationService } from './core/services/notification.service';
 import { ThemeService } from './core/services/theme.service';
 
 // PERF: the View Transitions API snapshots the ENTIRE page (including the
@@ -62,6 +63,22 @@ export const appConfig: ApplicationConfig = {
         };
       },
       deps: [LocalNotificationService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: (notificationService: NotificationService) => {
+        // NATIVE FCM registry healing (family widget two-way sync depends on a
+        // current token in `users/{userId}`). Deferred 15s so the cold-start
+        // Firebase auth mint (capped at 12s) has finished — the registerToken
+        // CF needs a Firebase ID token. Fire-and-forget; never blocks paint.
+        return () => {
+          if (Capacitor.isNativePlatform()) {
+            setTimeout(() => { void notificationService.ensureNativeTokenFresh(); }, 15_000);
+          }
+        };
+      },
+      deps: [NotificationService],
       multi: true,
     },
     {

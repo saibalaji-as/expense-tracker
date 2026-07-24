@@ -19,10 +19,21 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onNewToken(String token) {
         super.onNewToken(token);
-        Log.d(TAG, "New FCM token: " + token);
-        // TODO: Send token to your server if needed
-        // You can use Capacitor's Storage API to save the token
-        // and send it to your backend when the app starts
+        Log.d(TAG, "FCM token rotated — flagging for re-registration on next app launch.");
+        // This service has no Firebase ID token (auth lives in the webview), so
+        // it cannot call the registerToken CF directly. Stash the rotated token
+        // in CapacitorStorage; NotificationService.ensureNativeTokenFresh picks
+        // it up on the next launch and re-registers with the backend. Without
+        // this, rotation silently breaks the partner widget push
+        // (notifyPartnerLedgerWrite finds only the dead token).
+        if (token == null || token.isEmpty()) return;
+        try {
+            WidgetExpenseQueue.prefs(getApplicationContext()).edit()
+                .putString(WidgetExpenseConstants.PENDING_FCM_TOKEN_KEY, token)
+                .apply();
+        } catch (Exception error) {
+            Log.w(TAG, "Failed to persist rotated FCM token.", error);
+        }
     }
 
     @Override

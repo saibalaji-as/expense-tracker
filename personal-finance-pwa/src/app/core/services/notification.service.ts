@@ -2,10 +2,19 @@ import { Injectable, Signal, inject, signal, isDevMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { FcmService } from './fcm.service';
 import { StorageService } from './storage.service';
+import { SyncDiagnosticsService } from './sync-diagnostics.service';
 
 // Storage keys
 const LS_ENABLED = 'pf_notif_enabled';
 const LS_USER_ID = 'pf_user_id';
+/** Written by Java `MyFirebaseMessagingService.onNewToken` (CapacitorStorage prefs) when FCM rotates the token. */
+const LS_PENDING_FCM_TOKEN = 'spenza_fcm_pending_token_v1';
+/** Timestamp of the last successful backend token registration from this device. */
+const LS_LAST_FCM_REGISTRATION = 'pf_fcm_last_registration_v1';
+/** BackupModeService cache key — family mode needs a registered token for widget two-way sync. */
+const LS_BACKUP_MODE = 'spenza_backup_mode';
+/** Re-register at most this often when nothing is dirty (heals server-side drift). */
+const FCM_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
@@ -21,6 +30,7 @@ export class NotificationService {
 
   private readonly fcmService = inject(FcmService);
   private readonly storageService = inject(StorageService);
+  private readonly syncDiagnostics = inject(SyncDiagnosticsService);
 
   constructor() {
     this.permissionState = this._permissionState.asReadonly();
@@ -90,6 +100,9 @@ export class NotificationService {
     }
 
     await this.#persistEnabled(true);
+    // Interactive registration also satisfies the startup token-freshness check.
+    await this.storageService.set(LS_LAST_FCM_REGISTRATION, JSON.stringify({ at: Date.now() }));
+    await this.storageService.remove(LS_PENDING_FCM_TOKEN);
     if (isDevMode()) { console.log('[NotificationService] Push notifications enabled'); }
     return true;
   }
@@ -117,6 +130,63 @@ export class NotificationService {
     return this.fcmService.registerForNotifications(userId, timezone, undefined, { tokenOnly: true });
   }
 
+  /**
+   * NATIVE startup healing for the FCM token registry (fire-and-forget).
+   *
+   * `notifyPartnerLedgerWrite` (family widget two-way sync) looks up this
+   * device's token in `users/{userId}` — but registration historically only
+   * happened from the Settings notifications toggle, and `onNewToken`
+   * rotations were dropped on the floor. Result: owner→partner widget pushes
+   * silently stopped. This re-registers when:
+   *  - Java flagged a rotated token (`spenza_fcm_pending_token_v1`), or
+   *  - notifications are enabled OR the device is in family mode, and the
+   *    last successful registration is missing/older than 7 days.
+   *
+   * Never prompts (silent refresh skips when permission isn't granted) and
+   * never opts the device into the reminder scheduler (`tokenOnly`).
+   * Failures (e.g. Firebase auth not yet minted on cold start) are ignored —
+   * the missing success marker means the next launch retries.
+   */
+  async ensureNativeTokenFresh(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      const rotatedToken = await this.storageService.get(LS_PENDING_FCM_TOKEN);
+      const enabled = (await this.storageService.get(LS_ENABLED)) === 'true';
+      const familyMode = (await this.storageService.get(LS_BACKUP_MODE)) === 'family';
+      if (!rotatedToken && !enabled && !familyMode) return;
+
+      if (!rotatedToken) {
+        const lastRaw = await this.storageService.get(LS_LAST_FCM_REGISTRATION);
+        const lastAt = lastRaw ? Number(JSON.parse(lastRaw)?.at) : NaN;
+        if (Number.isFinite(lastAt) && Date.now() - lastAt < FCM_REFRESH_MAX_AGE_MS) return;
+      }
+
+      const userId = await this.#getUserId();
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const ok = await this.fcmService.silentNativeTokenRefresh(userId, timezone);
+      // Route the outcome into the on-device Settings sync log — FCM registry
+      // health is otherwise invisible without adb, and a silent failure here is
+      // exactly what breaks owner→partner widget push.
+      this.syncDiagnostics.record({
+        operation: 'fcm.tokenRefresh',
+        status: ok ? 200 : 0,
+        attempt: 1,
+        willRetry: !ok,
+        message: ok
+          ? `FCM token registered (trigger: ${rotatedToken ? 'rotation' : 'staleness'})`
+          : 'FCM token registration FAILED — partner widget push will not work from the other device',
+        at: new Date().toISOString(),
+      });
+      if (ok) {
+        await this.storageService.set(LS_LAST_FCM_REGISTRATION, JSON.stringify({ at: Date.now() }));
+        await this.storageService.remove(LS_PENDING_FCM_TOKEN);
+        if (isDevMode()) { console.log('[NotificationService] Native FCM registration refreshed'); }
+      }
+    } catch (error) {
+      console.warn('[NotificationService] ensureNativeTokenFresh failed:', error);
+    }
+  }
+
   async syncDailyReminder(enabled: boolean, reminderHour: number, reminderMinute: number): Promise<boolean> {
     if (!enabled) {
       if (this._isEnabled()) {
@@ -141,6 +211,7 @@ export class NotificationService {
       // Unregister from FCM and backend
       await this.fcmService.unregister(userId);
       await this.#persistEnabled(false);
+      await this.storageService.remove(LS_LAST_FCM_REGISTRATION);
       if (isDevMode()) { console.log('[NotificationService] Push notifications disabled'); }
     } catch (error) {
       this._isEnabled.set(true);

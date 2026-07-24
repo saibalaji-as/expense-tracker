@@ -59,7 +59,8 @@ export const notifyPartnerLedgerWrite = onDocumentWritten(
       .filter((uid): uid is string => typeof uid === 'string' && uid.length > 0 && uid !== writerUid);
     if (targetUids.length === 0) return;
 
-    const tokens: string[] = [];
+    // Keep doc refs alongside tokens so dead registrations can be pruned below.
+    const tokenEntries: { token: string; ref: FirebaseFirestore.DocumentReference }[] = [];
     for (const uid of targetUids) {
       const registrations = await db.collection('users')
         .where('ownerUid', '==', uid)
@@ -67,10 +68,15 @@ export const notifyPartnerLedgerWrite = onDocumentWritten(
         .get();
       for (const doc of registrations.docs) {
         const token = doc.data()['fcmToken'];
-        if (typeof token === 'string' && token.length > 0) tokens.push(token);
+        if (typeof token === 'string' && token.length > 0) tokenEntries.push({ token, ref: doc.ref });
       }
     }
-    if (tokens.length === 0) return; // partner never enabled notifications — widget updates on app open
+    if (tokenEntries.length === 0) {
+      // Partner device has no live registration (toggle never enabled, or a
+      // rotated token was pruned and the app hasn't re-registered yet).
+      console.warn('notifyPartnerLedgerWrite: no native FCM tokens for', targetUids);
+      return;
+    }
 
     const recordJson = JSON.stringify({
       id: record.id,
@@ -82,13 +88,37 @@ export const notifyPartnerLedgerWrite = onDocumentWritten(
     if (Buffer.byteLength(recordJson, 'utf8') > MAX_DATA_BYTES) return;
 
     const result = await admin.messaging().sendEachForMulticast({
-      tokens,
+      tokens: tokenEntries.map((t) => t.token),
       android: { priority: 'high' },
       data: { spenzaKind: 'family-ledger-record', record: recordJson },
     });
     if (result.failureCount > 0) {
       console.warn('notifyPartnerLedgerWrite: some sends failed:',
         result.responses.filter((r) => !r.success).map((r) => r.error?.code));
+
+      // Self-heal the registry: clear tokens FCM says are dead so stale
+      // registrations can't mask "no live token" forever. The client
+      // re-registers on next app launch (ensureNativeTokenFresh).
+      // `invalid-argument` is only trusted as a bad-token signal when the same
+      // payload succeeded for at least one other token.
+      const prunes: Promise<unknown>[] = [];
+      result.responses.forEach((response, index) => {
+        if (response.success) return;
+        const code = response.error?.code ?? '';
+        const deadToken =
+          code === 'messaging/registration-token-not-registered' ||
+          (code === 'messaging/invalid-argument' && result.successCount > 0);
+        if (!deadToken) return;
+        prunes.push(
+          tokenEntries[index].ref
+            .update({ fcmToken: admin.firestore.FieldValue.delete() })
+            .catch((error) => console.warn('notifyPartnerLedgerWrite: token prune failed:', error))
+        );
+      });
+      if (prunes.length > 0) {
+        await Promise.all(prunes);
+        console.info(`notifyPartnerLedgerWrite: pruned ${prunes.length} dead token registration(s).`);
+      }
     }
   }
 );

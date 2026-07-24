@@ -358,19 +358,35 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
                     throw new Error('Member not found');
                 if (target['uid'] === circle['ownerUid'])
                     throw new Error('Owner cannot be removed');
-                // GUARD: a member who paid for or participated in ANY live expense
-                // cannot be removed — removal would corrupt every balance. Reads
+                // GUARD: a member who PAID any live bill cannot be removed — their
+                // money must stay attributed. A participant-only member CAN be
+                // removed: we strip them from every split in the same transaction
+                // and balances re-tally automatically on all devices. Reads happen
                 // inside the transaction so a concurrent expense write retries.
                 const expensesSnap = await transaction.get(circleRef.collection('expenses'));
-                const involved = expensesSnap.docs.some((d) => {
-                    const e = d.data();
+                const participantPatches = [];
+                for (const docSnap of expensesSnap.docs) {
+                    const e = docSnap.data();
                     if (e['deleted'] === true)
-                        return false;
-                    return (e['paidByMemberId'] === removeMemberId ||
-                        (e['participantMemberIds'] ?? []).includes(removeMemberId));
-                });
-                if (involved)
-                    throw new Error('Member has expenses');
+                        continue;
+                    if (e['paidByMemberId'] === removeMemberId)
+                        throw new Error('Member has paid bills');
+                    const participants = e['participantMemberIds'] ?? [];
+                    if (!participants.includes(removeMemberId))
+                        continue;
+                    const remaining = participants.filter((id) => id !== removeMemberId);
+                    // Never leave a bill with nobody to carry it.
+                    if (remaining.length === 0)
+                        throw new Error('Member is sole participant');
+                    participantPatches.push({ ref: docSnap.ref, participants: remaining });
+                }
+                const removalNow = new Date().toISOString();
+                for (const patch of participantPatches) {
+                    transaction.update(patch.ref, {
+                        participantMemberIds: patch.participants,
+                        updatedAt: removalNow,
+                    });
+                }
                 delete members[removeMemberId];
                 if (typeof target['uid'] === 'string') {
                     memberUids = memberUids.filter((memberUid) => memberUid !== target['uid']);
@@ -399,7 +415,10 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
             res.status(403).json({ error: message });
         else if (message.includes('Circle not found') || message.includes('Member not found'))
             res.status(404).json({ error: message });
-        else if (message.includes('Circle is full') || message.includes('Circle is settled') || message.includes('Member has expenses'))
+        else if (message.includes('Circle is full') ||
+            message.includes('Circle is settled') ||
+            message.includes('Member has paid bills') ||
+            message.includes('Member is sole participant'))
             res.status(409).json({ error: message });
         else
             res.status(401).json({ error: 'Unauthorized' });

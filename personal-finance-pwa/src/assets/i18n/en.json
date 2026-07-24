@@ -831,12 +831,12 @@
   "splits.members.hint": "New members join future bills by default. To include them in an older bill, edit that bill and tick their name.",
   "splits.members.joined": "Joined",
   "splits.members.remove": "Remove member",
-  "splits.members.removeBlocked": "Has bills in this circle — cannot be removed",
+  "splits.members.removeBlocked": "Paid bills here — reassign or delete their bills first",
   "splits.members.addPlaceholder": "Friend's name",
   "splits.members.add": "Add",
   "splits.members.added": "Member added",
   "splits.members.removed": "Member removed",
   "splits.members.failed": "Couldn't update members",
-  "splits.members.retroNote": "Removing is only possible for members with no bills. Balances re-tally automatically after any change.",
+  "splits.members.retroNote": "Members who only share bills can be removed — their portions re-split among the rest automatically. Members who PAID a bill can't be removed until their bills are deleted or reassigned.",
   "splits.settle.autoLogged": "Your per-head share is logged automatically as one Daily expense (Miscellaneous) with the full settlement summary in its comment. You can recategorize it anytime."
 }

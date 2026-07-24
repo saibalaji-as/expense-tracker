@@ -97,7 +97,7 @@ describe('FcmService — registerForNotifications payload', () => {
     await sendRegistrationPayload(mockFetch as unknown as typeof fetch, 'user_123', 'token_abc', 'UTC');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      '/.netlify/functions/registerToken',
+      'http://localhost:5001/spenza-notifications/us-central1/registerToken',
       expect.objectContaining({ method: 'POST' })
     );
   });

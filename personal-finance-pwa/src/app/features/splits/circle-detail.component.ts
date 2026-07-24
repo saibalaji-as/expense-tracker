@@ -372,13 +372,15 @@ type Tab = 'expenses' | 'balances' | 'settle';
                     <p class="truncate text-sm font-medium">{{ member.name }}</p>
                     <p class="text-[11px] text-muted-foreground">
                       {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
+                      @if (memberPaid(member.memberId)) {
+                        · {{ 'splits.members.removeBlocked' | translate }}
+                      }
                     </p>
                   </div>
                   @if (member.uid !== c.ownerUid) {
                     <button
                       (click)="removeMember(member)"
-                      [disabled]="isSaving() || memberInvolved(member.memberId)"
-                      [title]="memberInvolved(member.memberId) ? ('splits.members.removeBlocked' | translate) : ''"
+                      [disabled]="isSaving() || memberPaid(member.memberId)"
                       class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
                       [attr.aria-label]="'splits.members.remove' | translate"
                     >
@@ -606,16 +608,14 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     this.isManageMembersOpen.set(true);
   }
 
-  /** True when the member paid for or participates in any live bill — removal
-   *  would corrupt balances, so the button is disabled (server re-checks). */
-  memberInvolved(memberId: string): boolean {
+  /** True when the member PAID any live bill — their money must stay
+   *  attributed, so removal is blocked (server re-checks). Participant-only
+   *  members are removable: the server strips them from every split and
+   *  balances re-tally automatically. */
+  memberPaid(memberId: string): boolean {
     return this.circleSync
       .activeCircleExpenses()
-      .some(
-        (e) =>
-          !e.deleted &&
-          (e.paidByMemberId === memberId || e.participantMemberIds.includes(memberId)),
-      );
+      .some((e) => !e.deleted && e.paidByMemberId === memberId);
   }
 
   async addMember(): Promise<void> {
@@ -635,7 +635,7 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   }
 
   async removeMember(member: CircleMember): Promise<void> {
-    if (this.isSaving() || this.memberInvolved(member.memberId)) return;
+    if (this.isSaving() || this.memberPaid(member.memberId)) return;
     this.isSaving.set(true);
     try {
       await this.circleApi.updateCircle({ circleId: this.circleId(), removeMemberId: member.memberId });

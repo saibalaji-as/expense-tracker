@@ -123,8 +123,36 @@ export class FcmService {
   }
 
   /**
+   * Silently re-register this NATIVE device's FCM token with the backend.
+   *
+   * Family widget two-way sync (`notifyPartnerLedgerWrite`) depends on the
+   * token registry (`users/{userId}.fcmToken`) being current — but tokens
+   * rotate (reinstall, restore, clear-data) and registration used to happen
+   * ONLY from the Settings toggle, so partner-bound pushes silently died.
+   * This method refreshes the registration WITHOUT any permission prompt
+   * (skips entirely if notification permission isn't already granted) and
+   * WITHOUT opting the device into the reminder scheduler (`tokenOnly`).
+   *
+   * @returns true when a fresh token was registered with the backend.
+   */
+  async silentNativeTokenRefresh(userId: string, timezone: string): Promise<boolean> {
+    if (!Capacitor.isNativePlatform()) return false;
+    try {
+      // Deliberately NO permission check/prompt: token acquisition and
+      // data-only message delivery (family widget sync) work without
+      // POST_NOTIFICATIONS. Permission only matters for DISPLAYED
+      // notifications, which this path never opts into (tokenOnly).
+      const token = await this.acquireNativeToken();
+      return await this.registerTokenWithBackend(userId, token, timezone, undefined, { tokenOnly: true });
+    } catch (error) {
+      console.warn('[FCM] Silent native token refresh failed:', error);
+      return false;
+    }
+  }
+
+  /**
    * Unregister from notifications and remove token from backend
-   * 
+   *
    * @param userId - Unique user identifier
    * @returns Promise<void>
    */
@@ -265,7 +293,17 @@ export class FcmService {
     }
 
     this.pushPermissionStatus.set('granted');
+    return this.acquireNativeToken();
+  }
 
+  /**
+   * Obtain a fresh native FCM token WITHOUT any permission handling.
+   * Token acquisition does not require POST_NOTIFICATIONS — the permission
+   * only gates DISPLAYED notifications, while the family widget two-way sync
+   * uses data-only messages handled entirely in Java. Callers that intend to
+   * show notifications must request permission first (registerNativeAndGetToken).
+   */
+  private async acquireNativeToken(): Promise<string> {
     const tokenPromise = new Promise<string>((resolve, reject) => {
       let settled = false;
       let registrationListener: { remove: () => Promise<void> } | null = null;

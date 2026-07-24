@@ -16,6 +16,12 @@ final class WidgetExpenseConstants {
     // Display-only overlay of partner ledger records delivered by FCM while the
     // app is closed (widget two-way sync). Never synced anywhere.
     static final String PARTNER_PENDING_KEY = "spenza_widget_partner_pending_v1";
+    // Rotated FCM token handoff: onNewToken (Java, no Firebase ID token available)
+    // stashes the fresh token here; the Angular layer re-registers it with the
+    // backend on next launch (NotificationService.ensureNativeTokenFresh) and
+    // clears the key. Without this, token rotation silently killed the
+    // owner→partner widget push (notifyPartnerLedgerWrite found no live token).
+    static final String PENDING_FCM_TOKEN_KEY = "spenza_fcm_pending_token_v1";
     static final String FIREBASE_UID_KEY = "firebase_uid";
     static final String FIREBASE_REFRESH_TOKEN_KEY = "firebase_refresh_token";
     static final String FIREBASE_API_KEY = "AIzaSyBAIhHX1sfUPpRpHTdLUf5TE0snqI904hg";
