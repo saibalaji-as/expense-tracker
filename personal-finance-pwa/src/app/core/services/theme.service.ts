@@ -18,7 +18,9 @@ const ExpenseWidgetRefresher = registerPlugin<NativeWidgetRefresher>('ExpenseWid
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private readonly _theme = signal<'light' | 'dark' | 'system'>('system');
+  // Default is LIGHT (product decision 2026-07-24): first launch renders light
+  // regardless of OS preference; users can still pick dark or system in Settings.
+  private readonly _theme = signal<'light' | 'dark' | 'system'>('light');
   private readonly _palette = signal<AppPalette>('violet');
   private readonly _style = signal<AppStyle>('glass');
 

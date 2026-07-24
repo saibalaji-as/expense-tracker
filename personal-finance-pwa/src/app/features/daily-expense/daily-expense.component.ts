@@ -79,6 +79,7 @@ import {
   getCategoryDef,
   getCategoryIdByName,
 } from '../../core/models/category-definitions';
+import { compressBillImage, compressedBillToFile } from '../../core/utils/bill-image';
 import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
 import { Capacitor } from '@capacitor/core';
 
@@ -107,10 +108,7 @@ interface ReceiptEditorState {
   };
 }
 
-const RECEIPT_UPLOAD_MAX_DIMENSION = 1600;
-const RECEIPT_UPLOAD_TARGET_BYTES = 120 * 1024;
-const RECEIPT_UPLOAD_JPEG_QUALITIES = [0.8, 0.7, 0.6, 0.5, 0.4, 0.32];
-const RECEIPT_UPLOAD_SCALE_STEP = 0.82;
+// Upload sizing lives in core/utils/bill-image.ts (shared with Circle bills).
 
 @Component({
   selector: 'app-daily-expense',
@@ -2796,93 +2794,34 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
     );
   }
 
+  /**
+   * Images route through the shared bill pipeline (`compressBillImage`) — its
+   * <img> decode fallback covers files createImageBitmap rejects on some
+   * Android WebViews, the root cause of "receipt saved without image" reports.
+   */
   private async compressReceiptImage(file: File): Promise<File> {
-    const bitmap = await createImageBitmap(file);
-    try {
-      const scale = Math.min(1, RECEIPT_UPLOAD_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
-      const width = Math.max(1, Math.round(bitmap.width * scale));
-      const height = Math.max(1, Math.round(bitmap.height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error('Could not prepare receipt image for compression.');
-      }
-
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, width, height);
-      context.drawImage(bitmap, 0, 0, width, height);
-
-      const baseName = file.name.replace(/\.[^.]+$/, '');
-      const blob = await this.compressCanvasToTargetSize(canvas);
-
-      return new File([blob], `${baseName}-compressed.jpg`, {
-        type: 'image/jpeg',
-        lastModified: Date.now(),
-      });
-    } finally {
-      bitmap.close();
-    }
-  }
-
-  private async compressCanvasToTargetSize(source: HTMLCanvasElement): Promise<Blob> {
-    let width = source.width;
-    let height = source.height;
-    let bestBlob: Blob | null = null;
-
-    for (let scaleAttempt = 0; scaleAttempt < 24; scaleAttempt += 1) {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, width);
-      canvas.height = Math.max(1, height);
-
-      const context = canvas.getContext('2d');
-      if (!context) {
-        if (bestBlob) return bestBlob;
-        throw new Error('Could not prepare compressed receipt image.');
-      }
-
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(source, 0, 0, canvas.width, canvas.height);
-
-      for (const quality of RECEIPT_UPLOAD_JPEG_QUALITIES) {
-        const blob = await this.canvasToJpegBlob(canvas, quality);
-        if (!bestBlob || blob.size < bestBlob.size) {
-          bestBlob = blob;
-        }
-        if (blob.size <= RECEIPT_UPLOAD_TARGET_BYTES) {
-          return blob;
-        }
-      }
-
-      width = Math.max(1, Math.round(width * RECEIPT_UPLOAD_SCALE_STEP));
-      height = Math.max(1, Math.round(height * RECEIPT_UPLOAD_SCALE_STEP));
-    }
-
-    if (!bestBlob) {
-      throw new Error('Could not compress receipt image.');
-    }
-
-    if (bestBlob.size <= RECEIPT_UPLOAD_TARGET_BYTES) {
-      return bestBlob;
-    }
-
-    throw new Error('Could not compress receipt image to the 120 KB limit.');
+    const image = await compressBillImage(file);
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'receipt';
+    return compressedBillToFile(image, baseName);
   }
 
   private async prepareReceiptForUpload(file: File): Promise<File> {
+    // PRODUCT RULE (2026-07-24): receipts are stored as IMAGES only. A PDF
+    // that cannot be converted is a hard failure — never upload the raw PDF.
     if (file.type === 'application/pdf') {
       try {
         return await this.receiptExtractionService.convertPdfToCompressedImage(file);
       } catch (error) {
-        if (isDevMode()) { console.warn('[DailyExpense] PDF receipt image conversion failed before upload, keeping original PDF:', error); }
-        return file;
+        if (isDevMode()) { console.warn('[DailyExpense] PDF receipt image conversion failed:', error); }
+        this.receiptError.set(this.i18n.t('daily.receipt.pdfConvertFailed'));
+        throw error;
       }
     }
 
-    if (!file.type.startsWith('image/')) return file;
+    if (!file.type.startsWith('image/')) {
+      this.receiptError.set(this.i18n.t('daily.receipt.unsupportedType'));
+      throw new Error(`Unsupported receipt file type: ${file.type || 'unknown'}`);
+    }
 
     try {
       return await this.compressReceiptImage(file);

@@ -93,6 +93,23 @@ service cloud.firestore {
       allow delete: if false; // tombstones only
     }
 
+    // ── Circle expense bill preview: ONE compressed image doc per expense
+    // (bill/preview). Members read; the uploader writes (replacement re-authors
+    // the doc); uploader or circle owner may remove it. Actual doc deletes are
+    // allowed HERE — a bill is an attachment, not accounting data, so the
+    // expenses tombstone rule does not apply. Writes lock with the circle. ──
+    match /circles/{circleId}/expenses/{expenseId}/bill/{billDocId} {
+      allow read: if request.auth != null && isCircleMember(circleId);
+      allow create, update: if request.auth != null &&
+        isActiveCircleMember(circleId) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        request.resource.data.circleId == circleId &&
+        request.resource.data.expenseId == expenseId;
+      allow delete: if request.auth != null &&
+        isActiveCircleMember(circleId) &&
+        (resource.data.authorUid == request.auth.uid || isCircleOwner(circleId));
+    }
+
     // ── Circle invites: multi-use Circle Link codes. Owner reads their own;
     // any signed-in user can read an unrevoked code to preview the circle
     // before joining. Writes: Functions only. ──

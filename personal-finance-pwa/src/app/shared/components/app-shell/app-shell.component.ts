@@ -212,7 +212,11 @@ interface NavItem {
     }
   `],
   template: `
-    <div class="min-h-screen flex flex-col overflow-x-hidden">
+    <!-- overflow-x-CLIP, never -hidden: overflow-x-hidden makes this div a
+         scroll container, which breaks position:sticky for EVERY descendant
+         (the top nav on all screens never stuck — 2026-07-24). clip trims
+         horizontal bleed identically without creating a scroll container. -->
+    <div class="min-h-screen flex flex-col overflow-x-clip">
 
       <!-- ── Desktop top nav ──────────────────────────────────── -->
       <header class="sticky top-0 z-40 hidden min-[887px]:block">
@@ -310,8 +314,8 @@ interface NavItem {
 
       <!-- ── Main content ──────────────────────────────────────── -->
       <main [class]="showNavigation()
-          ? 'flex-1 overflow-x-hidden pb-28 landscape-pl min-[887px]:pb-12 min-[887px]:pl-0'
-          : 'flex-1 overflow-x-hidden pb-12'">
+          ? 'flex-1 overflow-x-clip pb-28 landscape-pl min-[887px]:pb-12 min-[887px]:pl-0'
+          : 'flex-1 overflow-x-clip pb-12'">
         <div class="mx-auto w-full max-w-7xl px-4 py-6 min-[887px]:px-6 min-[887px]:py-8">
           <ng-content />
         </div>

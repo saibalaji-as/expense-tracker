@@ -21,9 +21,12 @@ import {
   Trash2,
   ArrowLeft,
   ArrowRight,
+  Camera,
   Check,
   CheckCircle2,
+  Download,
   HandCoins,
+  Paperclip,
   Receipt,
   Scale,
   UserPlus,
@@ -35,8 +38,12 @@ import {
   buildCircleLink,
   type CircleDocument,
   type CircleExpense,
+  type CircleExpenseBill,
   type CircleMember,
 } from '../../core/models/circle.model';
+import { BillImageTooLargeError, compressBillImage, compressedBillToFile } from '../../core/utils/bill-image';
+import { GoogleDriveService } from '../../core/services/google-drive.service';
+import { ReceiptExtractionService } from '../../core/services/receipt-extraction.service';
 import {
   buildShareSummaryText,
   circleHasFamilies,
@@ -75,8 +82,9 @@ type Tab = 'expenses' | 'balances' | 'settle';
       provide: LUCIDE_ICONS,
       multi: true,
       useValue: new LucideIconProvider({
-        Users, Plus, Link2, Share2, Pencil, Trash2, ArrowLeft, ArrowRight, Check, CheckCircle2,
-        HandCoins, Receipt, Scale, UserPlus, UserMinus, Settings2, X,
+        Users, Plus, Link2, Share2, Pencil, Trash2, ArrowLeft, ArrowRight, Camera, Check,
+        CheckCircle2, Download, HandCoins, Paperclip, Receipt, Scale, UserPlus, UserMinus,
+        Settings2, X,
       }),
     },
   ],
@@ -85,8 +93,12 @@ type Tab = 'expenses' | 'balances' | 'settle';
       <div class="space-y-5">
 
         <!-- Sticky header: title row + tabs stay reachable while scrolling.
-             top offsets clear the app-shell bars (mobile 61px, desktop 65px). -->
-        <div class="sticky top-[61px] z-30 -mx-1 space-y-3 rounded-2xl border border-border/50 bg-background/85 px-3 py-3 shadow-sm backdrop-blur-xl min-[887px]:top-[65px]">
+             FULL-BLEED bar (negative margins cancel the shell container's
+             px-4/px-6 + top padding) so scrolling cards vanish beneath it —
+             a floating rounded card here lets cards peek through the side
+             gaps and translucent corners (2026-07-24 overlap bug). top
+             offsets clear the app-shell bars (mobile 61px, desktop 65px). -->
+        <div class="sticky top-[61px] z-30 -mx-4 -mt-6 space-y-3 border-b border-border/50 bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl min-[887px]:top-[65px] min-[887px]:-mx-6 min-[887px]:-mt-8 min-[887px]:px-6 min-[887px]:pt-4">
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
               <button (click)="goBack()" class="shrink-0 rounded-xl p-2 hover:bg-accent" [attr.aria-label]="'common.back' | translate">
@@ -198,16 +210,21 @@ type Tab = 'expenses' | 'balances' | 'settle';
                   </div>
                   <div class="shrink-0 text-right">
                     <p class="font-semibold">{{ fmt(expense.amount) }}</p>
-                    @if (canEdit(expense) && c.status === 'active') {
-                      <div class="mt-1 flex justify-end gap-1">
+                    <div class="mt-1 flex justify-end gap-1">
+                      @if (expense.hasBill) {
+                        <button (click)="openBillViewer(expense)" class="rounded-lg p-1.5 text-primary hover:bg-primary/10" [attr.aria-label]="'splits.bill.view' | translate">
+                          <lucide-icon name="paperclip" class="h-3.5 w-3.5" />
+                        </button>
+                      }
+                      @if (canEdit(expense) && c.status === 'active') {
                         <button (click)="openEditExpense(expense)" class="rounded-lg p-1.5 text-muted-foreground hover:bg-accent" [attr.aria-label]="'common.edit' | translate">
                           <lucide-icon name="pencil" class="h-3.5 w-3.5" />
                         </button>
                         <button (click)="confirmDelete(expense)" class="rounded-lg p-1.5 text-red-500 hover:bg-red-500/10" [attr.aria-label]="'common.delete' | translate">
                           <lucide-icon name="trash-2" class="h-3.5 w-3.5" />
                         </button>
-                      </div>
-                    }
+                      }
+                    </div>
                   </div>
                 </div>
               </div>
@@ -404,6 +421,41 @@ type Tab = 'expenses' | 'balances' | 'settle';
               </div>
             </div>
 
+            <!-- Bill attachment: shared compressed preview for all members;
+                 the original also archives to the uploader's own Drive. -->
+            <div class="rounded-xl border border-dashed border-border px-3 py-2.5">
+              <input #billInput type="file" accept="image/*,application/pdf" class="hidden" (change)="onBillFilePicked($event)" />
+              <input #billCameraInput type="file" accept="image/*" capture="environment" class="hidden" (change)="onBillFilePicked($event)" />
+              @if (pendingBillFile(); as file) {
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex min-w-0 items-center gap-2 text-sm">
+                    <lucide-icon name="paperclip" class="h-4 w-4 shrink-0 text-primary" />
+                    <span class="truncate">{{ file.name }}</span>
+                  </div>
+                  <button (click)="pendingBillFile.set(null)" class="rounded-lg p-1.5 text-muted-foreground hover:bg-accent" [attr.aria-label]="'common.cancel' | translate">
+                    <lucide-icon name="x" class="h-4 w-4" />
+                  </button>
+                </div>
+              } @else {
+                <div class="flex gap-2">
+                  <button
+                    (click)="billCameraInput.click()"
+                    class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <lucide-icon name="camera" class="h-4 w-4" />
+                    {{ 'splits.bill.camera' | translate }}
+                  </button>
+                  <button
+                    (click)="billInput.click()"
+                    class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <lucide-icon name="paperclip" class="h-4 w-4" />
+                    {{ (editingHasBill() ? 'splits.bill.replace' : 'splits.bill.attach') | translate }}
+                  </button>
+                </div>
+              }
+            </div>
+
             <div class="flex justify-end gap-3 pt-2">
               <button (click)="isExpenseModalOpen.set(false)"
                 class="rounded-xl px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent">
@@ -414,6 +466,50 @@ type Tab = 'expenses' | 'balances' | 'settle';
                 {{ 'common.save' | translate }}
               </button>
             </div>
+          </div>
+        </app-modal>
+
+        <!-- ── Bill viewer ── -->
+        <app-modal
+          [title]="'splits.bill.title' | translate"
+          [isOpen]="billViewerExpense() !== null"
+          [showActions]="false"
+          (cancelled)="closeBillViewer()"
+        >
+          <div class="space-y-3">
+            @if (billLoading()) {
+              <p class="py-6 text-center text-sm text-muted-foreground">{{ 'splits.bill.loading' | translate }}</p>
+            } @else if (billData(); as bill) {
+              <img
+                [src]="bill.dataUrl"
+                [alt]="'splits.bill.title' | translate"
+                class="max-h-[60vh] w-full rounded-xl border border-border object-contain"
+              />
+              <p class="text-[11px] text-muted-foreground">
+                {{ i18n.t('splits.bill.uploadedBy', { name: memberName(bill.uploadedByMemberId) }) }}
+              </p>
+              <div class="flex gap-2">
+                <button
+                  (click)="downloadBill()"
+                  class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+                >
+                  <lucide-icon name="download" class="h-4 w-4" />
+                  {{ 'splits.bill.save' | translate }}
+                </button>
+                @if (canRemoveBill()) {
+                  <button
+                    (click)="removeBill()"
+                    [disabled]="isSaving()"
+                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/40 px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    <lucide-icon name="trash-2" class="h-4 w-4" />
+                    {{ 'splits.bill.remove' | translate }}
+                  </button>
+                }
+              </div>
+            } @else {
+              <p class="py-6 text-center text-sm text-muted-foreground">{{ 'splits.bill.loadFailed' | translate }}</p>
+            }
           </div>
         </app-modal>
 
@@ -613,6 +709,8 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   readonly circleSync = inject(CircleSyncService);
   readonly i18n = inject(I18nService);
   private readonly circleApi = inject(CircleApiService);
+  private readonly googleDrive = inject(GoogleDriveService);
+  private readonly receiptExtraction = inject(ReceiptExtractionService);
   private readonly authService = inject(AuthService);
   private readonly feedback = inject(UserFeedbackService);
   private readonly route = inject(ActivatedRoute);
@@ -704,6 +802,16 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   readonly editingMemberId = signal<string | null>(null);
   readonly editingMemberName = signal('');
 
+  // Bill attachment state
+  readonly pendingBillFile = signal<File | null>(null);
+  readonly billViewerExpense = signal<CircleExpense | null>(null);
+  readonly billData = signal<CircleExpenseBill | null>(null);
+  readonly billLoading = signal(false);
+  readonly editingHasBill = computed(() => {
+    const id = this.editingExpenseId();
+    return !!id && !!this.activeExpenses().find((e) => e.expenseId === id)?.hasBill;
+  });
+
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
     this.circleId.set(id);
@@ -764,6 +872,7 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     this.formDate.set(toLocalDateString());
     this.formPaidBy.set(this.myMember()?.memberId ?? this.membersList()[0]?.memberId ?? '');
     this.formParticipants.set(this.membersList().map((m) => m.memberId));
+    this.pendingBillFile.set(null);
     this.isExpenseModalOpen.set(true);
   }
 
@@ -774,6 +883,7 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     this.formDate.set(expense.date);
     this.formPaidBy.set(expense.paidByMemberId);
     this.formParticipants.set([...expense.participantMemberIds]);
+    this.pendingBillFile.set(null);
     this.isExpenseModalOpen.set(true);
   }
 
@@ -808,16 +918,112 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
         participantMemberIds: this.formParticipants(),
       };
       const editingId = this.editingExpenseId();
+      let expenseId = editingId;
       if (editingId) {
         await this.circleSync.updateExpense(this.circleId(), editingId, input);
       } else {
-        await this.circleSync.addExpense(this.circleId(), input);
+        expenseId = await this.circleSync.addExpense(this.circleId(), input);
       }
       this.isExpenseModalOpen.set(false);
       this.feedback.success(this.i18n.t('splits.expense.saved'));
+      // Bill upload AFTER the expense is safe — its failure never loses the bill's expense.
+      const billFile = this.pendingBillFile();
+      if (billFile && expenseId) {
+        this.pendingBillFile.set(null);
+        await this.#uploadBill(billFile, expenseId, input.date);
+      }
     } catch (error) {
       console.warn('[Splits] saveExpense failed:', error);
       this.feedback.error(this.i18n.t('splits.expense.saveFailed'));
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
+  // ── Bill attachment ──
+  onBillFilePicked(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (file) this.pendingBillFile.set(file);
+    input.value = ''; // allow re-picking the same file
+  }
+
+  async #uploadBill(file: File, expenseId: string, date: string): Promise<void> {
+    try {
+      // PRODUCT RULE: bills are stored as IMAGES only. PDFs render to a
+      // stacked-page image first (first 4 pages); the raw PDF never leaves
+      // the device.
+      const sourceFile =
+        file.type === 'application/pdf'
+          ? await this.receiptExtraction.convertPdfToCompressedImage(file)
+          : file;
+      const image = await compressBillImage(sourceFile);
+      await this.circleSync.uploadExpenseBill(
+        this.circleId(),
+        expenseId,
+        image,
+        this.myMember()?.memberId ?? '',
+      );
+      this.feedback.success(this.i18n.t('splits.bill.uploaded'));
+      // Archive to the uploader's own Drive appdata — private, free,
+      // best-effort. Camera/gallery images archive at original resolution;
+      // PDFs archive as the converted image (image-only rule).
+      const archiveFile = file.type === 'application/pdf' ? compressedBillToFile(image, `bill_${expenseId}`) : file;
+      void this.googleDrive
+        .uploadReceiptFile(archiveFile, `circle_${expenseId}`, date)
+        .catch((err) => console.warn('[Splits] bill Drive archive failed:', err));
+    } catch (error) {
+      const key =
+        error instanceof BillImageTooLargeError ? 'splits.bill.tooLarge' : 'splits.bill.uploadFailed';
+      this.feedback.error(this.i18n.t(key));
+    }
+  }
+
+  openBillViewer(expense: CircleExpense): void {
+    this.billViewerExpense.set(expense);
+    this.billData.set(null);
+    this.billLoading.set(true);
+    void this.circleSync
+      .fetchExpenseBill(this.circleId(), expense.expenseId)
+      .then((bill) => this.billData.set(bill))
+      .catch(() => this.billData.set(null))
+      .finally(() => this.billLoading.set(false));
+  }
+
+  closeBillViewer(): void {
+    this.billViewerExpense.set(null);
+    this.billData.set(null);
+  }
+
+  canRemoveBill(): boolean {
+    const expense = this.billViewerExpense();
+    return (
+      !!expense && this.circle()?.status === 'active' && this.canEdit(expense)
+    );
+  }
+
+  downloadBill(): void {
+    const bill = this.billData();
+    const expense = this.billViewerExpense();
+    if (!bill || !expense) return;
+    const ext = bill.mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const anchor = document.createElement('a');
+    anchor.href = bill.dataUrl;
+    anchor.download = `spenza-bill-${expense.date}-${expense.description.slice(0, 24).replace(/[^\w-]+/g, '_')}.${ext}`;
+    anchor.click();
+  }
+
+  async removeBill(): Promise<void> {
+    const expense = this.billViewerExpense();
+    if (!expense || this.isSaving()) return;
+    this.isSaving.set(true);
+    try {
+      await this.circleSync.removeExpenseBill(this.circleId(), expense.expenseId);
+      this.closeBillViewer();
+      this.feedback.success(this.i18n.t('splits.bill.removed'));
+    } catch (error) {
+      console.warn('[Splits] removeBill failed:', error);
+      this.feedback.error(this.i18n.t('splits.bill.uploadFailed'));
     } finally {
       this.isSaving.set(false);
     }

@@ -7,6 +7,7 @@ import {
   type ActiveCircleCacheItem,
   type CircleDocument,
   type CircleExpense,
+  type CircleExpenseBill,
   type CircleMember,
 } from '../models/circle.model';
 import type { ExpenseEntry } from '../models';
@@ -217,7 +218,7 @@ export class CircleSyncService {
   async updateExpense(
     circleId: string,
     expenseId: string,
-    patch: Partial<Pick<CircleExpense, 'description' | 'amount' | 'date' | 'paidByMemberId' | 'participantMemberIds'>>,
+    patch: Partial<Pick<CircleExpense, 'description' | 'amount' | 'date' | 'paidByMemberId' | 'participantMemberIds' | 'hasBill'>>,
   ): Promise<void> {
     await this.#requireUid();
     const { doc, updateDoc } = await import('firebase/firestore');
@@ -229,6 +230,55 @@ export class CircleSyncService {
         : {}),
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  // ── Bill previews (circles/{id}/expenses/{eid}/bill/preview) ─────────────
+
+  /**
+   * Writes the shared compressed bill preview and flags the expense. The
+   * uploader's full-resolution original goes to their own Drive appdata
+   * separately (best-effort, caller's concern) — this doc is what every
+   * member sees.
+   */
+  async uploadExpenseBill(
+    circleId: string,
+    expenseId: string,
+    image: { dataUrl: string; mimeType: string; width: number; height: number },
+    uploadedByMemberId: string,
+  ): Promise<void> {
+    const authorUid = await this.#requireUid();
+    const { doc, setDoc } = await import('firebase/firestore');
+    const db = await getSharedFirestore();
+    const bill: CircleExpenseBill = {
+      circleId,
+      expenseId,
+      dataUrl: image.dataUrl,
+      mimeType: image.mimeType,
+      width: image.width,
+      height: image.height,
+      uploadedByMemberId,
+      authorUid,
+      uploadedAt: new Date().toISOString(),
+    };
+    await setDoc(doc(db, 'circles', circleId, 'expenses', expenseId, 'bill', 'preview'), bill);
+    await this.updateExpense(circleId, expenseId, { hasBill: true });
+  }
+
+  /** Fetches the shared preview on demand (never part of the list listener). */
+  async fetchExpenseBill(circleId: string, expenseId: string): Promise<CircleExpenseBill | null> {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const db = await getSharedFirestore();
+    const snap = await getDoc(doc(db, 'circles', circleId, 'expenses', expenseId, 'bill', 'preview'));
+    return snap.exists() ? (snap.data() as CircleExpenseBill) : null;
+  }
+
+  /** Removes the shared preview (uploader or owner; rules enforce). */
+  async removeExpenseBill(circleId: string, expenseId: string): Promise<void> {
+    await this.#requireUid();
+    const { doc, deleteDoc } = await import('firebase/firestore');
+    const db = await getSharedFirestore();
+    await deleteDoc(doc(db, 'circles', circleId, 'expenses', expenseId, 'bill', 'preview'));
+    await this.updateExpense(circleId, expenseId, { hasBill: false });
   }
 
   /** Tombstone — circle expense docs are never deleted (rules enforce this). */

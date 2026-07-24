@@ -51,6 +51,10 @@ export class App implements OnInit, OnDestroy {
   readonly isPublicPage = computed(() => {
     const url = this.currentUrl().split('?')[0].split('#')[0];
     if (url === '/privacy' || url === '/terms') return true;
+    // Sign-in landing: full-page marketing + Google sign-in. Must render
+    // shell-less (it has its own nav/footer) and without the data-loading
+    // gate — visitors here are by definition signed out.
+    if (url === '/auth/callback') return true;
     if (url === '/' || url === '') {
       // Native: '/' is simply the cold-start URL (hash not set yet), NOT a
       // marketing visit. Rendering the landing page there flashed it on every

@@ -147,12 +147,12 @@ export class ReceiptExtractionService {
     const pdf = await pdfjsLib.getDocument({ data }).promise;
 
     try {
-      if (pdf.numPages > MAX_PDF_PAGES_TO_STORE_AS_IMAGE) {
-        throw new Error(`PDF has ${pdf.numPages} pages; keeping original to avoid losing bill pages.`);
-      }
+      // Bills are stored as IMAGES only (product rule 2026-07-24): a long PDF
+      // is truncated to its first pages instead of being kept as a PDF.
+      const pagesToRender = Math.min(pdf.numPages, MAX_PDF_PAGES_TO_STORE_AS_IMAGE);
 
       const renderedPages: HTMLCanvasElement[] = [];
-      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      for (let pageNumber = 1; pageNumber <= pagesToRender; pageNumber += 1) {
         const page = await pdf.getPage(pageNumber);
         const viewport = page.getViewport({ scale: PDF_STORAGE_RENDER_SCALE });
         const canvas = document.createElement('canvas');

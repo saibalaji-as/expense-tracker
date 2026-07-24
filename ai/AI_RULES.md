@@ -24,6 +24,7 @@
   - Update `AI_RULES.md` only when conventions/rules change.
 
 ## Architecture Rules
+- Never use `overflow-x: hidden` on html/body/app-shell/main or any ancestor of sticky UI — it creates a scroll container and silently disables position:sticky app-wide. Use `overflow-x: clip` for horizontal-bleed clipping (2026-07-24).
 - Keep feature code aligned with the current Angular standalone architecture.
 - Prefer existing services:
   - Auth: `AuthService`.

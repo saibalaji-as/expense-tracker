@@ -68,6 +68,29 @@ export interface CircleExpense {
   updatedAt: string;
   /** Tombstone — documents are never deleted. */
   deleted: boolean;
+  /** True when a bill preview doc exists at expenses/{id}/bill/preview. */
+  hasBill?: boolean;
+}
+
+/**
+ * Shared bill preview — ONE doc at circles/{id}/expenses/{expenseId}/bill/preview.
+ * Compressed client-side (~1000px WebP/JPEG) and stored as a base64 data URL
+ * so every member can view it; the uploader's full-resolution original goes to
+ * their own Drive appDataFolder (private, free) via the Daily receipt pipeline.
+ * Kept OUT of the expense doc so the expense-list listener never pays for
+ * image bytes. Size is capped client-side under Firestore's 1 MiB doc limit.
+ */
+export interface CircleExpenseBill {
+  circleId: string;
+  expenseId: string;
+  /** data URL, image/webp or image/jpeg. */
+  dataUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  uploadedByMemberId: string;
+  authorUid: string;
+  uploadedAt: string;
 }
 
 export interface CircleInvite {

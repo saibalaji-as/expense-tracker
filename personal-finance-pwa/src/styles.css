@@ -589,7 +589,9 @@
   }
 
   html {
-    overflow-x: hidden;
+    /* clip, not hidden — hidden creates a scroll container and breaks
+       position:sticky descendants (2026-07-24) */
+    overflow-x: clip;
     width: 100%;
     color-scheme: light;
   }
@@ -604,7 +606,7 @@
   }
 
   body {
-    overflow-x: hidden;
+    overflow-x: clip;
     width: 100%;
     background-color: var(--background);
     color: var(--foreground);
