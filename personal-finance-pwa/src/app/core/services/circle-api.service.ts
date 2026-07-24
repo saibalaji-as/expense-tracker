@@ -74,13 +74,30 @@ export class CircleApiService {
     circleId: string;
     name?: string;
     addMemberNames?: string[];
+    /**
+     * With addMemberNames: retro-include the new members in existing bills.
+     * Server adds them ONLY to "everyone" splits (participant set == full
+     * member set before the add); custom splits are never widened.
+     */
+    shareExistingForNewMembers?: boolean;
     /** Owner-only. Server rejects removal when the member has any live expense. */
     removeMemberId?: string;
+    /**
+     * Owner-only partial family patch: memberId → head memberId (null clears).
+     * Server keeps families flat (head always points to self) and 409s on
+     * orphaned/nested heads ('Invalid family head', 'Head has family members').
+     */
+    assignFamilies?: Record<string, string | null>;
   }): Promise<{ success: boolean }> {
     return this.post('updateCircle', input);
   }
 
   settleCircle(circleId: string): Promise<{ success: boolean }> {
     return this.post('settleCircle', { circleId });
+  }
+
+  /** Owner-only. Permanently removes the circle, its expenses, and invites. */
+  deleteCircle(circleId: string): Promise<{ success: boolean }> {
+    return this.post('deleteCircle', { circleId });
   }
 }

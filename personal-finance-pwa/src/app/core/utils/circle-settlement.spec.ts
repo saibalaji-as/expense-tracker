@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { CircleExpense, CircleMember } from '../models/circle.model';
 import {
   buildShareSummaryText,
+  computeCarriedShare,
+  computeFamilyBalances,
+  computeFamilySettlementTransfers,
   computeMemberBalances,
   computeMyShare,
   computeMyShareOfExpense,
@@ -210,5 +213,97 @@ describe('buildShareSummaryText', () => {
     expect(text).toContain('• b owes ₹900');
     expect(text).toContain('• b → a: ₹900');
     expect(text).toContain('• c → a: ₹600');
+  });
+});
+
+// ── Family roll-up ──────────────────────────────────────────────────────────
+
+function famMember(memberId: string, familyHeadMemberId: string | null): CircleMember {
+  return { memberId, name: memberId, uid: null, email: null, joinedAt: null, familyHeadMemberId };
+}
+
+// Family F: head a + member b. c stays individual.
+const family = [famMember('a', 'a'), famMember('b', 'a'), member('c')];
+
+describe('computeFamilyBalances', () => {
+  it('rolls member balances up to the family head, paise-exact', () => {
+    const balances = computeFamilyBalances(family, [
+      expense({ amount: 300, paidByMemberId: 'b', participantMemberIds: ['a', 'b', 'c'] }),
+    ]);
+    expect(balances).toEqual([
+      { headMemberId: 'a', memberIds: ['a', 'b'], paid: 300, share: 200, net: 100 },
+      { headMemberId: 'c', memberIds: ['c'], paid: 0, share: 100, net: -100 },
+    ]);
+  });
+
+  it('degenerates to per-member balances without families', () => {
+    const balances = computeFamilyBalances(abc, [
+      expense({ amount: 300, paidByMemberId: 'a', participantMemberIds: ['a', 'b', 'c'] }),
+    ]);
+    expect(balances.map((f) => f.headMemberId)).toEqual(['a', 'b', 'c']);
+    expect(balances.map((f) => f.net)).toEqual([200, -100, -100]);
+  });
+
+  it('nets to zero across families with rounding remainders', () => {
+    const balances = computeFamilyBalances(family, [
+      expense({ amount: 100, paidByMemberId: 'c', participantMemberIds: ['a', 'b', 'c'] }),
+    ]);
+    expect(balances.reduce((s, f) => s + f.net, 0)).toBeCloseTo(0, 10);
+  });
+});
+
+describe('computeFamilySettlementTransfers', () => {
+  it('moves money head-to-head only', () => {
+    const transfers = computeFamilySettlementTransfers(family, [
+      expense({ amount: 300, paidByMemberId: 'c', participantMemberIds: ['a', 'b', 'c'] }),
+    ]);
+    // a+b owe 200 as one family; the single transfer is head a → c.
+    expect(transfers).toEqual([{ fromMemberId: 'a', toMemberId: 'c', amount: 200 }]);
+  });
+
+  it('equals member transfers when no families exist', () => {
+    const es = [expense({ amount: 300, paidByMemberId: 'a', participantMemberIds: ['a', 'b', 'c'] })];
+    expect(computeFamilySettlementTransfers(abc, es)).toEqual(
+      computeSettlementTransfers(computeMemberBalances(abc, es)),
+    );
+  });
+});
+
+describe('computeCarriedShare', () => {
+  const es = [expense({ amount: 300, paidByMemberId: 'c', participantMemberIds: ['a', 'b', 'c'] })];
+
+  it('head carries the whole family share', () => {
+    expect(computeCarriedShare('a', family, es)).toBe(200);
+  });
+
+  it('non-head family member carries nothing', () => {
+    expect(computeCarriedShare('b', family, es)).toBe(0);
+  });
+
+  it('individual carries own share', () => {
+    expect(computeCarriedShare('c', family, es)).toBe(100);
+  });
+});
+
+describe('buildShareSummaryText with families', () => {
+  it('labels families and settles head-to-head', () => {
+    const text = buildShareSummaryText(
+      'Trip',
+      family,
+      [expense({ amount: 300, paidByMemberId: 'c', participantMemberIds: ['a', 'b', 'c'] })],
+      (n) => `₹${n}`,
+    );
+    expect(text).toContain('a (family of 2) owes ₹200');
+    expect(text).toContain('c gets back ₹200');
+    expect(text).toContain('• a → c: ₹200');
+    expect(text).not.toContain('• b →');
+  });
+
+  it('is unchanged for circles without families', () => {
+    const es = [expense({ amount: 300, paidByMemberId: 'a', participantMemberIds: ['a', 'b', 'c'] })];
+    const text = buildShareSummaryText('Trip', abc, es, (n) => `₹${n}`);
+    expect(text).toContain('• a gets back ₹200');
+    expect(text).toContain('• b owes ₹100');
+    expect(text).not.toContain('family');
   });
 });

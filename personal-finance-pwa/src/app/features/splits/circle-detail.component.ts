@@ -36,6 +36,9 @@ import {
 } from '../../core/models/circle.model';
 import {
   buildShareSummaryText,
+  circleHasFamilies,
+  computeFamilyBalances,
+  computeFamilySettlementTransfers,
   computeMemberBalances,
   computeSettlementTransfers,
 } from '../../core/utils/circle-settlement';
@@ -202,6 +205,51 @@ type Tab = 'expenses' | 'balances' | 'settle';
         <!-- ── Balances tab ── -->
         @if (activeTab() === 'balances') {
           <div class="space-y-3">
+            @if (hasFamilies()) {
+              @for (family of familyBalances(); track family.headMemberId) {
+                <div class="glass-card rounded-xl p-4">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <p class="font-medium">{{ memberName(family.headMemberId) }}</p>
+                      @if (family.memberIds.length > 1) {
+                        <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          {{ i18n.t('splits.family.chip', { count: family.memberIds.length }) }}
+                        </span>
+                      } @else if (!isClaimed(family.headMemberId)) {
+                        <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                          {{ 'splits.balances.notJoined' | translate }}
+                        </span>
+                      }
+                    </div>
+                    <p class="font-semibold"
+                       [class.text-emerald-500]="family.net > 0"
+                       [class.text-red-500]="family.net < 0">
+                      {{ family.net > 0 ? '+' : '' }}{{ fmt(family.net) }}
+                    </p>
+                  </div>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    {{ i18n.t('splits.detail.paidShare', { paid: fmt(family.paid), share: fmt(family.share) }) }}
+                  </p>
+                  @if (family.memberIds.length > 1) {
+                    <div class="mt-2 space-y-1 border-t border-border pt-2">
+                      @for (mid of family.memberIds; track mid) {
+                        @if (memberBalance(mid); as mb) {
+                          <div class="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>
+                              {{ memberName(mid) }}
+                              @if (mid === family.headMemberId) {
+                                · {{ 'splits.family.headBadge' | translate }}
+                              }
+                            </span>
+                            <span>{{ i18n.t('splits.detail.paidShare', { paid: fmt(mb.paid), share: fmt(mb.share) }) }}</span>
+                          </div>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            } @else {
             @for (balance of balances(); track balance.memberId) {
               <div class="glass-card rounded-xl p-4">
                 <div class="flex items-center justify-between">
@@ -223,6 +271,7 @@ type Tab = 'expenses' | 'balances' | 'settle';
                   {{ i18n.t('splits.detail.paidShare', { paid: fmt(balance.paid), share: fmt(balance.share) }) }}
                 </p>
               </div>
+            }
             }
           </div>
         }
@@ -265,10 +314,29 @@ type Tab = 'expenses' | 'balances' | 'settle';
             }
 
             @if (c.status === 'settled') {
-              <div class="glass-card flex items-start gap-2.5 rounded-xl p-4">
-                <lucide-icon name="hand-coins" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                <p class="text-xs text-muted-foreground">{{ 'splits.settle.autoLogged' | translate }}</p>
-              </div>
+              @if (myFamilyAck(); as ack) {
+                <div class="glass-card flex items-start gap-2.5 rounded-xl p-4">
+                  <lucide-icon name="users" class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <p class="text-xs text-muted-foreground">
+                    {{ i18n.t('splits.family.coveredBy', { amount: fmt(ack.share), name: ack.headName }) }}
+                  </p>
+                </div>
+              } @else {
+                <div class="glass-card flex items-start gap-2.5 rounded-xl p-4">
+                  <lucide-icon name="hand-coins" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                  <p class="text-xs text-muted-foreground">{{ 'splits.settle.autoLogged' | translate }}</p>
+                </div>
+              }
+            }
+
+            @if (isOwner()) {
+              <button
+                (click)="isDeleteCircleOpen.set(true)"
+                class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/40 px-4 py-2.5 text-sm font-medium text-red-500 hover:bg-red-500/10"
+              >
+                <lucide-icon name="trash-2" class="h-4 w-4" />
+                {{ 'splits.circle.delete' | translate }}
+              </button>
             }
           </div>
         }
@@ -367,26 +435,49 @@ type Tab = 'expenses' | 'balances' | 'settle';
             <p class="text-xs text-muted-foreground">{{ 'splits.members.hint' | translate }}</p>
             <div class="space-y-2">
               @for (member of membersList(); track member.memberId) {
-                <div class="flex items-center justify-between rounded-xl border border-border px-3 py-2">
-                  <div class="min-w-0">
-                    <p class="truncate text-sm font-medium">{{ member.name }}</p>
-                    <p class="text-[11px] text-muted-foreground">
-                      {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
-                      @if (memberPaid(member.memberId)) {
-                        · {{ 'splits.members.removeBlocked' | translate }}
-                      }
-                    </p>
+                <div class="rounded-xl border border-border px-3 py-2">
+                  <div class="flex items-center justify-between">
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium">{{ member.name }}</p>
+                      <p class="text-[11px] text-muted-foreground">
+                        {{ (member.uid !== null ? 'splits.members.joined' : 'splits.balances.notJoined') | translate }}
+                        @if (memberPaid(member.memberId)) {
+                          · {{ 'splits.members.removeBlocked' | translate }}
+                        }
+                        @if (isHeadWithMembers(member.memberId)) {
+                          · {{ 'splits.family.removeBlocked' | translate }}
+                        }
+                      </p>
+                    </div>
+                    @if (member.uid !== c.ownerUid) {
+                      <button
+                        (click)="removeMember(member)"
+                        [disabled]="isSaving() || memberPaid(member.memberId) || isHeadWithMembers(member.memberId)"
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
+                        [attr.aria-label]="'splits.members.remove' | translate"
+                      >
+                        <lucide-icon name="user-minus" class="h-4 w-4" />
+                      </button>
+                    }
                   </div>
-                  @if (member.uid !== c.ownerUid) {
-                    <button
-                      (click)="removeMember(member)"
-                      [disabled]="isSaving() || memberPaid(member.memberId)"
-                      class="rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-30"
-                      [attr.aria-label]="'splits.members.remove' | translate"
+                  <div class="mt-2 flex items-center gap-2">
+                    <span class="shrink-0 text-[11px] text-muted-foreground">{{ 'splits.family.label' | translate }}</span>
+                    <select
+                      [ngModel]="member.familyHeadMemberId ?? ''"
+                      (ngModelChange)="assignFamily(member, $event)"
+                      [disabled]="isSaving()"
+                      class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     >
-                      <lucide-icon name="user-minus" class="h-4 w-4" />
-                    </button>
-                  }
+                      <option value="">{{ 'splits.family.individual' | translate }}</option>
+                      @for (head of membersList(); track head.memberId) {
+                        <option [value]="head.memberId">
+                          {{ head.memberId === member.memberId
+                            ? ('splits.family.headSelf' | translate)
+                            : i18n.t('splits.family.inFamilyOf', { name: head.name }) }}
+                        </option>
+                      }
+                    </select>
+                  </div>
                 </div>
               }
             </div>
@@ -408,6 +499,63 @@ type Tab = 'expenses' | 'balances' | 'settle';
               </button>
             </div>
             <p class="text-[11px] text-muted-foreground">{{ 'splits.members.retroNote' | translate }}</p>
+          </div>
+        </app-modal>
+
+        <!-- ── New member: share existing bills or only upcoming? ── -->
+        <app-modal
+          [title]="i18n.t('splits.members.retroTitle', { name: pendingAddName() })"
+          [isOpen]="isRetroChoiceOpen()"
+          [showActions]="false"
+          (cancelled)="cancelAddMember()"
+        >
+          <div class="space-y-3">
+            <p class="text-sm text-muted-foreground">
+              {{ i18n.t('splits.members.retroBody', { name: pendingAddName() }) }}
+            </p>
+            <button
+              (click)="confirmAddMember(true)"
+              [disabled]="isSaving()"
+              class="w-full rounded-xl bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-40"
+            >
+              {{ 'splits.members.retroAll' | translate }}
+            </button>
+            <button
+              (click)="confirmAddMember(false)"
+              [disabled]="isSaving()"
+              class="w-full rounded-xl border border-border px-3 py-2.5 text-sm font-medium disabled:opacity-40"
+            >
+              {{ 'splits.members.retroUpcoming' | translate }}
+            </button>
+            <p class="text-[11px] text-muted-foreground">{{ 'splits.members.retroCustomNote' | translate }}</p>
+          </div>
+        </app-modal>
+
+        <!-- ── Delete circle (owner) ── -->
+        <app-modal
+          [title]="'splits.circle.deleteTitle' | translate"
+          [isOpen]="isDeleteCircleOpen()"
+          [showActions]="false"
+          (cancelled)="isDeleteCircleOpen.set(false)"
+        >
+          <div class="space-y-3">
+            <p class="text-sm text-muted-foreground">
+              {{ i18n.t('splits.circle.deleteBody', { name: c.name, count: activeExpenses().length }) }}
+            </p>
+            <button
+              (click)="deleteCircle()"
+              [disabled]="isSaving()"
+              class="w-full rounded-xl bg-red-500 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              {{ 'splits.circle.deleteConfirm' | translate }}
+            </button>
+            <button
+              (click)="isDeleteCircleOpen.set(false)"
+              [disabled]="isSaving()"
+              class="w-full rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+            >
+              {{ 'common.cancel' | translate }}
+            </button>
           </div>
         </app-modal>
 
@@ -449,7 +597,16 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   readonly balances = computed(() =>
     computeMemberBalances(this.membersList(), this.circleSync.activeCircleExpenses()),
   );
-  readonly transfers = computed(() => computeSettlementTransfers(this.balances()));
+  readonly hasFamilies = computed(() => circleHasFamilies(this.membersList()));
+  readonly familyBalances = computed(() =>
+    computeFamilyBalances(this.membersList(), this.circleSync.activeCircleExpenses()),
+  );
+  /** Family circles settle head-to-head; plain circles member-to-member. */
+  readonly transfers = computed(() =>
+    this.hasFamilies()
+      ? computeFamilySettlementTransfers(this.membersList(), this.circleSync.activeCircleExpenses())
+      : computeSettlementTransfers(this.balances()),
+  );
   readonly myMember = computed<CircleMember | null>(() => {
     const c = this.circle();
     return c ? this.circleSync.memberForUid(c, this.authService.firebaseUid()) : null;
@@ -459,6 +616,18 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     return mine ? this.balances().find((b) => b.memberId === mine.memberId) ?? null : null;
   });
   readonly isOwner = computed(() => this.circle()?.ownerUid === this.authService.firebaseUid());
+  /**
+   * Settled + I'm a NON-HEAD family member → my share was carried by my head.
+   * Drives the acknowledgment card instead of the "auto-logged" note.
+   */
+  readonly myFamilyAck = computed<{ headName: string; share: number } | null>(() => {
+    const c = this.circle();
+    const mine = this.myMember();
+    if (!c || c.status !== 'settled' || !mine) return null;
+    const headId = mine.familyHeadMemberId;
+    if (headId == null || headId === mine.memberId) return null;
+    return { headName: this.memberName(headId), share: this.myBalance()?.share ?? 0 };
+  });
 
   // Expense form state
   readonly isExpenseModalOpen = signal(false);
@@ -476,6 +645,10 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   // Manage members (owner)
   readonly isManageMembersOpen = signal(false);
   readonly newMemberName = signal('');
+  /** Name parked while the retro/upcoming choice modal is open ('' = none). */
+  readonly pendingAddName = signal('');
+  readonly isRetroChoiceOpen = signal(false);
+  readonly isDeleteCircleOpen = signal(false);
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
@@ -507,6 +680,17 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
 
   memberName(memberId: string): string {
     return this.circle()?.members[memberId]?.name ?? '?';
+  }
+
+  memberBalance(memberId: string) {
+    return this.balances().find((b) => b.memberId === memberId) ?? null;
+  }
+
+  /** A head with family members can't be removed until the family is disbanded. */
+  isHeadWithMembers(memberId: string): boolean {
+    return this.membersList().some(
+      (m) => m.memberId !== memberId && m.familyHeadMemberId === memberId,
+    );
   }
 
   isClaimed(memberId: string): boolean {
@@ -621,9 +805,39 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
   async addMember(): Promise<void> {
     const name = this.newMemberName().trim();
     if (!name || this.isSaving()) return;
+    // With live bills on the board, the owner must decide whether the new
+    // member shares them or only upcoming ones. No bills yet → nothing to
+    // decide, add directly.
+    const hasLiveExpenses = this.circleSync.activeCircleExpenses().some((e) => !e.deleted);
+    if (hasLiveExpenses) {
+      this.pendingAddName.set(name);
+      this.isRetroChoiceOpen.set(true);
+      return;
+    }
+    await this.#submitAddMember(name, false);
+  }
+
+  async confirmAddMember(shareExisting: boolean): Promise<void> {
+    const name = this.pendingAddName();
+    if (!name || this.isSaving()) return;
+    await this.#submitAddMember(name, shareExisting);
+    this.isRetroChoiceOpen.set(false);
+    this.pendingAddName.set('');
+  }
+
+  cancelAddMember(): void {
+    this.isRetroChoiceOpen.set(false);
+    this.pendingAddName.set('');
+  }
+
+  async #submitAddMember(name: string, shareExisting: boolean): Promise<void> {
     this.isSaving.set(true);
     try {
-      await this.circleApi.updateCircle({ circleId: this.circleId(), addMemberNames: [name] });
+      await this.circleApi.updateCircle({
+        circleId: this.circleId(),
+        addMemberNames: [name],
+        ...(shareExisting ? { shareExistingForNewMembers: true } : {}),
+      });
       this.newMemberName.set('');
       this.feedback.success(this.i18n.t('splits.members.added'));
     } catch (error) {
@@ -643,6 +857,42 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     } catch (error) {
       const detail = error instanceof CircleApiError ? error.message : undefined;
       this.feedback.error(this.i18n.t('splits.members.failed'), detail);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
+  /** Owner assigns/clears a member's family from the Manage members sheet. */
+  async assignFamily(member: CircleMember, headValue: string): Promise<void> {
+    const headId = headValue === '' ? null : headValue;
+    if ((member.familyHeadMemberId ?? null) === headId || this.isSaving()) return;
+    this.isSaving.set(true);
+    try {
+      await this.circleApi.updateCircle({
+        circleId: this.circleId(),
+        assignFamilies: { [member.memberId]: headId },
+      });
+      this.feedback.success(this.i18n.t('splits.family.updated'));
+    } catch (error) {
+      const detail = error instanceof CircleApiError ? error.message : undefined;
+      this.feedback.error(this.i18n.t('splits.family.failed'), detail);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
+  // ── Delete circle (owner) ──
+  async deleteCircle(): Promise<void> {
+    if (this.isSaving()) return;
+    this.isSaving.set(true);
+    try {
+      await this.circleApi.deleteCircle(this.circleId());
+      this.isDeleteCircleOpen.set(false);
+      this.feedback.success(this.i18n.t('splits.circle.deleted'));
+      void this.router.navigate(['/splits']);
+    } catch (error) {
+      const detail = error instanceof CircleApiError ? error.message : undefined;
+      this.feedback.error(this.i18n.t('splits.circle.deleteFailed'), detail);
     } finally {
       this.isSaving.set(false);
     }

@@ -8,7 +8,7 @@
  * `remainder` of them carry one extra paisa.
  */
 
-import type { CircleExpense, CircleMember } from '../models/circle.model';
+import { familyKeyOf, type CircleExpense, type CircleMember } from '../models/circle.model';
 
 export interface MemberBalance {
   memberId: string;
@@ -127,6 +127,98 @@ export function computeMemberBalances(
   });
 }
 
+// ── Family roll-up ──────────────────────────────────────────────────────────
+// Families NEVER change per-person expense shares — they only aggregate the
+// resulting balances so money moves head-to-head. A circle without families
+// degenerates to one "family" per member, which keeps every function below
+// backward-compatible with pre-family circles.
+
+export interface FamilyBalance {
+  /** The family head's memberId — or the individual's own id when ungrouped. */
+  headMemberId: string;
+  /** All memberIds in the group, head first, rest sorted by memberId. */
+  memberIds: string[];
+  paid: number;
+  share: number;
+  net: number;
+}
+
+/** True when at least one member carries a family assignment. */
+export function circleHasFamilies(members: CircleMember[]): boolean {
+  return members.some((m) => m.familyHeadMemberId != null);
+}
+
+/**
+ * Member balances rolled up per family (paise-exact). Ungrouped members form
+ * single-member groups, so this is safe to use on any circle.
+ */
+export function computeFamilyBalances(
+  members: CircleMember[],
+  expenses: CircleExpense[],
+): FamilyBalance[] {
+  const balances = computeMemberBalances(members, expenses);
+  const memberById = new Map(members.map((m) => [m.memberId, m]));
+  const groups = new Map<string, { memberIds: string[]; paidPaise: number; sharePaise: number }>();
+  for (const b of balances) {
+    const member = memberById.get(b.memberId);
+    if (!member) continue;
+    const key = familyKeyOf(member);
+    const group = groups.get(key) ?? { memberIds: [], paidPaise: 0, sharePaise: 0 };
+    group.memberIds.push(b.memberId);
+    group.paidPaise += toPaise(b.paid);
+    group.sharePaise += toPaise(b.share);
+    groups.set(key, group);
+  }
+  return [...groups.entries()]
+    .map(([headMemberId, g]) => ({
+      headMemberId,
+      memberIds: [
+        ...g.memberIds.filter((id) => id === headMemberId),
+        ...g.memberIds.filter((id) => id !== headMemberId).sort(),
+      ],
+      paid: fromPaise(g.paidPaise),
+      share: fromPaise(g.sharePaise),
+      net: fromPaise(g.paidPaise - g.sharePaise),
+    }))
+    .sort((a, b) => a.headMemberId.localeCompare(b.headMemberId));
+}
+
+/**
+ * Head-to-head settlement transfers. With no families this equals
+ * computeSettlementTransfers over member balances.
+ */
+export function computeFamilySettlementTransfers(
+  members: CircleMember[],
+  expenses: CircleExpense[],
+): SettlementTransfer[] {
+  const familyBalances = computeFamilyBalances(members, expenses).map((f) => ({
+    memberId: f.headMemberId,
+    paid: f.paid,
+    share: f.share,
+    net: f.net,
+  }));
+  return computeSettlementTransfers(familyBalances);
+}
+
+/**
+ * The TOTAL share the given member carries on Settle Up under family rules:
+ * heads (and individuals) carry their whole family's share; non-head family
+ * members carry 0 — their head covers them.
+ */
+export function computeCarriedShare(
+  memberId: string,
+  members: CircleMember[],
+  expenses: CircleExpense[],
+): number {
+  const me = members.find((m) => m.memberId === memberId);
+  if (!me) return 0;
+  if (familyKeyOf(me) !== memberId) return 0; // non-head family member
+  const family = computeFamilyBalances(members, expenses).find(
+    (f) => f.headMemberId === memberId,
+  );
+  return family ? family.share : 0;
+}
+
 /**
  * Greedy minimal-transfer settlement: repeatedly matches the largest debtor
  * with the largest creditor. Produces at most (n - 1) transfers.
@@ -196,22 +288,35 @@ export function buildShareSummaryText(
   formatAmount: (amount: number) => string,
 ): string {
   const nameOf = new Map(members.map((m) => [m.memberId, m.name]));
+  const hasFamilies = circleHasFamilies(members);
   const balances = computeMemberBalances(members, expenses);
-  const transfers = computeSettlementTransfers(balances);
+  const transfers = hasFamilies
+    ? computeFamilySettlementTransfers(members, expenses)
+    : computeSettlementTransfers(balances);
   const active = expenses.filter((e) => !e.deleted);
   const total = fromPaise(active.reduce((sum, e) => sum + toPaise(e.amount), 0));
+
+  const balanceLines = hasFamilies
+    ? computeFamilyBalances(members, expenses).map((f) => {
+        const name = nameOf.get(f.headMemberId) ?? f.headMemberId;
+        const label = f.memberIds.length > 1 ? `${name} (family of ${f.memberIds.length})` : name;
+        if (f.net > 0) return `• ${label} gets back ${formatAmount(f.net)}`;
+        if (f.net < 0) return `• ${label} owes ${formatAmount(-f.net)}`;
+        return `• ${label} is settled`;
+      })
+    : balances.map((b) => {
+        const name = nameOf.get(b.memberId) ?? b.memberId;
+        if (b.net > 0) return `• ${name} gets back ${formatAmount(b.net)}`;
+        if (b.net < 0) return `• ${name} owes ${formatAmount(-b.net)}`;
+        return `• ${name} is settled`;
+      });
 
   const lines: string[] = [
     `${circleName} — Spenza Splits`,
     `Total spent: ${formatAmount(total)} across ${active.length} expense${active.length === 1 ? '' : 's'}`,
     '',
     'Balances:',
-    ...balances.map((b) => {
-      const name = nameOf.get(b.memberId) ?? b.memberId;
-      if (b.net > 0) return `• ${name} gets back ${formatAmount(b.net)}`;
-      if (b.net < 0) return `• ${name} owes ${formatAmount(-b.net)}`;
-      return `• ${name} is settled`;
-    }),
+    ...balanceLines,
   ];
   if (transfers.length > 0) {
     lines.push('', 'Settle up:');

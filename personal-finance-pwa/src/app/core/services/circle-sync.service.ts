@@ -3,13 +3,14 @@ import { Preferences } from '@capacitor/preferences';
 import {
   ACTIVE_CIRCLES_CACHE_KEY,
   CIRCLE_SETTLE_EXPENSE_SOURCE,
+  CIRCLE_SETTLE_LOGGED_KEY,
   type ActiveCircleCacheItem,
   type CircleDocument,
   type CircleExpense,
   type CircleMember,
 } from '../models/circle.model';
 import type { ExpenseEntry } from '../models';
-import { buildShareSummaryText, computeMyShare } from '../utils/circle-settlement';
+import { buildShareSummaryText, computeCarriedShare } from '../utils/circle-settlement';
 import { toLocalDateString } from '../utils/local-date';
 import { AuthService } from './auth.service';
 import { CurrencyService } from './currency.service';
@@ -57,7 +58,7 @@ export class CircleSyncService {
   #circlesUnsubscribe: (() => void) | null = null;
   #expensesUnsubscribe: (() => void) | null = null;
   #listeningUid: string | null = null;
-  /** Circles already auto-logged this session (entry-comment tag dedupes across sessions). */
+  /** Circles already auto-logged this session (persistent marker dedupes across sessions). */
   readonly #settleLogged = new Set<string>();
 
   constructor() {
@@ -254,7 +255,13 @@ export class CircleSyncService {
   async #autoLogSettledCircle(circle: CircleDocument): Promise<void> {
     const uid = this.#authService.firebaseUid();
     const mine = this.memberForUid(circle, uid);
-    if (!mine) return;
+    if (!uid || !mine) return;
+
+    // PERSISTENT dedupe FIRST: once this device auto-logged (or deliberately
+    // skipped) a settled circle, never log it again — even when the user
+    // deleted the resulting Daily entry. The old entry-comment scan alone
+    // re-created deleted entries on the next app start.
+    if (await this.#isSettleMarked(uid, circle.circleId)) return;
 
     const alreadyLogged = this.#expenseStore
       .entries()
@@ -263,7 +270,10 @@ export class CircleSyncService {
           e.source === CIRCLE_SETTLE_EXPENSE_SOURCE &&
           (e.comment ?? '').includes(`[${circle.circleId}]`),
       );
-    if (alreadyLogged) return;
+    if (alreadyLogged) {
+      await this.#markSettleLogged(uid, circle.circleId);
+      return;
+    }
 
     try {
       const { collection, getDocs } = await import('firebase/firestore');
@@ -272,8 +282,14 @@ export class CircleSyncService {
       const expenses = snapshot.docs.map((d) => d.data() as CircleExpense);
       const members = Object.values(circle.members);
 
-      const myShare = computeMyShare(mine.memberId, members, expenses);
-      if (myShare <= 0) return;
+      // Family rule: heads (and individuals) carry their whole family's
+      // share; non-head family members carry 0 — their head covers them and
+      // the settled screen shows the acknowledgment instead.
+      const myShare = computeCarriedShare(mine.memberId, members, expenses);
+      if (myShare <= 0) {
+        await this.#markSettleLogged(uid, circle.circleId);
+        return;
+      }
 
       const summary = buildShareSummaryText(circle.name, members, expenses, (n) =>
         this.#currencyService.format(n),
@@ -294,9 +310,33 @@ export class CircleSyncService {
         source: CIRCLE_SETTLE_EXPENSE_SOURCE,
       };
       await this.#expenseStore.addEntry(entry);
+      await this.#markSettleLogged(uid, circle.circleId);
     } catch (err) {
       console.warn('[CircleSync] settle auto-log failed:', err);
       this.#settleLogged.delete(circle.circleId); // retry on next snapshot
+    }
+  }
+
+  /** Persistent per-device `${uid}:${circleId}` settle-log markers. */
+  async #isSettleMarked(uid: string, circleId: string): Promise<boolean> {
+    try {
+      const { value } = await Preferences.get({ key: CIRCLE_SETTLE_LOGGED_KEY });
+      const marks: unknown = value ? JSON.parse(value) : [];
+      return Array.isArray(marks) && marks.includes(`${uid}:${circleId}`);
+    } catch {
+      return false;
+    }
+  }
+
+  async #markSettleLogged(uid: string, circleId: string): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: CIRCLE_SETTLE_LOGGED_KEY });
+      const parsed: unknown = value ? JSON.parse(value) : [];
+      const marks = new Set<string>(Array.isArray(parsed) ? (parsed as string[]) : []);
+      marks.add(`${uid}:${circleId}`);
+      await Preferences.set({ key: CIRCLE_SETTLE_LOGGED_KEY, value: JSON.stringify([...marks]) });
+    } catch (err) {
+      console.warn('[CircleSync] settle-log marker write failed:', err);
     }
   }
 

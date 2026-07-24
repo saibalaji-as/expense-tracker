@@ -16,6 +16,19 @@ export interface CircleMember {
   uid: string | null;
   email: string | null;
   joinedAt: string | null;
+  /**
+   * Family grouping (additive — absent/null = individual member, which is how
+   * all pre-family circles behave). Every member of a family carries the
+   * HEAD's memberId here, INCLUDING the head themselves (head points to self).
+   * Per-head expense shares stay per-person; families only change how
+   * balances roll up and who carries the share on Settle Up.
+   */
+  familyHeadMemberId?: string | null;
+}
+
+/** The member's settlement-group key: their family head, or themselves. */
+export function familyKeyOf(member: CircleMember): string {
+  return member.familyHeadMemberId ?? member.memberId;
 }
 
 export type CircleStatus = 'active' | 'settled';
@@ -71,6 +84,15 @@ export const PENDING_CIRCLE_JOIN_KEY = 'spenza_pending_circle_join_v1';
 
 /** ExpenseEntry.source tag for the per-head share auto-logged on Settle Up. */
 export const CIRCLE_SETTLE_EXPENSE_SOURCE = 'circle-settle';
+
+/**
+ * Capacitor Preferences key — circles whose settle share THIS device already
+ * auto-logged, as `${uid}:${circleId}` strings. Persistent on purpose: the
+ * entry-comment scan alone re-logged the share after the user deleted the
+ * auto-logged Daily expense (delete → next app start → scan finds nothing →
+ * duplicate). A deletion is a user decision; it must stay deleted.
+ */
+export const CIRCLE_SETTLE_LOGGED_KEY = 'spenza_circle_settle_logged_v1';
 
 /**
  * Capacitor Preferences cache of the signed-in user's ACTIVE circles, written

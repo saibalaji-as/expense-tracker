@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.settleCircle = exports.updateCircle = exports.previewCircleInvite = exports.redeemCircleInvite = exports.createCircleInvite = exports.createCircle = void 0;
+exports.deleteCircle = exports.settleCircle = exports.updateCircle = exports.previewCircleInvite = exports.redeemCircleInvite = exports.createCircleInvite = exports.createCircle = void 0;
 /**
  * Circle Splits — group expense sharing (docs/circle-splits-plan.md).
  *
@@ -338,6 +338,15 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
     const rawAddNames = Array.isArray(req.body?.addMemberNames) ? req.body.addMemberNames : [];
     const addMemberNames = rawAddNames.map(cleanName).filter((n) => n.length > 0);
     const removeMemberId = typeof req.body?.removeMemberId === 'string' ? req.body.removeMemberId.trim() : '';
+    const shareExistingForNewMembers = req.body?.shareExistingForNewMembers === true;
+    // Partial family patch: memberId → headMemberId (null clears). Owner-only
+    // like every other member mutation.
+    const rawAssign = req.body?.assignFamilies;
+    const assignFamilies = rawAssign && typeof rawAssign === 'object' && !Array.isArray(rawAssign)
+        ? Object.fromEntries(Object.entries(rawAssign)
+            .filter(([, v]) => v === null || typeof v === 'string')
+            .map(([k, v]) => [k, v === null ? null : v.trim()]))
+        : {};
     try {
         const { uid } = await requireCircleAuth(req);
         const circleRef = admin.firestore().collection('circles').doc(circleId);
@@ -352,6 +361,17 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
                 throw new Error('Circle is settled');
             const members = { ...circle['members'] };
             let memberUids = [...(circle['memberUids'] ?? [])];
+            // Firestore transactions require ALL reads before any write, so the
+            // expenses snapshot is fetched up-front whenever this call may touch
+            // splits (removal strip and/or retro-include of new members). Reads
+            // inside the transaction mean a concurrent expense write retries.
+            const touchesSplits = !!removeMemberId || (addMemberNames.length > 0 && shareExistingForNewMembers);
+            const expenseDocs = touchesSplits
+                ? (await transaction.get(circleRef.collection('expenses'))).docs
+                : [];
+            // One patch per expense doc — removal strip and retro-include may hit
+            // the same doc; the map keeps the final participant list per doc.
+            const participantPatches = new Map();
             if (removeMemberId) {
                 const target = members[removeMemberId];
                 if (!target)
@@ -361,11 +381,8 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
                 // GUARD: a member who PAID any live bill cannot be removed — their
                 // money must stay attributed. A participant-only member CAN be
                 // removed: we strip them from every split in the same transaction
-                // and balances re-tally automatically on all devices. Reads happen
-                // inside the transaction so a concurrent expense write retries.
-                const expensesSnap = await transaction.get(circleRef.collection('expenses'));
-                const participantPatches = [];
-                for (const docSnap of expensesSnap.docs) {
+                // and balances re-tally automatically on all devices.
+                for (const docSnap of expenseDocs) {
                     const e = docSnap.data();
                     if (e['deleted'] === true)
                         continue;
@@ -378,26 +395,95 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
                     // Never leave a bill with nobody to carry it.
                     if (remaining.length === 0)
                         throw new Error('Member is sole participant');
-                    participantPatches.push({ ref: docSnap.ref, participants: remaining });
+                    participantPatches.set(docSnap.id, { ref: docSnap.ref, participants: remaining });
                 }
-                const removalNow = new Date().toISOString();
-                for (const patch of participantPatches) {
-                    transaction.update(patch.ref, {
-                        participantMemberIds: patch.participants,
-                        updatedAt: removalNow,
-                    });
+                // A family head can't be removed while members still point at them —
+                // disband/reassign the family first.
+                for (const [mId, m] of Object.entries(members)) {
+                    if (mId !== removeMemberId && m['familyHeadMemberId'] === removeMemberId) {
+                        throw new Error('Head has family members');
+                    }
                 }
                 delete members[removeMemberId];
                 if (typeof target['uid'] === 'string') {
                     memberUids = memberUids.filter((memberUid) => memberUid !== target['uid']);
                 }
             }
+            if (Object.keys(assignFamilies).length > 0) {
+                for (const [mId, headId] of Object.entries(assignFamilies)) {
+                    const m = members[mId];
+                    if (!m)
+                        throw new Error('Member not found');
+                    if (headId === null || headId === '') {
+                        members[mId] = { ...m, familyHeadMemberId: null };
+                        continue;
+                    }
+                    if (!members[headId])
+                        throw new Error('Member not found');
+                    members[mId] = { ...m, familyHeadMemberId: headId };
+                    // The head always points to self — families are flat, never nested.
+                    members[headId] = { ...members[headId], familyHeadMemberId: headId };
+                }
+                // Validate the FINAL state: every referenced head must exist and
+                // point to self. Catches orphaned pointers (e.g. clearing a head
+                // while members still reference them).
+                for (const m of Object.values(members)) {
+                    const headId = m['familyHeadMemberId'];
+                    if (headId == null)
+                        continue;
+                    const head = members[headId];
+                    if (!head || head['familyHeadMemberId'] !== head['memberId']) {
+                        throw new Error('Invalid family head');
+                    }
+                }
+            }
             if (Object.keys(members).length + addMemberNames.length > MAX_MEMBERS) {
                 throw new Error('Circle is full');
             }
+            // Member set BEFORE the add — the retro rule compares against this.
+            const preAddMemberIds = new Set(Object.keys(members));
+            const newMemberIds = [];
             for (const memberName of addMemberNames) {
                 const memberId = (0, crypto_1.randomUUID)();
                 members[memberId] = { memberId, name: memberName, uid: null, email: null, joinedAt: null };
+                newMemberIds.push(memberId);
+            }
+            if (shareExistingForNewMembers && newMemberIds.length > 0) {
+                // RETRO RULE: new members are added only to "everyone" splits —
+                // bills whose participant set equals the full pre-add member set
+                // (after any removal strip above). Bills with a deliberate custom
+                // split (payer unticked someone, or themselves) are left untouched
+                // so the author's intent is never silently widened.
+                for (const docSnap of expenseDocs) {
+                    const e = docSnap.data();
+                    if (e['deleted'] === true)
+                        continue;
+                    const current = participantPatches.get(docSnap.id)?.participants ??
+                        (e['participantMemberIds'] ?? []);
+                    const currentSet = new Set(current);
+                    if (currentSet.size !== preAddMemberIds.size)
+                        continue;
+                    let isEveryoneSplit = true;
+                    for (const id of preAddMemberIds) {
+                        if (!currentSet.has(id)) {
+                            isEveryoneSplit = false;
+                            break;
+                        }
+                    }
+                    if (!isEveryoneSplit)
+                        continue;
+                    participantPatches.set(docSnap.id, {
+                        ref: docSnap.ref,
+                        participants: [...current, ...newMemberIds],
+                    });
+                }
+            }
+            const patchNow = new Date().toISOString();
+            for (const patch of participantPatches.values()) {
+                transaction.update(patch.ref, {
+                    participantMemberIds: patch.participants,
+                    updatedAt: patchNow,
+                });
             }
             transaction.update(circleRef, {
                 members,
@@ -418,7 +504,9 @@ exports.updateCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
         else if (message.includes('Circle is full') ||
             message.includes('Circle is settled') ||
             message.includes('Member has paid bills') ||
-            message.includes('Member is sole participant'))
+            message.includes('Member is sole participant') ||
+            message.includes('Head has family members') ||
+            message.includes('Invalid family head'))
             res.status(409).json({ error: message });
         else
             res.status(401).json({ error: 'Unauthorized' });
@@ -457,6 +545,52 @@ exports.settleCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'publi
     }
     catch (err) {
         console.warn('settleCircle failed:', err);
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+});
+/**
+ * Permanently deletes a circle: every expense doc, every invite, then the
+ * circle doc itself. Owner-only, allowed in any status. This is the ONE
+ * deliberate exception to the "tombstones, never deletes" rule — it runs
+ * through the Admin SDK so security rules (which still forbid client deletes)
+ * are unaffected. Client UX must confirm loudly before calling.
+ */
+exports.deleteCircle = functions.onRequest({ cors: CORS_ORIGINS, invoker: 'public' }, async (req, res) => {
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const circleId = typeof req.body?.circleId === 'string' ? req.body.circleId.trim() : '';
+    if (!circleId) {
+        res.status(400).json({ error: 'circleId is required' });
+        return;
+    }
+    try {
+        const { uid } = await requireCircleAuth(req);
+        const db = admin.firestore();
+        const circleRef = db.collection('circles').doc(circleId);
+        const snap = await circleRef.get();
+        if (!snap.exists) {
+            res.status(404).json({ error: 'Circle not found' });
+            return;
+        }
+        if (snap.data()['ownerUid'] !== uid) {
+            res.status(403).json({ error: 'Only the circle owner can delete the circle' });
+            return;
+        }
+        // Expenses subcollection — recursiveDelete handles batching + >500 docs.
+        await db.recursiveDelete(circleRef);
+        // Invites are a top-level collection keyed by code; remove this circle's.
+        const invites = await db.collection('circleInvites').where('circleId', '==', circleId).get();
+        if (!invites.empty) {
+            const batch = db.batch();
+            invites.docs.forEach((d) => batch.delete(d.ref));
+            await batch.commit();
+        }
+        res.json({ success: true });
+    }
+    catch (err) {
+        console.warn('deleteCircle failed:', err);
         res.status(401).json({ error: 'Unauthorized' });
     }
 });
