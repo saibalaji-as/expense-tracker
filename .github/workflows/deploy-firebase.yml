@@ -109,4 +109,4 @@ jobs:
         working-directory: personal-finance-pwa
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription --project spenza-notifications --non-interactive --token "$FIREBASE_TOKEN"
+        run: npx firebase-tools@latest deploy --only hosting:spenza-site,functions:createSubscriptionHandoff,functions:redeemSubscriptionHandoff,functions:createRazorpaySubscription,functions:verifyRazorpayPayment,functions:razorpayWebhook,functions:restoreRazorpaySubscription,functions:cancelRazorpaySubscription,functions:mcp --project spenza-notifications --non-interactive --token "$FIREBASE_TOKEN"
