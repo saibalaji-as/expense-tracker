@@ -21,6 +21,43 @@ export async function waitForAppReady(page: Page): Promise<void> {
   }
 }
 
+// ── Finances ──────────────────────────────────────────────────────────────────
+
+/**
+ * Finances lists every account / card / debt as a collapsed one-row summary;
+ * its actions (adjust, pay, edit, delete) and history only render once the row
+ * is opened. Opens every row so the old "everything visible" selectors still work.
+ */
+export async function expandFinanceItems(page: Page): Promise<void> {
+  const anyToggle = page.locator('[data-testid="finance-item-toggle"]').first();
+  try {
+    await anyToggle.waitFor({ state: 'visible', timeout: 5_000 });
+  } catch {
+    return; // no accounts, cards or debts on screen
+  }
+  const toggles = page.locator('[data-testid="finance-item-toggle"]');
+  const total = await toggles.count();
+  for (let index = 0; index < total; index++) {
+    const toggle = toggles.nth(index);
+    if ((await toggle.getAttribute('aria-expanded')) === 'true') continue;
+    await toggle.click();
+    // Zoneless change detection renders asynchronously: wait for the row to
+    // report open before moving on, or a second click would close it again.
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
+}
+
+/** Opens one finance row (matched by its visible name) and returns its card locator. */
+export async function openFinanceItem(page: Page, name: string | RegExp) {
+  const item = page.locator('article[data-testid^="finance-"]').filter({ hasText: name }).first();
+  const toggle = item.locator('[data-testid="finance-item-toggle"]');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
+  return item;
+}
+
 // ── Toast / feedback ──────────────────────────────────────────────────────────
 
 export async function expectToast(page: Page, text: string | RegExp): Promise<void> {

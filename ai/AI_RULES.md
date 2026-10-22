@@ -55,12 +55,16 @@
   `connect-src`, or the resource fails only in production with a bare onerror (2026-07-04:
   this silently broke Razorpay checkout for all users).
 
+- `functions/src/spenza-core/` is a GENERATED copy of pure app models/utils used by the MCP server. Edit the app file under `src/app/core/`, then run `node functions/scripts/sync-spenza-core.mjs` (also runs as functions `prebuild`). Files in the shared set must stay dependency-free (models + pure utils only); the script refuses imports outside the set (2026-10-21).
+- The MCP server is read-only by construction: never add a Drive or Firestore write to `functions/src/mcp/` (2026-10-21).
+
 ## State Management Rules
 - Use Angular signals/computed/effect and `@ngrx/signals` patterns already present.
 - Keep the authoritative state in `ExpenseStore`.
 - Any expense/limit/income mutation must persist to Drive or deliberately document why it is local-only.
 - Preserve `persistQueue`, `localRevision`, and `persistedRevision` semantics when editing store persistence.
 - Do not introduce unqueued overlapping Drive writes.
+- Every local mutation must reach the dirty local snapshot without waiting for an in-flight Drive write (`markLocalChangeAndPersist` → `writeDirtySnapshotNow`). UI that marks something else as done because a record was saved (e.g. inbox status) must wait for `whenLocallySaved()`, not just the in-memory patch.
 - When adding computed data, prefer deriving from store signals instead of storing duplicate derived state.
 - Use `toLocalDateString()`/`parseLocalDate()` for app-local date logic.
 - Store expense dates as `YYYY-MM-DD`; do not use UTC slicing when local date matters.
@@ -226,6 +230,7 @@
   - Keep Gemini weekly deep-dive output concise enough to protect user credits; current target is 20-40 words per detail and `generate-insights` uses a reduced output token budget.
   - Gemini should answer deeper "why / what if / what should I try" questions such as anomaly explanations, cross-category behavior hacks, seasonal timing, simulations, and budget intent vs reality.
   - Do not use Gemini to merely rewrite local weekly summaries.
+- Load pdf.js ONLY through `loadPdfJs()` (`core/utils/pdf-js.ts`). Never `import('pdfjs-dist')` or set `GlobalWorkerOptions.workerSrc` in a service: the Angular builder does not ship the worker, so it must stay the angular.json asset `pdfjs/pdf.worker.mjs`, and API + worker must both be the `legacy` build (the default build needs APIs older WebViews lack). Pinned by `pdf-js-asset-contract.spec.ts` (2026-10-02: every PDF feature was broken in built apps).
 - For receipt AI, preserve file-size limits and local OCR fallback.
 - Keep long-running receipt extraction state in `ReceiptExtractionSessionService`, not in `DailyExpenseComponent`.
 - Do not cancel active receipt extraction on route/component teardown; cancel only when the user selects/clears/replaces the receipt or starts a newer extraction.
@@ -257,6 +262,7 @@
     - AED: `AED`, `د.إ`, `dh/dhs`, dirham/dirhams.
   - Do not send notification contents to Gemini, Drive, Netlify functions, or other network services.
   - Ask the user to review/save before creating an expense or account adjustment; do not auto-log detected spend/credit notifications.
+  - Comment chips (`comment-suggestions.ts` ↔ `WidgetCommentSuggestions.java`) are a static per-category table plus the user's own repeated comments; never derive them from notification text or send it to AI. Keep the TS and Java tables in sync.
 - Native widget received-money flow must write account-balance increases as `accountAdjustments`, not as expense entries or income pseudo-expenses.
 - Keep `spenza_widget_expense_queue_v1` backward compatible:
   - Legacy raw expense entries and `{ entry }` items remain valid.

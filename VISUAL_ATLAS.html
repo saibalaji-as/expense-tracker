@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spenza Atlas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#f6f5fa; --surface:#ffffff; --surface-2:#efedf6; --sunken:#e9e6f3;
+  --ink:#16131f; --ink-2:#463f5c; --muted:#726b87; --line:#ddd8ec; --line-2:#cac3e0;
+  --accent:#6d4aff; --accent-soft:#ece7ff; --accent-ink:#4a2ee0;
+  --good:#0f9d6e; --good-soft:#dff5ec;
+  --warn:#c2760a; --warn-soft:#fbf0dc;
+  --bad:#d6304a; --bad-soft:#fce6ea;
+  --drive:#1f8a5f; --fire:#c2760a; --native:#2f6fd0; --ai:#8b3fd6;
+  --shadow:0 1px 2px rgba(22,19,31,.05), 0 8px 24px -12px rgba(22,19,31,.18);
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:"Public Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --display:"Bricolage Grotesque","Public Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0d0b14; --surface:#16131f; --surface-2:#1e1a2b; --sunken:#110e19;
+    --ink:#f0edf8; --ink-2:#c5bedb; --muted:#9089a8; --line:#2b2540; --line-2:#3b3355;
+    --accent:#a48bff; --accent-soft:#231b3d; --accent-ink:#c3b2ff;
+    --good:#3ed39b; --good-soft:#122c23;
+    --warn:#e8a33f; --warn-soft:#2e2313;
+    --bad:#ff6b83; --bad-soft:#331520;
+    --drive:#4cc48c; --fire:#e8a33f; --native:#74a7f5; --ai:#c48bf0;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0d0b14; --surface:#16131f; --surface-2:#1e1a2b; --sunken:#110e19;
+  --ink:#f0edf8; --ink-2:#c5bedb; --muted:#9089a8; --line:#2b2540; --line-2:#3b3355;
+  --accent:#a48bff; --accent-soft:#231b3d; --accent-ink:#c3b2ff;
+  --good:#3ed39b; --good-soft:#122c23;
+  --warn:#e8a33f; --warn-soft:#2e2313;
+  --bad:#ff6b83; --bad-soft:#331520;
+  --drive:#4cc48c; --fire:#e8a33f; --native:#74a7f5; --ai:#c48bf0;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent-ink)}
+h1,h2,h3,h4{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.015em}
+code,.mono{font-family:var(--mono);font-size:.86em}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- shell ---------- */
+.wrap{display:grid;grid-template-columns:236px minmax(0,1fr);gap:0;max-width:1400px;margin:0 auto}
+.rail{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:26px 14px 40px 20px;border-right:1px solid var(--line);background:var(--paper)}
+.brandmark{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.dot{width:22px;height:22px;border-radius:7px;background:var(--accent);flex:none;display:grid;place-items:center;color:#fff;font-family:var(--display);font-weight:800;font-size:13px}
+:root[data-theme="dark"] .dot,:root:not([data-theme="light"]) .dot{color:#0d0b14}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .dot{color:#fff}}
+.brandmark b{font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:-.02em}
+.railsub{font-size:11px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase;margin:0 0 20px 31px}
+.rail nav{display:flex;flex-direction:column;gap:1px}
+.rail .grp{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px 9px}
+.rail a{display:block;padding:5px 9px;border-radius:7px;font-size:13.2px;color:var(--ink-2);text-decoration:none;border-left:2px solid transparent}
+.rail a:hover{background:var(--surface-2)}
+.rail a.on{color:var(--accent-ink);background:var(--accent-soft);font-weight:600}
+.rail a:focus-visible,.tog:focus-visible,.f input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+main{padding:34px 40px 90px;min-width:0}
+section{scroll-margin-top:22px;margin-bottom:56px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:7px}
+h2{font-size:27px;font-weight:700;margin-bottom:9px}
+h3{font-size:16.5px;font-weight:700;margin:26px 0 9px}
+.lede{color:var(--ink-2);max-width:66ch;margin:0 0 18px}
+p{max-width:70ch}
+
+/* ---------- masthead ---------- */
+.mast{padding:8px 0 4px}
+.mast h1{font-size:clamp(34px,5.2vw,52px);font-weight:800;line-height:1.02}
+.mast .sub{color:var(--muted);max-width:60ch;margin-top:12px;font-size:16px}
+.tog{position:absolute;top:26px;right:34px;background:var(--surface);border:1px solid var(--line);color:var(--ink-2);border-radius:9px;padding:6px 11px;font:600 12px/1 var(--body);cursor:pointer}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:26px 0 8px}
+.stat{background:var(--surface);padding:13px 14px}
+.stat b{display:block;font-family:var(--display);font-size:23px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+
+/* ---------- plates ---------- */
+.plate{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow);overflow-x:auto}
+.plate svg{display:block;min-width:620px;width:100%;height:auto}
+.cap{font-size:13px;color:var(--muted);margin-top:11px;max-width:78ch}
+.cap b{color:var(--ink-2)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.4px;min-width:560px}
+th{text-align:left;font:600 11px/1.4 var(--body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:11px 13px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface-2)}
+td{padding:9px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+td code{background:var(--sunken);padding:1px 5px;border-radius:4px;white-space:nowrap}
+
+/* ---------- chips ---------- */
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font:600 11px/1.7 var(--body);letter-spacing:.02em;white-space:nowrap}
+.p-pro{background:var(--accent-soft);color:var(--accent-ink)}
+.p-free{background:var(--good-soft);color:var(--good)}
+.p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-bad{background:var(--bad-soft);color:var(--bad)}
+.p-n{background:var(--surface-2);color:var(--muted)}
+
+/* ---------- callout ---------- */
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:18px 0;font-size:14px;color:var(--ink-2)}
+.note.rule{border-color:var(--bad);background:var(--bad-soft)}
+.note b{color:var(--ink)}
+
+/* ---------- cols ---------- */
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px}
+.mini{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.mini h4{font-size:13px;letter-spacing:.02em;margin-bottom:6px}
+.mini p{font-size:13.2px;color:var(--ink-2);margin:0}
+.mini .k{font-family:var(--mono);font-size:11px;color:var(--muted);display:block;margin-top:8px;word-break:break-all}
+
+/* ---------- filter ---------- */
+.f{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.f input{flex:1;min-width:220px;padding:9px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--surface);color:var(--ink);font:400 14px var(--body)}
+.f span{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ---------- tree ---------- */
+pre.tree{font-family:var(--mono);font-size:12.4px;line-height:1.72;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:17px 19px;overflow-x:auto;margin:0;color:var(--ink-2)}
+pre.tree b{color:var(--ink);font-weight:600}
+pre.tree i{color:var(--muted);font-style:normal}
+
+svg text{font-family:var(--body)}
+svg .lbl{font-size:11.5px;font-weight:600}
+svg .sm{font-size:10px}
+svg .mn{font-family:var(--mono);font-size:9.5px}
+
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:18px 18px 12px}
+  .rail nav{flex-direction:row;overflow-x:auto;gap:5px;padding-bottom:4px}
+  .rail .grp{display:none}
+  .rail a{white-space:nowrap;border-left:0}
+  main{padding:24px 18px 70px}
+  .tog{top:16px;right:16px}
+}
+</style>
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+
+<div class="wrap">
+<aside class="rail">
+  <div class="brandmark"><span class="dot">S</span><b>Spenza Atlas</b></div>
+  <p class="railsub">Visual system reference</p>
+  <nav id="nav">
+    <div class="grp">Overview</div>
+    <a href="#system">System map</a>
+    <a href="#screens">Screen map</a>
+    <div class="grp">Money</div>
+    <a href="#budget">Budget model</a>
+    <a href="#flow">Expense pipeline</a>
+    <a href="#balances">Derived balances</a>
+    <a href="#cards">Card cycle</a>
+    <div class="grp">Sharing</div>
+    <a href="#family">Family ledger</a>
+    <a href="#circles">Circle settlement</a>
+    <div class="grp">Platform</div>
+    <a href="#persist">Persistence</a>
+    <a href="#backend">Backend</a>
+    <a href="#security">Security</a>
+    <a href="#notify">Notifications</a>
+    <a href="#native">Android</a>
+    <a href="#pro">Pro gating</a>
+    <div class="grp">Navigate</div>
+    <a href="#tree">Repository</a>
+    <a href="#change">Change index</a>
+  </nav>
+</aside>
+
+<main>
+<button class="tog" id="tog" type="button">Theme</button>
+
+<header class="mast">
+  <p class="eyebrow">Architecture atlas &middot; September 2026</p>
+  <h1>Spenza, drawn out</h1>
+  <p class="sub">Every screen, every money rule and every sync guard in one place — an expense tracker whose records live in the user's own Google&nbsp;Drive, with a Firestore ledger for households and groups.</p>
+  <div class="stats">
+    <div class="stat"><b>16</b><span>Screens</span></div>
+    <div class="stat"><b>163</b><span>TS files</span></div>
+    <div class="stat"><b>34</b><span>Services</span></div>
+    <div class="stat"><b>32</b><span>Functions</span></div>
+    <div class="stat"><b>25</b><span>Java classes</span></div>
+    <div class="stat"><b>15</b><span>Categories</span></div>
+    <div class="stat"><b>~100</b><span>E2E cases</span></div>
+    <div class="stat"><b>3</b><span>Languages</span></div>
+  </div>
+</header>
+
+<!-- ============ SYSTEM ============ -->
+<section id="system">
+  <p class="eyebrow">01 &middot; Topology</p>
+  <h2>System map</h2>
+  <p class="lede">Four backing systems, each holding a different class of data. The split is deliberate: financial records never leave the user's Drive, and Firestore only carries what two people must both be able to read.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 470" role="img" aria-label="System topology: Angular client connected to Google Drive, Firestore, Firebase Functions and the Android shell">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="var(--line-2)"/></marker>
+      <marker id="ara" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="var(--accent)"/></marker>
+    </defs>
+
+    <!-- client -->
+    <rect x="20" y="18" width="392" height="222" rx="13" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="38" y="42" class="lbl" fill="var(--ink)">Angular 21 client — standalone, zoneless, signals</text>
+    <text x="38" y="58" class="sm" fill="var(--muted)">hash routing · service worker · Tailwind · Chart.js</text>
+
+    <rect x="38" y="72" width="356" height="34" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="52" y="93" class="lbl" fill="var(--ink-2)">16 lazy feature screens</text>
+    <text x="380" y="93" class="mn" fill="var(--muted)" text-anchor="end">features/</text>
+
+    <rect x="38" y="114" width="356" height="42" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="52" y="132" class="lbl" fill="var(--accent-ink)">ExpenseStore</text>
+    <text x="52" y="147" class="sm" fill="var(--accent-ink)">single source of truth for all money state</text>
+    <text x="380" y="140" class="mn" fill="var(--accent-ink)" text-anchor="end">3388 ln</text>
+
+    <rect x="38" y="164" width="356" height="58" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="52" y="182" class="lbl" fill="var(--ink-2)">34 core services</text>
+    <text x="52" y="197" class="sm" fill="var(--muted)">Auth · Drive · BackupMode · FamilySync · CircleSync</text>
+    <text x="52" y="211" class="sm" fill="var(--muted)">Subscription · Payment · Notification · AI · Theme · i18n</text>
+
+    <!-- drive -->
+    <rect x="470" y="18" width="410" height="98" rx="13" fill="var(--surface)" stroke="var(--drive)"/>
+    <circle cx="492" cy="42" r="5" fill="var(--drive)"/>
+    <text x="506" y="46" class="lbl" fill="var(--drive)">Google Drive — the user's own</text>
+    <text x="492" y="66" class="mn" fill="var(--ink-2)">spenza-backup.json</text><text x="660" y="66" class="sm" fill="var(--muted)">all financial records</text>
+    <text x="492" y="83" class="mn" fill="var(--ink-2)">spenza-config.json</text><text x="660" y="83" class="sm" fill="var(--muted)">mode · role · AI settings</text>
+    <text x="492" y="100" class="mn" fill="var(--ink-2)">appDataFolder/…</text><text x="660" y="100" class="sm" fill="var(--muted)">receipt images (private)</text>
+
+    <!-- firestore -->
+    <rect x="470" y="128" width="410" height="112" rx="13" fill="var(--surface)" stroke="var(--fire)"/>
+    <circle cx="492" cy="152" r="5" fill="var(--fire)"/>
+    <text x="506" y="156" class="lbl" fill="var(--fire)">Firestore — shared state only</text>
+    <text x="492" y="176" class="mn" fill="var(--ink-2)">families/*/ledger</text><text x="672" y="176" class="sm" fill="var(--muted)">household sync</text>
+    <text x="492" y="192" class="mn" fill="var(--ink-2)">circles/*</text><text x="672" y="192" class="sm" fill="var(--muted)">group splits</text>
+    <text x="492" y="208" class="mn" fill="var(--ink-2)">users/*/subscription</text><text x="672" y="208" class="sm" fill="var(--muted)">Pro status</text>
+    <text x="492" y="224" class="mn" fill="var(--ink-2)">users/*/reminders · users</text><text x="672" y="224" class="sm" fill="var(--muted)">reminders · FCM tokens</text>
+
+    <!-- functions -->
+    <rect x="470" y="252" width="410" height="112" rx="13" fill="var(--surface)" stroke="var(--line-2)"/>
+    <circle cx="492" cy="276" r="5" fill="var(--ink-2)"/>
+    <text x="506" y="280" class="lbl" fill="var(--ink)">Firebase Functions — 32 exports, Node 22</text>
+    <text x="492" y="300" class="sm" fill="var(--ink-2)">Razorpay ×6 · handoff ×2 · family ×6 · circles ×7</text>
+    <text x="492" y="316" class="sm" fill="var(--ink-2)">FCM ×2 · schedulers ×2 · ledger trigger ×1</text>
+    <text x="492" y="332" class="sm" fill="var(--ink-2)">Google token broker ×2 · AI ×4</text>
+    <text x="492" y="352" class="mn" fill="var(--muted)">every endpoint verifies a Firebase ID token server-side</text>
+
+    <!-- ai -->
+    <rect x="470" y="376" width="410" height="56" rx="13" fill="var(--surface)" stroke="var(--ai)"/>
+    <circle cx="492" cy="400" r="5" fill="var(--ai)"/>
+    <text x="506" y="404" class="lbl" fill="var(--ai)">Groq — Llama 3.3 70B · Gemini — multimodal</text>
+    <text x="492" y="422" class="sm" fill="var(--muted)">insights · voice parsing · receipt extraction · never raw comments</text>
+
+    <!-- android -->
+    <rect x="20" y="252" width="392" height="180" rx="13" fill="var(--surface)" stroke="var(--native)"/>
+    <circle cx="42" cy="276" r="5" fill="var(--native)"/>
+    <text x="56" y="280" class="lbl" fill="var(--native)">Android shell — Capacitor 8, 25 Java classes</text>
+    <text x="42" y="302" class="sm" fill="var(--ink-2)">Quick Expense widget — 2-tap logging, on-device prediction</text>
+    <text x="42" y="320" class="sm" fill="var(--ink-2)">Daily Streak widget — logging streak + 20:00 nudge</text>
+    <text x="42" y="338" class="sm" fill="var(--ink-2)">Notification listener — bank/UPI spend capture, on-device</text>
+    <text x="42" y="356" class="sm" fill="var(--ink-2)">WorkManager — drains the queue with the app closed</text>
+    <text x="42" y="380" class="mn" fill="var(--muted)">reads pf-palette / pf-style and repaints to match the app</text>
+    <text x="42" y="398" class="mn" fill="var(--muted)">writes spenza_widget_expense_queue_v1</text>
+    <text x="42" y="416" class="mn" fill="var(--muted)">calls commitFamilyLedger or a full Drive round-trip</text>
+
+    <!-- edges -->
+    <path d="M412 96 L470 66" stroke="var(--drive)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <text x="416" y="90" class="mn" fill="var(--drive)">JSON</text>
+    <path d="M412 156 L470 182" stroke="var(--fire)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <text x="416" y="152" class="mn" fill="var(--fire)">live</text>
+    <path d="M412 204 L470 292" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <text x="414" y="248" class="mn" fill="var(--muted)">token</text>
+    <path d="M412 340 L470 320" stroke="var(--native)" stroke-width="1.6" fill="none" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+    <path d="M700 364 L700 376" stroke="var(--ai)" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+  </svg>
+  </div>
+  <p class="cap"><b>Read it as a data-residency diagram.</b> Financial records sit in the user's Drive; Firestore holds only what a second person must read. The AI providers are reached exclusively through Functions, so no API key ever ships in the client, and the client never talks to Groq or Gemini directly.</p>
+</section>
+
+<!-- ============ SCREENS ============ -->
+<section id="screens">
+  <p class="eyebrow">02 &middot; Navigation</p>
+  <h2>Screen map</h2>
+  <p class="lede">Sixteen routes behind three guards. The left column is the one-way onboarding funnel; the right is the app proper, reachable from the tab bar.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 520" role="img" aria-label="Route map showing the onboarding funnel and the nine in-app tabs">
+    <defs>
+      <marker id="ar2" markerWidth="8" markerHeight="8" refX="7.2" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--line-2)"/></marker>
+      <marker id="ar3" markerWidth="8" markerHeight="8" refX="7.2" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--accent)"/></marker>
+    </defs>
+
+    <text x="20" y="20" class="mn" fill="var(--muted)">ONBOARDING FUNNEL — one way</text>
+    <text x="410" y="20" class="mn" fill="var(--muted)">THE APP — tab bar</text>
+    <text x="740" y="20" class="mn" fill="var(--muted)">PUBLIC</text>
+
+    <!-- funnel -->
+    <rect x="20" y="34" width="200" height="42" rx="9" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="34" y="53" class="lbl" fill="var(--ink)">Welcome</text><text x="34" y="68" class="mn" fill="var(--muted)">/</text>
+    <rect x="20" y="92" width="200" height="42" rx="9" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="34" y="111" class="lbl" fill="var(--ink)">Sign in</text><text x="34" y="126" class="mn" fill="var(--muted)">/auth/callback</text>
+    <rect x="20" y="150" width="200" height="42" rx="9" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="34" y="169" class="lbl" fill="var(--ink)">Mode selection</text><text x="34" y="184" class="mn" fill="var(--muted)">/mode-select</text>
+    <rect x="20" y="208" width="200" height="42" rx="9" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="34" y="227" class="lbl" fill="var(--ink)">Family setup</text><text x="34" y="242" class="mn" fill="var(--muted)">/family-setup</text>
+    <rect x="20" y="266" width="200" height="46" rx="9" fill="var(--warn-soft)" stroke="var(--warn)"/>
+    <text x="34" y="285" class="lbl" fill="var(--warn)">Limits — income gate</text><text x="34" y="300" class="mn" fill="var(--warn)">/limits?onboarding=income</text>
+
+    <path d="M120 76 L120 92" stroke="var(--line-2)" stroke-width="1.5" marker-end="url(#ar2)"/>
+    <path d="M120 134 L120 150" stroke="var(--line-2)" stroke-width="1.5" marker-end="url(#ar2)"/>
+    <path d="M120 192 L120 208" stroke="var(--line-2)" stroke-width="1.5" marker-end="url(#ar2)"/>
+    <text x="128" y="205" class="mn" fill="var(--muted)">family only</text>
+    <path d="M120 250 L120 266" stroke="var(--line-2)" stroke-width="1.5" marker-end="url(#ar2)"/>
+    <path d="M220 289 L410 289 L410 76" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#ar3)"/>
+    <text x="236" y="284" class="mn" fill="var(--accent-ink)">income &gt; 0 → app</text>
+
+    <text x="20" y="345" class="mn" fill="var(--muted)">GUARD ORDER</text>
+    <rect x="20" y="356" width="200" height="130" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="34" y="378" class="lbl" fill="var(--ink-2)">1 · authGuard</text>
+    <text x="34" y="392" class="sm" fill="var(--muted)">waits for session restore</text>
+    <text x="34" y="414" class="lbl" fill="var(--ink-2)">2 · setupGuard</text>
+    <text x="34" y="428" class="sm" fill="var(--muted)">mode + family completeness,</text>
+    <text x="34" y="441" class="sm" fill="var(--muted)">then the income gate</text>
+    <text x="34" y="463" class="lbl" fill="var(--ink-2)">3 · subscriptionGuard</text>
+    <text x="34" y="477" class="sm" fill="var(--muted)">/finances only</text>
+
+    <!-- tabs -->
+    <g>
+      <rect x="410" y="34" width="150" height="44" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <text x="424" y="53" class="lbl" fill="var(--accent-ink)">Daily</text><text x="424" y="68" class="mn" fill="var(--accent-ink)">/daily</text>
+      <rect x="574" y="34" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="588" y="53" class="lbl" fill="var(--ink)">Monthly</text><text x="588" y="68" class="mn" fill="var(--muted)">/monthly</text>
+      <rect x="410" y="90" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="424" y="109" class="lbl" fill="var(--ink)">Limits</text><text x="424" y="124" class="mn" fill="var(--muted)">/limits</text>
+      <rect x="574" y="90" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--accent)" stroke-dasharray="4 3"/>
+      <text x="588" y="109" class="lbl" fill="var(--ink)">Finances</text><text x="588" y="124" class="mn" fill="var(--accent-ink)">/finances · Pro</text>
+      <rect x="410" y="146" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="424" y="165" class="lbl" fill="var(--ink)">Dashboard</text><text x="424" y="180" class="mn" fill="var(--muted)">/dashboard</text>
+      <rect x="574" y="146" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="588" y="165" class="lbl" fill="var(--ink)">Splits</text><text x="588" y="180" class="mn" fill="var(--muted)">/splits · /splits/:id</text>
+      <rect x="410" y="202" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="424" y="221" class="lbl" fill="var(--ink)">Reminders</text><text x="424" y="236" class="mn" fill="var(--muted)">/reminders · /:id</text>
+      <rect x="574" y="202" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="588" y="221" class="lbl" fill="var(--ink)">Inbox</text><text x="588" y="236" class="mn" fill="var(--muted)">/notifications</text>
+      <rect x="410" y="258" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="424" y="277" class="lbl" fill="var(--ink)">Settings</text><text x="424" y="292" class="mn" fill="var(--muted)">/settings</text>
+      <rect x="574" y="258" width="150" height="44" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="588" y="277" class="lbl" fill="var(--ink)">Subscribe</text><text x="588" y="292" class="mn" fill="var(--muted)">/subscribe · web only</text>
+    </g>
+
+    <text x="410" y="336" class="mn" fill="var(--muted)">INCOME-GATED</text>
+    <rect x="410" y="346" width="314" height="34" rx="8" fill="var(--warn-soft)" stroke="var(--warn)"/>
+    <text x="424" y="367" class="sm" fill="var(--warn)">/daily · /monthly · /dashboard require monthlyIncome &gt; 0</text>
+
+    <text x="410" y="410" class="mn" fill="var(--muted)">SHELL RULE</text>
+    <rect x="410" y="420" width="314" height="52" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="424" y="440" class="sm" fill="var(--ink-2)">Navigation is hidden unless authenticated AND the</text>
+    <text x="424" y="455" class="sm" fill="var(--ink-2)">backup mode is fully configured. That is the only</text>
+    <text x="424" y="468" class="sm" fill="var(--ink-2)">reason the nav ever disappears.</text>
+
+    <!-- public -->
+    <rect x="740" y="34" width="145" height="38" rx="9" fill="var(--good-soft)" stroke="var(--good)"/>
+    <text x="753" y="58" class="lbl" fill="var(--good)">/join/:code</text>
+    <rect x="740" y="82" width="145" height="38" rx="9" fill="var(--good-soft)" stroke="var(--good)"/>
+    <text x="753" y="106" class="lbl" fill="var(--good)">/privacy</text>
+    <rect x="740" y="130" width="145" height="38" rx="9" fill="var(--good-soft)" stroke="var(--good)"/>
+    <text x="753" y="154" class="lbl" fill="var(--good)">/terms</text>
+    <text x="740" y="192" class="sm" fill="var(--muted)">Public routes exist for</text>
+    <text x="740" y="206" class="sm" fill="var(--muted)">Circle links and for Google</text>
+    <text x="740" y="220" class="sm" fill="var(--muted)">OAuth verification, which</text>
+    <text x="740" y="234" class="sm" fill="var(--muted)">requires crawlable policy</text>
+    <text x="740" y="248" class="sm" fill="var(--muted)">URLs and a visible data-use</text>
+    <text x="740" y="262" class="sm" fill="var(--muted)">disclosure.</text>
+  </svg>
+  </div>
+  <p class="cap">A Circle link opened while signed out parks its code in device storage, sends you through sign-in, and resumes the join automatically — the one place a public route hands off into the guarded app.</p>
+</section>
+
+<!-- ============ BUDGET ============ -->
+<section id="budget">
+  <p class="eyebrow">03 &middot; The model</p>
+  <h2>Budget model</h2>
+  <p class="lede">Everything is a percentage of monthly income. Fifteen categories fall into five groups whose defaults encode 50/30/20, and the allocation must total 100% before it can be saved.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 300" role="img" aria-label="Budget allocation: Needs 50 percent, Wants 30 percent, Savings 12, Growth 8, Buffer 0">
+    <text x="20" y="20" class="mn" fill="var(--muted)">DEFAULT ALLOCATION OF MONTHLY INCOME — TOTAL 100%</text>
+    <!-- stacked bar: 860 wide -->
+    <rect x="20" y="34" width="430" height="42" fill="var(--accent)" rx="6"/>
+    <rect x="452" y="34" width="258" height="42" fill="var(--good)"/>
+    <rect x="712" y="34" width="103" height="42" fill="var(--warn)"/>
+    <rect x="817" y="34" width="63" height="42" fill="var(--ai)" rx="6"/>
+    <text x="34" y="55" class="lbl" fill="#fff">NEEDS</text><text x="34" y="69" class="sm" fill="#fff">50%</text>
+    <text x="466" y="55" class="lbl" fill="#fff">WANTS</text><text x="466" y="69" class="sm" fill="#fff">30%</text>
+    <text x="726" y="55" class="lbl" fill="#fff">SAVINGS</text><text x="726" y="69" class="sm" fill="#fff">12%</text>
+    <text x="831" y="55" class="lbl" fill="#fff">GROW</text><text x="831" y="69" class="sm" fill="#fff">8%</text>
+
+    <text x="20" y="106" class="mn" fill="var(--muted)">CATEGORY BREAKDOWN</text>
+    <g>
+      <rect x="20" y="118" width="258" height="20" rx="4" fill="var(--accent)"/><text x="30" y="132" class="sm" fill="#fff">Housing 30</text>
+      <rect x="20" y="142" width="86" height="20" rx="4" fill="var(--accent)" opacity=".82"/><text x="30" y="156" class="sm" fill="#fff">Food 10</text>
+      <rect x="20" y="166" width="43" height="20" rx="4" fill="var(--accent)" opacity=".68"/><text x="30" y="180" class="sm" fill="#fff">5</text>
+      <text x="72" y="180" class="sm" fill="var(--ink-2)">Transportation</text>
+      <rect x="20" y="190" width="26" height="20" rx="4" fill="var(--accent)" opacity=".55"/><text x="55" y="204" class="sm" fill="var(--ink-2)">Utilities 3</text>
+      <rect x="20" y="214" width="17" height="20" rx="4" fill="var(--accent)" opacity=".45"/><text x="46" y="228" class="sm" fill="var(--ink-2)">Healthcare 2</text>
+    </g>
+    <g>
+      <rect x="310" y="118" width="60" height="20" rx="4" fill="var(--good)"/><text x="320" y="132" class="sm" fill="#fff">Dining 7</text>
+      <rect x="310" y="142" width="60" height="20" rx="4" fill="var(--good)" opacity=".85"/><text x="320" y="156" class="sm" fill="#fff">Shopping 7</text>
+      <rect x="310" y="166" width="52" height="20" rx="4" fill="var(--good)" opacity=".72"/><text x="320" y="180" class="sm" fill="#fff">Fun 6</text>
+      <rect x="310" y="190" width="43" height="20" rx="4" fill="var(--good)" opacity=".6"/><text x="362" y="204" class="sm" fill="var(--ink-2)">Personal Care 5</text>
+      <rect x="310" y="214" width="43" height="20" rx="4" fill="var(--good)" opacity=".5"/><text x="362" y="228" class="sm" fill="var(--ink-2)">Subscriptions 5</text>
+    </g>
+    <g>
+      <rect x="580" y="118" width="103" height="20" rx="4" fill="var(--warn)"/><text x="590" y="132" class="sm" fill="#fff">Savings fund 12</text>
+      <rect x="580" y="142" width="52" height="20" rx="4" fill="var(--ai)"/><text x="590" y="156" class="sm" fill="#fff">Invest 6</text>
+      <rect x="580" y="166" width="17" height="20" rx="4" fill="var(--ai)" opacity=".7"/><text x="606" y="180" class="sm" fill="var(--ink-2)">Education 2</text>
+      <rect x="580" y="190" width="6" height="20" rx="3" fill="var(--muted)"/><text x="596" y="204" class="sm" fill="var(--ink-2)">Miscellaneous 0 · buffer</text>
+      <rect x="580" y="214" width="6" height="20" rx="3" fill="var(--muted)"/><text x="596" y="228" class="sm" fill="var(--ink-2)">Debt Payment 0 · buffer</text>
+    </g>
+
+    <line x1="20" y1="252" x2="880" y2="252" stroke="var(--line)"/>
+    <text x="20" y="272" class="mn" fill="var(--ink-2)">monthly limit = userPercentage × monthlyIncome ÷ 100</text>
+    <text x="20" y="288" class="mn" fill="var(--ink-2)">daily limit = ceil(monthly limit ÷ days in month)   ·   hero budget = monthlyIncome ÷ 30</text>
+    <text x="560" y="272" class="mn" fill="var(--accent-ink)">save blocked unless |total − 100| &lt; 0.05</text>
+    <text x="560" y="288" class="mn" fill="var(--warn)">savings + growth &lt; 20% → confirm first</text>
+  </svg>
+  </div>
+  <p class="cap">Every entry stores the category limit and the resulting saving <b>at the moment it was created</b>, so changing the budget later never rewrites history. <code>core/models/category-definitions.ts</code> is the single source of truth for names, icons, colours, groups and percentages — nothing else hard-codes a category.</p>
+
+  <div class="note"><b>Two categories sit at 0%.</b> <em>Miscellaneous</em> and <em>Debt Payment</em> are Buffer-group categories with no allocation — they must exist so spend can be recorded, but they deliberately do not consume the plan. A category with a zero limit but non-zero spend shows as 100% and "over", which is the intended signal.</div>
+</section>
+
+<!-- ============ FLOW ============ -->
+<section id="flow">
+  <p class="eyebrow">04 &middot; The critical path</p>
+  <h2>Expense pipeline</h2>
+  <p class="lede">Five ways to log an expense, all converging on one store method — and one ordering rule that makes the whole thing safe.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 400" role="img" aria-label="Five capture routes converging on ExpenseStore.addEntry and then persistence">
+    <defs><marker id="ar4" markerWidth="8" markerHeight="8" refX="7.2" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--line-2)"/></marker></defs>
+
+    <text x="20" y="18" class="mn" fill="var(--muted)">CAPTURE</text>
+    <rect x="20" y="30" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="51" class="sm" fill="var(--ink)">Typed in the Daily form</text>
+    <rect x="20" y="70" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="91" class="sm" fill="var(--ink)">Spoken → AI parse <tspan fill="var(--accent-ink)">Pro</tspan></text>
+    <rect x="20" y="110" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="131" class="sm" fill="var(--ink)">Receipt scan <tspan fill="var(--accent-ink)">Pro</tspan></text>
+    <rect x="20" y="150" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="171" class="sm" fill="var(--ink)">Bank SMS prompt <tspan fill="var(--accent-ink)">Pro</tspan></text>
+    <rect x="20" y="190" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="211" class="sm" fill="var(--ink)">Home-screen widget</text>
+    <rect x="20" y="230" width="168" height="34" rx="8" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="251" class="sm" fill="var(--ink)">Circle settle-up</text>
+
+    <path d="M188 47 L232 130" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M188 87 L232 130" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M188 127 L232 130" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M188 167 L232 134" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M188 207 L232 138" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M188 247 L232 142" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+
+    <text x="248" y="18" class="mn" fill="var(--muted)">STORE — ExpenseStore.addEntry()</text>
+    <rect x="248" y="30" width="300" height="248" rx="11" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <rect x="264" y="46" width="268" height="46" rx="7" fill="var(--surface)" stroke="var(--bad)"/>
+    <text x="278" y="65" class="lbl" fill="var(--bad)">1 · Validate every delta first</text>
+    <text x="278" y="81" class="sm" fill="var(--ink-2)">card active? overdraft allowed? — throws</text>
+    <text x="278" y="93" class="sm" fill="var(--ink-2)">before any state is touched</text>
+
+    <rect x="264" y="100" width="268" height="42" rx="7" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="278" y="118" class="lbl" fill="var(--ink)">2 · Apply</text>
+    <text x="278" y="134" class="sm" fill="var(--ink-2)">entry + account balance + card outstanding</text>
+
+    <rect x="264" y="150" width="268" height="42" rx="7" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="278" y="168" class="lbl" fill="var(--ink)">3 · Snapshot the plan</text>
+    <text x="278" y="184" class="sm" fill="var(--ink-2)">limit + savings frozen onto the entry</text>
+
+    <rect x="264" y="200" width="268" height="42" rx="7" fill="var(--surface)" stroke="var(--warn)"/>
+    <text x="278" y="218" class="lbl" fill="var(--warn)">4 · Emit if over 80%</text>
+    <text x="278" y="234" class="sm" fill="var(--ink-2)">budgetThresholdExceeded$ → notification</text>
+
+    <rect x="264" y="250" width="268" height="20" rx="6" fill="var(--accent)"/>
+    <text x="278" y="264" class="sm" fill="#fff">5 · markLocalChangeAndPersist()</text>
+
+    <path d="M548 260 L588 130" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+    <path d="M548 262 L588 226" stroke="var(--line-2)" fill="none" marker-end="url(#ar4)"/>
+
+    <text x="604" y="18" class="mn" fill="var(--muted)">PERSIST</text>
+    <rect x="604" y="60" width="276" height="90" rx="11" fill="var(--surface)" stroke="var(--drive)"/>
+    <text x="620" y="82" class="lbl" fill="var(--drive)">Local snapshot → then Drive</text>
+    <text x="620" y="100" class="sm" fill="var(--ink-2)">durable before the network is touched</text>
+    <text x="620" y="116" class="sm" fill="var(--ink-2)">serialised queue · revision coalescing</text>
+    <text x="620" y="134" class="sm" fill="var(--ink-2)">a Drive failure never reaches the UI</text>
+
+    <rect x="604" y="180" width="276" height="90" rx="11" fill="var(--surface)" stroke="var(--fire)"/>
+    <text x="620" y="202" class="lbl" fill="var(--fire)">Family ledger push</text>
+    <text x="620" y="220" class="sm" fill="var(--ink-2)">minimal record diff, batches of ≤ 400</text>
+    <text x="620" y="236" class="sm" fill="var(--ink-2)">resolves only on server ack</text>
+    <text x="620" y="254" class="sm" fill="var(--ink-2)">fire-and-forget · re-pushes are idempotent</text>
+
+    <line x1="20" y1="304" x2="880" y2="304" stroke="var(--line)"/>
+    <text x="20" y="326" class="lbl" fill="var(--ink)">Why the ordering matters</text>
+    <text x="20" y="346" class="sm" fill="var(--ink-2)">Validation completes before mutation, so a rejected overdraft cannot leave the store half-updated.</text>
+    <text x="20" y="363" class="sm" fill="var(--ink-2)">The local snapshot is written before the network call, so a crash mid-upload loses nothing — the dirty flag wins on next launch.</text>
+    <text x="20" y="380" class="sm" fill="var(--ink-2)">A failed receipt upload never blocks the save; the expense is stored and a warning says the bill was not attached.</text>
+  </svg>
+  </div>
+</section>
+
+<!-- ============ BALANCES ============ -->
+<section id="balances">
+  <p class="eyebrow">05 &middot; The correctness decision</p>
+  <h2>Derived balances</h2>
+  <p class="lede">The most consequential design choice in the codebase, and it came from a real production bug.</p>
+
+  <div class="cols">
+    <div class="mini" style="border-color:var(--bad)">
+      <h4 style="color:var(--bad)">Before — stored balance</h4>
+      <p>Each account carried a mutable <code>balance</code> that synced as part of the record. Under last-writer-wins merging, two devices editing near-simultaneously each dropped the other's delta.</p>
+      <span class="k">audited drift: +37,909 (Cash) · +86,056.86 (HDFC)</span>
+    </div>
+    <div class="mini" style="border-color:var(--good)">
+      <h4 style="color:var(--good)">After — derived balance</h4>
+      <p>The underlying records were add-only with tombstones and had converged perfectly. Only the summary number had not. So the number became a cache recomputed from the records.</p>
+      <span class="k">drift is now structurally impossible</span>
+    </div>
+  </div>
+
+  <div class="plate" style="margin-top:14px">
+  <svg viewBox="0 0 900 250" role="img" aria-label="Balance derivation formula and the reconciliation banner flow">
+    <text x="20" y="20" class="mn" fill="var(--muted)">THE FORMULA</text>
+    <rect x="20" y="32" width="860" height="58" rx="10" fill="var(--good-soft)" stroke="var(--good)"/>
+    <text x="36" y="56" class="mn" fill="var(--good)" style="font-size:12px">balance = initialBalance</text>
+    <text x="36" y="72" class="mn" fill="var(--good)" style="font-size:12px">        + increase adjustments − decrease adjustments</text>
+    <text x="36" y="86" class="mn" fill="var(--good)" style="font-size:12px">        − every linked ExpenseEntry.amount (debt payments included)   + cash-withdrawal credits</text>
+
+    <text x="20" y="118" class="mn" fill="var(--muted)">RECOMPUTED AT EVERY BOUNDARY</text>
+    <rect x="20" y="130" width="204" height="32" rx="7" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="34" y="150" class="sm" fill="var(--ink-2)">loading the local cache</text>
+    <rect x="236" y="130" width="204" height="32" rx="7" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="250" y="150" class="sm" fill="var(--ink-2)">applying a Drive document</text>
+    <rect x="452" y="130" width="204" height="32" rx="7" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="466" y="150" class="sm" fill="var(--ink-2)">applying a ledger change</text>
+    <rect x="668" y="130" width="212" height="32" rx="7" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="682" y="150" class="sm" fill="var(--ink-2)">building any persisted doc</text>
+
+    <text x="20" y="192" class="mn" fill="var(--muted)">WHEN STORED AND DERIVED DISAGREE BY ≥ 0.01</text>
+    <rect x="20" y="204" width="420" height="34" rx="8" fill="var(--warn-soft)" stroke="var(--warn)"/>
+    <text x="34" y="225" class="sm" fill="var(--warn)">Finances raises a reconcile banner on that account or card</text>
+    <rect x="452" y="204" width="204" height="34" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="466" y="225" class="sm" fill="var(--ink-2)">Accept derived — just clears</text>
+    <rect x="668" y="204" width="212" height="34" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="682" y="225" class="sm" fill="var(--ink-2)">Keep stored — posts an audit</text>
+  </svg>
+  </div>
+  <p class="cap">Credit cards use the same mechanism against an <code>openingOutstanding</code> anchor, back-solved once for cards created before the anchor existed so no false banner appears.</p>
+</section>
+
+<!-- ============ CARDS ============ -->
+<section id="cards">
+  <p class="eyebrow">06 &middot; Timeline</p>
+  <h2>Credit card cycle</h2>
+  <p class="lede">A card statement is reconstructed backwards from current records, shown as an estimate, then pinned by the user — and five one-shot reminders are recomputed after every change.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 300" role="img" aria-label="Credit card billing cycle timeline with the five-notification reminder ladder">
+    <line x1="40" y1="120" x2="860" y2="120" stroke="var(--line-2)" stroke-width="2"/>
+
+    <!-- cycle band -->
+    <rect x="40" y="96" width="330" height="48" fill="var(--accent-soft)" rx="6"/>
+    <text x="52" y="88" class="mn" fill="var(--accent-ink)">UNBILLED CYCLE — purchases accumulate</text>
+
+    <!-- markers -->
+    <circle cx="370" cy="120" r="7" fill="var(--accent)"/>
+    <text x="370" y="163" class="lbl" fill="var(--accent-ink)" text-anchor="middle">Bill day</text>
+    <text x="370" y="178" class="sm" fill="var(--muted)" text-anchor="middle">statement derived</text>
+    <text x="370" y="192" class="sm" fill="var(--muted)" text-anchor="middle">shown in amber</text>
+
+    <circle cx="620" cy="120" r="7" fill="var(--warn)"/>
+    <text x="620" y="163" class="lbl" fill="var(--warn)" text-anchor="middle">Due day</text>
+    <text x="620" y="178" class="sm" fill="var(--muted)" text-anchor="middle">pay from an account</text>
+
+    <circle cx="820" cy="120" r="7" fill="var(--line-2)"/>
+    <text x="820" y="163" class="lbl" fill="var(--ink-2)" text-anchor="middle">Next bill</text>
+
+    <!-- ladder -->
+    <g>
+      <rect x="330" y="34" width="88" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)"/><text x="374" y="51" class="sm" fill="var(--accent-ink)" text-anchor="middle">bill ready</text>
+      <line x1="374" y1="60" x2="374" y2="96" stroke="var(--accent)" stroke-dasharray="3 3"/>
+      <rect x="484" y="34" width="88" height="26" rx="6" fill="var(--surface)" stroke="var(--warn)"/><text x="528" y="51" class="sm" fill="var(--warn)" text-anchor="middle">due − 3 d</text>
+      <line x1="528" y1="60" x2="528" y2="112" stroke="var(--warn)" stroke-dasharray="3 3"/>
+      <rect x="576" y="34" width="88" height="26" rx="6" fill="var(--surface)" stroke="var(--warn)"/><text x="620" y="51" class="sm" fill="var(--warn)" text-anchor="middle">due today</text>
+      <line x1="620" y1="60" x2="620" y2="112" stroke="var(--warn)" stroke-dasharray="3 3"/>
+      <rect x="668" y="34" width="88" height="26" rx="6" fill="var(--surface)" stroke="var(--bad)"/><text x="712" y="51" class="sm" fill="var(--bad)" text-anchor="middle">overdue +1 d</text>
+      <line x1="712" y1="60" x2="712" y2="112" stroke="var(--bad)" stroke-dasharray="3 3"/>
+      <rect x="768" y="34" width="104" height="26" rx="6" fill="var(--surface)" stroke="var(--line-2)"/><text x="820" y="51" class="sm" fill="var(--ink-2)" text-anchor="middle">next cycle − 3 d</text>
+      <line x1="820" y1="60" x2="820" y2="112" stroke="var(--line-2)" stroke-dasharray="3 3"/>
+    </g>
+    <text x="40" y="20" class="mn" fill="var(--muted)">REMINDER LADDER — all one-shots at 09:00, recomputed after every change</text>
+
+    <line x1="40" y1="212" x2="860" y2="212" stroke="var(--line)"/>
+    <text x="40" y="234" class="lbl" fill="var(--ink)">Amount precedence</text>
+    <rect x="40" y="244" width="230" height="30" rx="7" fill="var(--good-soft)" stroke="var(--good)"/><text x="54" y="264" class="sm" fill="var(--good)">1 · user-confirmed statement</text>
+    <rect x="282" y="244" width="230" height="30" rx="7" fill="var(--warn-soft)" stroke="var(--warn)"/><text x="296" y="264" class="sm" fill="var(--warn)">2 · derived estimate</text>
+    <rect x="524" y="244" width="230" height="30" rx="7" fill="var(--surface-2)" stroke="var(--line-2)"/><text x="538" y="264" class="sm" fill="var(--ink-2)">3 · raw remaining balance</text>
+    <text x="40" y="292" class="sm" fill="var(--muted)">Anything below the top tier appends "(estimated — confirm in Spenza)" to the notification body.</text>
+  </svg>
+  </div>
+
+  <h3>Card adjustments</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Kind</th><th>Outstanding</th><th>Also does</th><th>Why it exists</th></tr></thead>
+    <tbody>
+      <tr><td><code>refund</code></td><td><span class="pill p-free">↓ reduces</span></td><td>can be matched to the original purchase</td><td>90-day window, exact amount, up to 3 candidates, never one already claimed</td></tr>
+      <tr><td><code>cashback</code></td><td><span class="pill p-free">↓ reduces</span></td><td>totalled and shown on the card</td><td>rewards are not income and must not appear as an expense</td></tr>
+      <tr><td><code>charge</code></td><td><span class="pill p-bad">↑ raises</span></td><td>—</td><td>interest, late fees, annual charges</td></tr>
+      <tr><td><code>cash-withdrawal</code></td><td><span class="pill p-bad">↑ raises</span></td><td><b>credits the receiving account, atomically</b></td><td>it is a transfer, not spending — treating it as an expense would double-count</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="cap">Utilisation alerts fire only on an <b>upward</b> crossing of 30% or 80%, so hovering just above a threshold never re-alerts — but paying down and re-approaching does.</p>
+</section>
+
+<!-- ============ FAMILY ============ -->
+<section id="family">
+  <p class="eyebrow">07 &middot; Two devices, one ledger</p>
+  <h2>Family sync</h2>
+  <p class="lede">Owner and partner share one Drive backup, but never fight over the file. Convergence runs through a Firestore record ledger with four guards that each exist because of a specific bug.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 340" role="img" aria-label="Family ledger sync between two devices through Firestore with four guards">
+    <defs><marker id="ar5" markerWidth="8" markerHeight="8" refX="7.2" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--fire)"/></marker></defs>
+
+    <rect x="20" y="40" width="230" height="130" rx="12" fill="var(--surface)" stroke="var(--line-2)"/>
+    <text x="36" y="64" class="lbl" fill="var(--ink)">Owner device</text>
+    <text x="36" y="86" class="sm" fill="var(--ink-2)">local change</text>
+    <text x="36" y="104" class="sm" fill="var(--ink-2)">→ diff against the last</text>
+    <text x="36" y="118" class="sm" fill="var(--ink-2)">   server-acked copy</text>
+    <text x="36" y="140" class="sm" fill="var(--ink-2)">→ minimal record ops</text>
+    <text x="36" y="158" class="mn" fill="var(--muted)">batches ≤ 400</text>
+
+    <rect x="650" y="40" width="230" height="130" rx="12" fill="var(--surface)" stroke="var(--line-2)"/>
+    <text x="666" y="64" class="lbl" fill="var(--ink)">Partner device</text>
+    <text x="666" y="86" class="sm" fill="var(--ink-2)">onSnapshot fires</text>
+    <text x="666" y="104" class="sm" fill="var(--ink-2)">→ applyLedgerChanges</text>
+    <text x="666" y="126" class="sm" fill="var(--ink-2)">→ merged into the store</text>
+    <text x="666" y="148" class="sm" fill="var(--ink-2)">→ persisted to Drive</text>
+
+    <rect x="300" y="52" width="300" height="106" rx="12" fill="var(--surface)" stroke="var(--fire)"/>
+    <text x="318" y="76" class="lbl" fill="var(--fire)">families/{id}/ledger</text>
+    <text x="318" y="98" class="sm" fill="var(--ink-2)">one document per record, each with a</text>
+    <text x="318" y="113" class="sm" fill="var(--ink-2)">content signature</text>
+    <text x="318" y="136" class="sm" fill="var(--bad)">delete is denied by rules — tombstones only</text>
+    <text x="318" y="152" class="mn" fill="var(--muted)">record ids are UUIDs, never reused</text>
+
+    <path d="M250 96 L300 96" stroke="var(--fire)" stroke-width="1.8" marker-end="url(#ar5)"/>
+    <text x="256" y="88" class="mn" fill="var(--fire)">commit</text>
+    <path d="M600 118 L650 118" stroke="var(--fire)" stroke-width="1.8" marker-end="url(#ar5)"/>
+    <text x="600" y="110" class="mn" fill="var(--fire)">snapshot</text>
+
+    <text x="20" y="204" class="mn" fill="var(--muted)">THE FOUR GUARDS — each fixes a real bug</text>
+    <rect x="20" y="216" width="206" height="104" rx="10" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="34" y="238" class="lbl" fill="var(--ink)">Tombstones only</text>
+    <text x="34" y="257" class="sm" fill="var(--ink-2)">A deletion sets deleted:true.</text>
+    <text x="34" y="272" class="sm" fill="var(--ink-2)">Rules deny delete, so a</text>
+    <text x="34" y="287" class="sm" fill="var(--ink-2)">tombstone wins forever and</text>
+    <text x="34" y="302" class="sm" fill="var(--ink-2)">history always survives.</text>
+
+    <rect x="238" y="216" width="206" height="104" rx="10" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="252" y="238" class="lbl" fill="var(--ink)">Pending-delete flags</text>
+    <text x="252" y="257" class="sm" fill="var(--ink-2)">Written to device storage</text>
+    <text x="252" y="272" class="sm" fill="var(--ink-2)">before the local delete and</text>
+    <text x="252" y="287" class="sm" fill="var(--ink-2)">enforced both ways until the</text>
+    <text x="252" y="302" class="sm" fill="var(--ink-2)">server acks the tombstone.</text>
+
+    <rect x="456" y="216" width="206" height="104" rx="10" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="470" y="238" class="lbl" fill="var(--ink)">Pending-verify flags</text>
+    <text x="470" y="257" class="sm" fill="var(--ink-2)">Cover widget records a Cloud</text>
+    <text x="470" y="272" class="sm" fill="var(--ink-2)">Function already pushed —</text>
+    <text x="470" y="287" class="sm" fill="var(--ink-2)">re-pushing the capture-time</text>
+    <text x="470" y="302" class="sm" fill="var(--ink-2)">copy would revert an edit.</text>
+
+    <rect x="674" y="216" width="206" height="104" rx="10" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="688" y="238" class="lbl" fill="var(--ink)">Divergence guard</text>
+    <text x="688" y="257" class="sm" fill="var(--ink-2)">If the local signature differs</text>
+    <text x="688" y="272" class="sm" fill="var(--ink-2)">from the last server ack, the</text>
+    <text x="688" y="287" class="sm" fill="var(--ink-2)">incoming change is skipped —</text>
+    <text x="688" y="302" class="sm" fill="var(--ink-2)">the next push resolves it.</text>
+  </svg>
+  </div>
+  <p class="cap">Family mode also <b>merges rather than replaces</b> when reading Drive: expenses merge by timestamp, accounts and debts by <code>updatedAt</code>, audit logs are union-only. A partner's write can never wipe the other side's entries.</p>
+</section>
+
+<!-- ============ CIRCLES ============ -->
+<section id="circles">
+  <p class="eyebrow">08 &middot; Group money</p>
+  <h2>Circle settlement</h2>
+  <p class="lede">All arithmetic in integer paise, so every member's device computes byte-identical results. Sorting is what makes the leftover paisa deterministic.</p>
+
+  <div class="plate">
+  <svg viewBox="0 0 900 340" role="img" aria-label="Circle settlement: paise-exact splitting, family roll-up, and greedy transfer minimisation">
+    <text x="20" y="20" class="mn" fill="var(--muted)">STEP 1 — SPLIT ONE BILL</text>
+    <rect x="20" y="32" width="270" height="128" rx="11" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="36" y="54" class="sm" fill="var(--ink-2)">participants deduped, filtered to</text>
+    <text x="36" y="69" class="sm" fill="var(--ink-2)">current members, <tspan font-weight="700" fill="var(--accent-ink)">sorted by memberId</tspan></text>
+    <text x="36" y="94" class="mn" fill="var(--ink)" style="font-size:11px">base = floor(totalPaise ÷ n)</text>
+    <text x="36" y="111" class="mn" fill="var(--ink)" style="font-size:11px">remainder = totalPaise − base·n</text>
+    <text x="36" y="132" class="sm" fill="var(--accent-ink)">the first `remainder` participants</text>
+    <text x="36" y="147" class="sm" fill="var(--accent-ink)">each get one extra paisa</text>
+
+    <text x="316" y="20" class="mn" fill="var(--muted)">STEP 2 — BALANCES</text>
+    <rect x="316" y="32" width="250" height="128" rx="11" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="332" y="54" class="sm" fill="var(--ink-2)">for every live bill:</text>
+    <text x="332" y="76" class="mn" fill="var(--ink)" style="font-size:11px">paid[payer] += total</text>
+    <text x="332" y="93" class="mn" fill="var(--ink)" style="font-size:11px">share[p] += theirShare</text>
+    <text x="332" y="118" class="mn" fill="var(--good)" style="font-size:11px">net = paid − share</text>
+    <text x="332" y="140" class="sm" fill="var(--ink-2)">positive means they get money back</text>
+
+    <text x="592" y="20" class="mn" fill="var(--muted)">STEP 3 — FAMILIES</text>
+    <rect x="592" y="32" width="288" height="128" rx="11" fill="var(--surface-2)" stroke="var(--line-2)"/>
+    <text x="608" y="54" class="sm" fill="var(--bad)" font-weight="700">Families never change per-person shares.</text>
+    <text x="608" y="76" class="sm" fill="var(--ink-2)">They only aggregate the resulting balances,</text>
+    <text x="608" y="91" class="sm" fill="var(--ink-2)">so one person can settle for a household.</text>
+    <text x="608" y="116" class="sm" fill="var(--ink-2)">The head carries the whole family's share;</text>
+    <text x="608" y="131" class="sm" fill="var(--ink-2)">dependants carry zero.</text>
+    <text x="608" y="150" class="mn" fill="var(--muted)">a head always points at itself — families are flat</text>
+
+    <text x="20" y="192" class="mn" fill="var(--muted)">STEP 4 — WHO PAYS WHOM · greedy, at most n−1 transfers</text>
+    <rect x="20" y="204" width="860" height="70" rx="11" fill="var(--surface)" stroke="var(--accent)"/>
+    <rect x="40" y="222" width="150" height="34" rx="7" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="115" y="243" class="sm" fill="var(--bad)" text-anchor="middle">debtors, desc</text>
+    <path d="M198 239 L268 239" stroke="var(--accent)" stroke-width="1.6"/>
+    <rect x="276" y="222" width="330" height="34" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="441" y="243" class="sm" fill="var(--accent-ink)" text-anchor="middle">transfer min(largest creditor, largest debtor), advance whichever hits zero</text>
+    <path d="M614 239 L684 239" stroke="var(--accent)" stroke-width="1.6"/>
+    <rect x="692" y="222" width="150" height="34" rx="7" fill="var(--good-soft)" stroke="var(--good)"/><text x="767" y="243" class="sm" fill="var(--good)" text-anchor="middle">creditors, desc</text>
+
+    <text x="20" y="304" class="lbl" fill="var(--ink)">Settle up</text>
+    <text x="20" y="322" class="sm" fill="var(--ink-2)">Owner-only. Marks the circle settled (locking writes), then auto-logs each member's own share once into their personal Daily ledger, tagged <tspan class="mn" fill="var(--accent-ink)">circle-settle</tspan>.</text>
+    <text x="20" y="336" class="sm" fill="var(--muted)">The "already logged" mark is persistent, so deleting the auto-logged entry does not bring it back.</text>
+  </svg>
+  </div>
+
+  <div class="note"><b>Ties are broken by member id, everywhere.</b> Sorting participants before distributing the leftover paisa, and sorting creditors and debtors by amount with member id as the tie-break, is what guarantees every device produces the same answer without ever coordinating.</div>
+</section>
+
+<!-- ============ PERSIST ============ -->
+<section id="persist">
+  <p class="eyebrow">09 &middot; Durability</p>
+  <h2>Persistence and races</h2>
+  <p class="lede">Ten named defences, each guarding a specific failure. Together they are why an offline write, a crash mid-upload and a simultaneous partner edit all resolve without loss.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Risk</th><th>Defence</th><th>Mechanism</th></tr></thead>
+    <tbody>
+      <tr><td>Two writes racing on the same Drive file</td><td>Serialised queue</td><td>every persist joins one promise chain</td></tr>
+      <tr><td>Redundant uploads</td><td>Revision coalescing</td><td>skip if a later write already covered this revision</td></tr>
+      <tr><td>A concurrent entry losing its "syncing" chip</td><td>Id snapshot</td><td>only the ids captured at write time are cleared</td></tr>
+      <tr><td>A crash between mutation and upload</td><td>Durable-first</td><td>local snapshot written and flagged dirty before the network</td></tr>
+      <tr><td>Polling clobbering unsynced local work</td><td>Unsynced guard</td><td>refresh skipped while <code>localRevision ≠ persistedRevision</code></td></tr>
+      <tr><td>Echoing a partner's change back at them</td><td><code>applyingRemote</code> flag</td><td>ledger push short-circuits while applying remote data</td></tr>
+      <tr><td>A deletion resurrecting itself</td><td>Pending-delete flags</td><td>persisted <em>before</em> the mutation, enforced both directions</td></tr>
+      <tr><td>A widget record reverting a partner's edit</td><td>Pending-verify flags</td><td>capture-time snapshot is never re-pushed unverified</td></tr>
+      <tr><td>Duplicate expense ids</td><td>Dedupe on apply</td><td>every document apply dedupes by id</td></tr>
+      <tr><td>A family read replacing instead of merging</td><td>Merge on read</td><td>expenses by timestamp, records by <code>updatedAt</code>, logs union-only</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note rule"><b>The offline rule.</b> All Firestore access must go through <code>getSharedFirestore()</code>. The first initialiser fixes the cache settings for the whole app, so one stray <code>getFirestore()</code> silently downgrades every session to a memory-only cache — and offline family writes are then lost on restart, with no error anywhere.</div>
+
+  <h3>Transient failure handling</h3>
+  <p>Network errors, 429s and 5xx responses schedule a background flush with exponential backoff from 5&nbsp;seconds to 5&nbsp;minutes, and the sync chip reads <em>syncing</em> rather than <em>error</em>. A 401 triggers exactly one silent token refresh and retry. Only 403 and 404 surface as real errors. Drive reads carry no-cache headers and a cache-busting parameter, because a stale CDN copy would look like data loss.</p>
+</section>
+
+<!-- ============ BACKEND ============ -->
+<section id="backend">
+  <p class="eyebrow">10 &middot; Server</p>
+  <h2>Backend surface</h2>
+  <p class="lede">Thirty-two exports on Node 22. Every HTTPS endpoint is a raw request handler with a manual Bearer-token check — never a callable — and every Pro-gated one re-reads the subscription document server-side.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Group</th><th>Endpoints</th><th>Notable</th></tr></thead>
+    <tbody>
+      <tr><td><b>Payments</b></td><td><code>createRazorpaySubscription</code> <code>verifyRazorpayPayment</code> <code>cancelRazorpaySubscription</code> <code>restoreRazorpaySubscription</code> <code>razorpayWebhook</code> <code>webhookHealthCheck</code></td><td>plan ids resolved server-side; HMAC verified with a timing-safe compare; the subscription is re-fetched for the authoritative plan and period</td></tr>
+      <tr><td><b>Handoff</b></td><td><code>createSubscriptionHandoff</code> <code>redeemSubscriptionHandoff</code></td><td>5-minute one-time code → Firebase custom token, so Android checkout in the system browser needs no second sign-in</td></tr>
+      <tr><td><b>Family</b></td><td><code>createFamily</code> <span class="pill p-pro">Pro</span> <code>createFamilyInvite</code> <code>redeemFamilyInvite</code> <code>leaveFamily</code> <code>dissolveFamily</code> <code>commitFamilyLedger</code></td><td>invite codes are 8 characters, 24-hour TTL; the ledger commit is one transaction, reads before writes, idempotent by document id</td></tr>
+      <tr><td><b>Circles</b></td><td><code>createCircle</code> <code>createCircleInvite</code> <code>previewCircleInvite</code> <code>redeemCircleInvite</code> <code>updateCircle</code> <code>settleCircle</code> <code>deleteCircle</code></td><td><span class="pill p-free">free by design</span> — 20 members max, 7-day invites, removal guards, the retro-share rule</td></tr>
+      <tr><td><b>Push</b></td><td><code>registerToken</code> <code>unregisterToken</code> <code>sendReminders</code> <code>sendDueReminders</code> <code>notifyPartnerLedgerWrite</code></td><td>both schedulers run every minute and claim each slot in a transaction, so overlapping runs cannot double-send; dead tokens are pruned</td></tr>
+      <tr><td><b>Google tokens</b></td><td><code>exchangeGoogleAuthCode</code> <code>getGoogleAccessToken</code></td><td>refresh tokens live in a collection no client can read; <code>invalid_grant</code> returns 410 to trigger re-consent</td></tr>
+      <tr><td><b>AI</b></td><td><code>extractReceipt</code> <code>generateInsights</code> <code>parseVoiceExpense</code> <code>parseVoiceReminder</code></td><td>size caps return 413 rather than burning quota; only <code>parseVoiceReminder</code> is sign-in-only rather than Pro</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="cap"><b>Deliberately not deployed:</b> the incomplete Stripe path, and a test-notification endpoint that would have allowed unauthenticated push to every registered user.</p>
+</section>
+
+<!-- ============ SECURITY ============ -->
+<section id="security">
+  <p class="eyebrow">11 &middot; Boundaries</p>
+  <h2>Security model</h2>
+  <p class="lede">Firestore rules default to deny. Everything reachable is listed explicitly, and the shape of the table is itself the argument: almost nothing is client-writable.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Path</th><th>Read</th><th>Write</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td><code>users/{uid}/subscription/**</code></td><td>own only</td><td><span class="pill p-bad">denied</span></td><td>Functions and Admin only — the Pro boundary</td></tr>
+      <tr><td><code>users/{uid}/reminders/*</code></td><td>own only</td><td>own</td><td>location reminders additionally require Pro <em>in the rule</em></td></tr>
+      <tr><td><code>families/{id}</code></td><td>owner or partner</td><td><span class="pill p-bad">denied</span></td><td>membership is server-authoritative</td></tr>
+      <tr><td><code>families/{id}/ledger/*</code></td><td>members</td><td>create · update</td><td><span class="pill p-bad">delete denied</span> — tombstones only</td></tr>
+      <tr><td><code>families/{id}/state/*</code></td><td>members</td><td><span class="pill p-bad">write-locked</span></td><td>legacy, kept only so an old device can migrate</td></tr>
+      <tr><td><code>circles/{id}</code></td><td>members only</td><td><span class="pill p-bad">denied</span></td><td>a non-member cannot even read the doc — hence the preview endpoint</td></tr>
+      <tr><td><code>circles/{id}/expenses/*</code></td><td>members</td><td>active members</td><td>author immutable; author or owner may edit; <span class="pill p-bad">delete denied</span></td></tr>
+      <tr><td><code>.../expenses/*/bill/*</code></td><td>members</td><td>uploader or owner</td><td>the one place delete is allowed — a bill is an attachment, not accounting data</td></tr>
+      <tr><td><code>familyInvites</code> · <code>circleInvites</code></td><td>owner, or while unredeemed</td><td><span class="pill p-bad">denied</span></td><td>lets an invitee preview before joining</td></tr>
+      <tr><td><code>googleTokens/*</code></td><td><span class="pill p-bad">denied</span></td><td><span class="pill p-bad">denied</span></td><td>holds long-lived Drive refresh tokens</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="cols" style="margin-top:16px">
+    <div class="mini"><h4>Minimal Google scopes</h4><p>Only <code>drive.appdata</code> plus <code>openid email profile</code>. Full Drive was dropped in v8 and Spreadsheets in v9; a scope-version bump forces re-consent.</p></div>
+    <div class="mini"><h4>Data residency</h4><p>Financial records live in the user's own Drive. Firestore holds sync metadata, group splits, subscription status and push tokens — nothing else.</p></div>
+    <div class="mini"><h4>Receipts stay private</h4><p>Uploaded to the private appDataFolder, invisible in the Drive UI and never shared with a family partner.</p></div>
+    <div class="mini"><h4>SMS never leaves the device</h4><p>Bank notification text is classified on-device. Only a local dedupe fingerprint is stored, and nothing is sent to any AI endpoint.</p></div>
+  </div>
+</section>
+
+<!-- ============ NOTIFY ============ -->
+<section id="notify">
+  <p class="eyebrow">12 &middot; Reaching out</p>
+  <h2>Notification matrix</h2>
+  <p class="lede">Eleven distinct triggers across three delivery mechanisms. Native devices are deliberately excluded from server-pushed reminders — they schedule locally, and pushing too would double-notify.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Trigger</th><th>Delivery</th><th>When</th><th>Guard</th></tr></thead>
+    <tbody>
+      <tr><td>Daily logging reminder</td><td>local + push</td><td>your chosen time (default 21:00)</td><td>transactional slot claim server-side</td></tr>
+      <tr><td>Monthly nudge</td><td>local</td><td>the 28th at 09:00</td><td>—</td></tr>
+      <tr><td>Budget warning <span class="pill p-pro">Pro</span></td><td>local</td><td>a category crosses 80% of its limit</td><td>deduped 1 hour per category</td></tr>
+      <tr><td>Card utilisation</td><td>local</td><td>crossing 30% or 80% upward</td><td>deduped 6 hours; no alert on first sighting</td></tr>
+      <tr><td>Credit-card ladder</td><td>local</td><td>five points around the cycle, 09:00</td><td>one-shots, recomputed after every change</td></tr>
+      <tr><td>Salary reminder</td><td>local (native)</td><td>your salary day at 20:00</td><td>skipped if a salary credit landed within 5 days</td></tr>
+      <tr><td>Date/time reminder</td><td>local (native) · push (web)</td><td>at the set time</td><td>swept to expired after a 3-minute grace</td></tr>
+      <tr><td>Location reminder <span class="pill p-pro">Pro</span></td><td>local</td><td>entering the radius</td><td>Pro enforced in Firestore rules</td></tr>
+      <tr><td>Streak reminder</td><td>native</td><td>20:00 if today has no expense</td><td>only while the streak widget is installed</td></tr>
+      <tr><td>Spend prompt <span class="pill p-pro">Pro</span></td><td>native</td><td>a high-confidence bank/UPI spend or credit</td><td>9-way classifier; 10-minute dedupe; written to the inbox first</td></tr>
+      <tr><td>Partner ledger push</td><td>data message</td><td>a family member writes a fresh record</td><td>records older than 7 days and payloads over 3.5 KB are skipped</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============ NATIVE ============ -->
+<section id="native">
+  <p class="eyebrow">13 &middot; Off-app surface</p>
+  <h2>Android</h2>
+  <p class="lede">Twenty-five Java classes whose whole purpose is to let the user log money without opening the app.</p>
+
+  <div class="cols">
+    <div class="mini" style="border-color:var(--native)">
+      <h4 style="color:var(--native)">Quick Expense widget</h4>
+      <p>Resizable with three height tiers. Category buttons plus dedicated More and Credit actions, a native bottom-sheet form with voice capture, and a daily insight showing today's spend against the calculated budget.</p>
+      <span class="k">on-device category prediction: recency decay + time-of-day + weekday bonus, no network</span>
+    </div>
+    <div class="mini" style="border-color:var(--native)">
+      <h4 style="color:var(--native)">Daily Streak widget</h4>
+      <p>A day counts when at least one expense is logged. The streak survives until midnight, and a 20:00 reminder fires only if today is still empty.</p>
+      <span class="k">read-only — no network, no auth, no writes</span>
+    </div>
+    <div class="mini" style="border-color:var(--native)">
+      <h4 style="color:var(--native)">Notification listener</h4>
+      <p>Reads bank and UPI notifications on-device and runs a deterministic nine-way classifier. Prompts only on high-confidence spends and credits; ignores OTPs, balances, and failed or pending transactions.</p>
+      <span class="k">everything detected is written to the local inbox before the prompt is posted</span>
+    </div>
+    <div class="mini" style="border-color:var(--native)">
+      <h4 style="color:var(--native)">WorkManager sync</h4>
+      <p>Drains the widget queue with the app closed: applies effects locally, then either calls the family ledger commit or performs a full Drive round trip using a stored refresh token.</p>
+      <span class="k">queue items are stamped with the account that captured them</span>
+    </div>
+  </div>
+
+  <div class="note"><b>Widgets repaint themselves to match the app.</b> They read the same <code>pf-palette</code> and <code>pf-style</code> values and render their body to a Bitmap on a software canvas, because RemoteViews XML cannot express blur or per-palette gradients. Fifteen storage keys are read by Java — renaming one on the web side without mirroring it in the native constants file silently breaks the widget.</div>
+</section>
+
+<!-- ============ PRO ============ -->
+<section id="pro">
+  <p class="eyebrow">14 &middot; Commercial</p>
+  <h2>Pro gating</h2>
+  <p class="lede">₹499/month or ₹3,999/year. Two things are free on purpose: group splitting is the viral surface, and the partner seat means one subscription covers a household.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Capability</th><th class="n">Free</th><th class="n">Pro</th><th>Server-side enforcement</th></tr></thead>
+    <tbody>
+      <tr><td>Daily logging · limits · monthly · dashboard charts</td><td class="n">✓</td><td class="n">✓</td><td>—</td></tr>
+      <tr><td>Deterministic local insights</td><td class="n">✓</td><td class="n">✓</td><td>computed on-device</td></tr>
+      <tr><td><b>Circle splits</b> — create, join, settle</td><td class="n">✓</td><td class="n">✓</td><td><span class="pill p-free">free by design</span></td></tr>
+      <tr><td>Family mode — <b>joining</b> as partner</td><td class="n">✓</td><td class="n">✓</td><td><span class="pill p-free">free by design</span></td></tr>
+      <tr><td>Reminders — date/time</td><td class="n">✓</td><td class="n">✓</td><td>—</td></tr>
+      <tr><td>Finances — accounts, cards, debts</td><td class="n">—</td><td class="n">✓</td><td>route guard + subscription listener</td></tr>
+      <tr><td>AI dashboard insights</td><td class="n">—</td><td class="n">✓</td><td><code>generateInsights</code> re-checks the tier</td></tr>
+      <tr><td>Receipt scanning</td><td class="n">—</td><td class="n">✓</td><td><code>extractReceipt</code> re-checks the tier</td></tr>
+      <tr><td>Voice expense smart-fill</td><td class="n">—</td><td class="n">✓</td><td><code>parseVoiceExpense</code> re-checks the tier</td></tr>
+      <tr><td>Family mode — <b>creating</b> a family</td><td class="n">—</td><td class="n">✓</td><td><code>createFamily</code> re-checks the tier</td></tr>
+      <tr><td>Location reminders</td><td class="n">—</td><td class="n">✓</td><td><b>Firestore rules</b> — cannot be bypassed with the SDK</td></tr>
+      <tr><td>Budget warning notifications</td><td class="n">—</td><td class="n">✓</td><td>client only (device-local delivery)</td></tr>
+      <tr><td>Bank-notification spend prompts</td><td class="n">—</td><td class="n">✓</td><td>client only (device-local capture)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note rule"><b>The client gate is UX, not security.</b> <code>isPro()</code> decides what is shown. The boundary is <code>requireProTier</code> in Functions and <code>isProUser()</code> in rules. A new Pro feature needs both.</div>
+</section>
+
+<!-- ============ TREE ============ -->
+<section id="tree">
+  <p class="eyebrow">15 &middot; Orientation</p>
+  <h2>Repository</h2>
+  <p class="lede">Two documentation systems live alongside the code: <code>ai/</code> is curated decision memory, <code>tech-stack-docs/</code> is per-technology reference.</p>
+
+<pre class="tree">expense-tracker/
+├── <b>APPLICATION_GUIDE.md</b>          <i>the written guide — screens, flows, architecture</i>
+├── <b>VISUAL_ATLAS.html</b>             <i>this document</i>
+├── CLAUDE.md · AGENTS.md          <i>AI assistant operating rules</i>
+├── <b>ai/</b>
+│   ├── <b>CODE_MAP.md</b>               <i>navigation index — where to change what</i>
+│   ├── PROJECT_CONTEXT.md         <i>stable architecture and product decisions</i>
+│   ├── CURRENT_STATE.md           <i>active bugs, blockers, next steps</i>
+│   ├── TASK_HISTORY.md            <i>decision archive — search, don't read</i>
+│   └── AI_RULES.md                <i>durable engineering rules</i>
+├── docs/ · tech-stack-docs/ · graphify-out/
+├── .github/workflows/             <i>deploy-firebase.yml · e2e.yml (gates merges)</i>
+└── <b>personal-finance-pwa/</b>
+    ├── src/app/
+    │   ├── app.ts                 <i>bootstrap orchestration — the startup sequence</i>
+    │   ├── app.routes.ts          <i>16 lazy routes + guards</i>
+    │   ├── core/
+    │   │   ├── <b>services/</b>          <i>34 services — ExpenseStore is the centre</i>
+    │   │   ├── models/            <i>the canonical data dictionary</i>
+    │   │   ├── <b>utils/</b>             <i>every money algorithm, each with a spec</i>
+    │   │   ├── guards/            <i>auth · setup · subscription · income gate</i>
+    │   │   └── config/            <i>firebase.config.ts</i>
+    │   ├── features/              <i>16 route-level screens</i>
+    │   └── shared/                <i>components · pipes · directives</i>
+    ├── src/assets/i18n/           <i>en · ta · hi</i>
+    ├── functions/src/             <i>32 Firebase Functions</i>
+    ├── android/                   <i>Capacitor shell + 25 Java classes</i>
+    ├── e2e/                       <i>16 Playwright suites, ~100 cases</i>
+    └── firestore.rules            <i>default deny</i></pre>
+</section>
+
+<!-- ============ CHANGE ============ -->
+<section id="change">
+  <p class="eyebrow">16 &middot; Practical</p>
+  <h2>Change index</h2>
+  <p class="lede">The values people actually come looking for. Filter, then open the file — the full line-level index lives in <code>ai/CODE_MAP.md</code>.</p>
+
+  <div class="f">
+    <input id="q" type="search" placeholder="Filter — try “threshold”, “card”, “receipt”, “limit”…" aria-label="Filter the change index">
+    <span id="cnt"></span>
+  </div>
+  <div class="tw">
+  <table id="ct">
+    <thead><tr><th>To change…</th><th>Current value</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Category list, icons, default budget %</td><td>15 categories</td><td><code>core/models/category-definitions.ts</code></td></tr>
+      <tr><td>Budget group totals</td><td>50 / 30 / 12 / 8 / 0</td><td><code>category-definitions.ts</code></td></tr>
+      <tr><td>Allocation balance tolerance</td><td>±0.05 of 100%</td><td><code>features/expense-limit/…</code></td></tr>
+      <tr><td>Low-savings warning threshold</td><td>20%</td><td><code>features/expense-limit/…</code></td></tr>
+      <tr><td>Daily budget formula</td><td><code>income ÷ 30</code></td><td><code>features/daily-expense/…</code></td></tr>
+      <tr><td>Receipt max upload size</td><td>10 MB</td><td><code>features/daily-expense/…</code></td></tr>
+      <tr><td>Receipt compression targets</td><td>1000 px · 200 KB · 700 KB cap</td><td><code>core/utils/bill-image.ts</code></td></tr>
+      <tr><td>OCR auto-apply confidence</td><td>0.70</td><td><code>features/daily-expense/…</code></td></tr>
+      <tr><td>OCR languages · PDF page caps</td><td>eng+tam+hin · 3 scanned, 4 stored</td><td><code>core/services/receipt-extraction.service.ts</code></td></tr>
+      <tr><td>Split-bill minimum rows · tolerance</td><td>2 rows · 0.01</td><td><code>features/daily-expense/…</code></td></tr>
+      <tr><td>Budget warning threshold</td><td>80% of a category limit</td><td><code>features/dashboard/…</code></td></tr>
+      <tr><td>Month forecast formula</td><td><code>spent ÷ day × days in month</code></td><td><code>features/dashboard/…</code></td></tr>
+      <tr><td>"What if I cut" percentages</td><td>25% Needs · 50% other</td><td><code>features/dashboard/…</code></td></tr>
+      <tr><td>AI daily call limits</td><td>2 per locale · 5 total</td><td><code>core/services/ai-insight.service.ts</code></td></tr>
+      <tr><td>AI cache TTL · stale fallback</td><td>12 hours · 7 days</td><td><code>core/services/ai-insight.service.ts</code></td></tr>
+      <tr><td>Monthly trend dead-band</td><td>±5%</td><td><code>features/monthly-expense/…</code></td></tr>
+      <tr><td>Card utilisation thresholds</td><td>30% · 80%, upward only</td><td><code>core/utils/credit-card-insights.ts</code></td></tr>
+      <tr><td>Refund match window · max candidates</td><td>90 days · 3</td><td><code>core/utils/credit-card-insights.ts</code></td></tr>
+      <tr><td>Credit-card reminder ladder</td><td>5 one-shots at 09:00</td><td><code>core/utils/credit-card-reminders.ts</code></td></tr>
+      <tr><td>Statement derivation maths</td><td>reconstructed from records</td><td><code>core/utils/credit-card-statement.ts</code></td></tr>
+      <tr><td>Circle split rounding</td><td>paise, sorted by member id</td><td><code>core/utils/circle-settlement.ts</code></td></tr>
+      <tr><td>Transfer minimisation</td><td>greedy, ≤ n−1 transfers</td><td><code>core/utils/circle-settlement.ts</code></td></tr>
+      <tr><td>Circle member cap</td><td>20</td><td><code>functions/src/circles.ts</code></td></tr>
+      <tr><td>Circle · family invite TTL</td><td>7 days · 24 hours</td><td><code>functions/src/circles.ts</code> · <code>family.ts</code></td></tr>
+      <tr><td>Family ledger batch size</td><td>400 documents</td><td><code>core/services/family-sync.service.ts</code></td></tr>
+      <tr><td>Drive retry policy</td><td>4 attempts, 600 ms base + jitter</td><td><code>core/services/google-drive.service.ts</code></td></tr>
+      <tr><td>Drive config cache</td><td>60 seconds</td><td><code>core/services/backup-mode.service.ts</code></td></tr>
+      <tr><td>Drive poll interval · boot timeout</td><td>30 s · 30 s</td><td><code>src/app/app.ts</code></td></tr>
+      <tr><td>Notification defaults</td><td>21:00 · warnings on</td><td><code>core/models/notification-preferences.model.ts</code></td></tr>
+      <tr><td>Salary reminder grace · hour</td><td>5 days · 20:00</td><td><code>core/utils/salary-reminder.ts</code></td></tr>
+      <tr><td>Budget · card alert dedupe</td><td>1 hour · 6 hours</td><td><code>core/services/local-notification.service.ts</code></td></tr>
+      <tr><td>Server push reminder slots</td><td>08:00–22:00, on the hour</td><td><code>functions/src/scheduler-utils.ts</code></td></tr>
+      <tr><td>Pricing copy</td><td>₹499 / ₹3,999</td><td><code>features/settings/…</code> · <code>subscribe/…</code></td></tr>
+      <tr><td>Plan ids and verification</td><td>server-resolved</td><td><code>functions/src/razorpay.ts</code></td></tr>
+      <tr><td>Theme palettes · design styles</td><td>5 · 4</td><td><code>core/services/theme.service.ts</code> · <code>src/styles.css</code></td></tr>
+      <tr><td>Languages</td><td>en · ta · hi</td><td><code>core/services/i18n.service.ts</code> · <code>assets/i18n/</code></td></tr>
+      <tr><td>Currencies</td><td>INR · USD · AED</td><td><code>core/services/currency.service.ts</code></td></tr>
+      <tr><td>Delete-account countdown</td><td>10 seconds</td><td><code>features/settings/…</code></td></tr>
+      <tr><td>Backup export · restore shape</td><td>full document + debt adjustments</td><td><code>features/settings/…</code></td></tr>
+      <tr><td>Firestore permissions</td><td>default deny</td><td><code>firestore.rules</code></td></tr>
+      <tr><td>Income-gated routes</td><td>/daily · /monthly · /dashboard</td><td><code>core/guards/setup-income-gate.ts</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Before you edit anything shared</h3>
+  <div class="cols">
+    <div class="mini"><h4>Touches money?</h4><p>Update the matching spec in <code>core/utils/</code> and re-run the unit suite. Every algorithm there has one.</p></div>
+    <div class="mini"><h4>Touches the backup document?</h4><p>Update the contract spec, the Settings export <em>and</em> the restore parser, plus the native sync worker if Java writes it.</p></div>
+    <div class="mini"><h4>Touches a storage key?</h4><p>Mirror it in the native constants file and update the key contract spec. Fifteen keys are read by Java.</p></div>
+    <div class="mini"><h4>Touches synced state?</h4><p>Check the ledger diff and apply utilities, and add the new record type to the ledger union.</p></div>
+    <div class="mini"><h4>Adds a Firestore read or write?</h4><p>Rules default to deny — add the rule, and an index if you query it.</p></div>
+    <div class="mini"><h4>Adds a Pro feature?</h4><p>Gate it on the client for UX <em>and</em> on the server for security. One without the other is a hole.</p></div>
+  </div>
+</section>
+
+<p style="color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px;max-width:none">
+Generated from a full source sweep, September 2026. Keep in step with <code>APPLICATION_GUIDE.md</code> and <code>ai/CODE_MAP.md</code>; line-level anchors live in the Code Map, because they drift.
+</p>
+</main>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, tog=document.getElementById('tog');
+  tog.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    if(!cur){cur=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+    root.setAttribute('data-theme',cur==='dark'?'light':'dark');
+  });
+
+  var links=[].slice.call(document.querySelectorAll('#nav a'));
+  var map={};links.forEach(function(a){var s=document.querySelector(a.getAttribute('href'));if(s)map[s.id]=a;});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){l.classList.remove('on');});
+          if(map[e.target.id])map[e.target.id].classList.add('on');
+        }
+      });
+    },{rootMargin:'-10% 0px -75% 0px'});
+    Object.keys(map).forEach(function(id){io.observe(document.getElementById(id));});
+  }
+
+  var q=document.getElementById('q'), rows=[].slice.call(document.querySelectorAll('#ct tbody tr')), cnt=document.getElementById('cnt');
+  function upd(){
+    var v=(q.value||'').toLowerCase().trim(), n=0;
+    rows.forEach(function(r){
+      var hit=!v||r.textContent.toLowerCase().indexOf(v)>-1;
+      r.hidden=!hit; if(hit)n++;
+    });
+    cnt.textContent=n+' of '+rows.length;
+  }
+  q.addEventListener('input',upd); upd();
+})();
+</script>
+
+</body>
+</html>

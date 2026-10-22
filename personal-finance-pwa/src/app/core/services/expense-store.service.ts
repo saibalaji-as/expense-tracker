@@ -2,7 +2,7 @@ import { computed, effect, inject, isDevMode } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { ReplaySubject, Subject } from 'rxjs';
-import { budgetThresholdExceeded$, cardUtilizationCrossed$ } from './budget-events';
+import { budgetThresholdExceeded$, cardStatementAutoConfirmed$, cardUtilizationCrossed$ } from './budget-events';
 import { crossedUtilizationThreshold, utilizationPercent } from '../utils/credit-card-insights';
 import { FamilySyncService } from './family-sync.service';
 import {
@@ -11,6 +11,9 @@ import {
   AssetAccount,
   BudgetRuleSummary,
   CardStatement,
+  CardStatementDetection,
+  CardStatementPdfCheck,
+  CardStatementSource,
   CreateAssetAccountInput,
   CreateDebtAccountInput,
   DebtAccount,
@@ -36,7 +39,30 @@ import { toLocalDateString } from '../utils/local-date';
 import { applyLedgerChanges, diffLedgerState, stableStringify, type LedgerStateView } from '../utils/family-ledger.util';
 import { ledgerDocId } from '../models/family-ledger.model';
 import { mergeAddOnly, mergeByUpdatedAt, mergeEntries } from '../utils/family-state-merge';
-import { pendingDerivedStatement } from '../utils/credit-card-statement';
+import { computeBudgetRuleSummary } from '../utils/budget-summary.util';
+import {
+  cardCycleState,
+  confirmedStatementFor,
+  daysBetweenStr,
+  expenseOnlyEntries,
+  isCleanConfirmation,
+  planStatementConfirmation,
+  resolveDetectionCard,
+  STATEMENT_AUTO_CONFIRM_WINDOW_DAYS,
+  upsertStatementHistory,
+  type CardRecords,
+} from '../utils/credit-card-cycle';
+import {
+  cardMovementTotals,
+  computeDerivedBalances,
+  computeDerivedOutstandings,
+  findBalanceDiscrepancies,
+  findCardOutstandingDiscrepancies,
+  type BalanceDiscrepancy,
+  type CardOutstandingDiscrepancy,
+  type DerivedBalanceRecords,
+  type DerivedOutstandingRecords,
+} from '../utils/derived-balance.util';
 
 const LOCAL_BACKUP_CACHE_KEY = 'spenza_drive_backup_snapshot_v1';
 const WIDGET_EXPENSE_QUEUE_KEY = 'spenza_widget_expense_queue_v1';
@@ -46,6 +72,16 @@ const PENDING_DELETES_KEY = 'spenza_family_pending_deletes_v1';
 // Persisted verify flags: widget-synced records whose ledger version must be
 // fetched before this device may push its (possibly stale) queue payload.
 const PENDING_VERIFY_KEY = 'spenza_family_pending_verify_v1';
+// Legacy stored-vs-derived balance drift found at load, awaiting the user's
+// reconciliation choice in Finances (derived-balance migration, 2026-07-25).
+const BALANCE_RECONCILIATION_KEY = 'spenza_balance_reconciliation_v1';
+// Same, for credit-card outstanding (anchored on DebtAccount.openingOutstanding).
+const CARD_RECONCILIATION_KEY = 'spenza_card_reconciliation_v1';
+// Bank statement messages captured by the Android notification listener
+// (SpendNotificationListenerService writes, the store consumes). Shared with
+// Java — pinned by storage-key-contract.spec.ts.
+const CARD_STATEMENT_DETECTIONS_KEY = 'spenza_card_statement_detections_v1';
+const STATEMENT_DETECTION_MAX_AGE_DAYS = 45;
 
 interface ExpenseWidgetPlugin {
   refresh(): Promise<void>;
@@ -172,6 +208,12 @@ interface ExpenseState {
   pendingSyncIds: string[];
   /** CC expenses that arrived from the notification widget when multiple CC accounts exist — waiting for the user to pick which card. */
   pendingCcExpenses: PendingCcExpense[];
+  /** Legacy stored-vs-derived balance drift awaiting user reconciliation (Finances banner). */
+  balanceDiscrepancies: BalanceDiscrepancy[];
+  /** Stored-vs-derived credit-card outstanding drift awaiting user reconciliation. */
+  cardOutstandingDiscrepancies: CardOutstandingDiscrepancy[];
+  /** Captured bank statement messages that need the user's review before they are applied. */
+  cardStatementDetections: CardStatementDetection[];
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -197,20 +239,30 @@ export const ExpenseStore = signalStore(
     lastKnownDriveModifiedTime: null,
     pendingSyncIds: [],
     pendingCcExpenses: [],
+    balanceDiscrepancies: [],
+    cardOutstandingDiscrepancies: [],
+    cardStatementDetections: [],
   }),
+
+  // Expense views never include credit-card bill payments (the purchases were
+  // already expenses when made). Everything that reports spending reads this;
+  // `entries` stays the raw ledger for balances, backup and sync.
+  withComputed((store) => ({
+    expenseEntries: computed(() => expenseOnlyEntries(store.entries(), store.debts())),
+  })),
 
   // ─── Task 5.2 & 5.3: Computed Signals ─────────────────────────────────────
   withComputed((store) => ({
     /** Entries whose date equals today's ISO date string (YYYY-MM-DD) */
     todayEntries: computed(() => {
       const today = toLocalDateString();
-      return store.entries().filter((e) => e.date === today);
+      return store.expenseEntries().filter((e) => e.date === today);
     }),
 
     /** Entries whose date falls within the currently selected month */
     selectedMonthEntries: computed(() => {
       const month = store.selectedMonth();
-      return store.entries().filter((e) => e.date.startsWith(month));
+      return store.expenseEntries().filter((e) => e.date.startsWith(month));
     }),
 
     /** Record<type, ExpenseLimit> for O(1) limit lookups */
@@ -225,94 +277,8 @@ export const ExpenseStore = signalStore(
     /** Budget rule summary for the selected month (Needs/Wants/Savings/Growth/Buffer) */
     budgetRuleSummary: computed((): BudgetRuleSummary => {
       const month = store.selectedMonth();
-      const monthEntries = store.entries().filter((e) => e.date.startsWith(month));
-      const limitMap: Record<string, ExpenseLimit> = {};
-      for (const limit of store.limits()) {
-        limitMap[limit.type] = limit;
-      }
-      const income = store.monthlyIncome();
-
-      let needsTotal = 0;
-      let wantsTotal = 0;
-      let savingsTotal = 0;
-      let growthTotal = 0;
-      let bufferTotal = 0;
-
-      // Calculate target allocations from configured limits
-      let needsTarget = 0;
-      let wantsTarget = 0;
-      let savingsTarget = 0;
-      let growthTarget = 0;
-      let bufferTarget = 0;
-
-      for (const limit of store.limits()) {
-        const amount = (limit.userPercentage * income) / 100;
-        switch (limit.category) {
-          case 'Needs':
-            needsTarget += amount;
-            break;
-          case 'Wants':
-            wantsTarget += amount;
-            break;
-          case 'Savings':
-            savingsTarget += amount;
-            break;
-          case 'Growth':
-            growthTarget += amount;
-            break;
-          case 'Buffer':
-            bufferTarget += amount;
-            break;
-        }
-      }
-
-      // Categorize actual spending
-      for (const entry of monthEntries) {
-        const limit = limitMap[entry.type];
-        const category = limit?.category ?? 'Buffer';
-
-        switch (category) {
-          case 'Needs':
-            needsTotal += entry.amount;
-            break;
-          case 'Wants':
-            wantsTotal += entry.amount;
-            break;
-          case 'Savings':
-            savingsTotal += entry.amount;
-            break;
-          case 'Growth':
-            growthTotal += entry.amount;
-            break;
-          case 'Buffer':
-            bufferTotal += entry.amount;
-            break;
-        }
-      }
-
-      const needsPercentage = income > 0 ? (needsTotal / income) * 100 : 0;
-      const wantsPercentage = income > 0 ? (wantsTotal / income) * 100 : 0;
-      const savingsPercentage = income > 0 ? (savingsTotal / income) * 100 : 0;
-      const growthPercentage = income > 0 ? (growthTotal / income) * 100 : 0;
-      const bufferPercentage = income > 0 ? (bufferTotal / income) * 100 : 0;
-
-      return {
-        needsTotal,
-        wantsTotal,
-        savingsTotal,
-        growthTotal,
-        bufferTotal,
-        needsPercentage,
-        wantsPercentage,
-        savingsPercentage,
-        growthPercentage,
-        bufferPercentage,
-        needsTarget,
-        wantsTarget,
-        savingsTarget,
-        growthTarget,
-        bufferTarget,
-      };
+      const monthEntries = store.expenseEntries().filter((e) => e.date.startsWith(month));
+      return computeBudgetRuleSummary(monthEntries, store.limits(), store.monthlyIncome());
     }),
 
     activeAccounts: computed(() => store.accounts().filter((account) => !account.archived)),
@@ -371,6 +337,10 @@ export const ExpenseStore = signalStore(
     let localRevision = 0;
     let persistedRevision = 0;
     let persistQueue = Promise.resolve();
+    // Local snapshot write serialization (see writeSnapshotForRevision).
+    let snapshotWriteChain: Promise<void> = Promise.resolve();
+    let snapshotRevisionWritten = 0;
+    let snapshotDirtyWritten = false;
     let syncDriveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     // Background retry for a dirty local snapshot that could not reach Drive yet
     // (offline / token not ready / Drive 5xx). The local copy is already safe;
@@ -693,6 +663,283 @@ export const ExpenseStore = signalStore(
       }
     };
 
+    // ── Derived balances (2026-07-25) ─────────────────────────────────────
+    // AssetAccount.balance is no longer a source of truth — it is a CACHE of
+    // the record-derived balance (see derived-balance.util.ts for the drift
+    // post-mortem). Regenerated at every external-data boundary (local cache
+    // load, Drive read, family-ledger apply) and on every persisted doc, so
+    // whole-record LWW merges can never corrupt it again. updatedAt is NOT
+    // bumped: normalization is cache maintenance, not a user edit.
+    const derivedRecordsFromDoc = (doc: BackupDocument): DerivedBalanceRecords => ({
+      accountAdjustments: backupAccountAdjustments(doc),
+      entries: doc.expenses,
+      debtAdjustments: backupDebtAdjustments(doc),
+    });
+
+    const normalizeAccountBalances = (
+      accounts: AssetAccount[],
+      records: DerivedBalanceRecords
+    ): AssetAccount[] => {
+      const derived = computeDerivedBalances(accounts, records);
+      let changed = false;
+      const next = accounts.map((account) => {
+        const balance = derived.get(account.id) ?? 0;
+        if (Math.abs(account.balance - balance) < 0.005) return account;
+        changed = true;
+        return { ...account, balance };
+      });
+      return changed ? next : accounts;
+    };
+
+    // One-time drift capture for the Finances reconciliation banner. Persisted
+    // until the user chooses (keep old balance → audited adjustment; accept
+    // computed → dismiss), because normalization erases the evidence on the
+    // very next persist. Deduped by accountId across app restarts.
+    const loadBalanceDiscrepancies = async (): Promise<void> => {
+      try {
+        const raw = await storageService.get(BALANCE_RECONCILIATION_KEY);
+        if (!raw) return;
+        const items = JSON.parse(raw) as BalanceDiscrepancy[];
+        if (Array.isArray(items) && items.length > 0) {
+          patchState(store, { balanceDiscrepancies: items });
+        }
+      } catch { /* corrupt payload — drop silently, drift re-captures on next load */ }
+    };
+
+    let discrepanciesLoaded: Promise<void> | null = null;
+
+    const captureBalanceDiscrepancies = async (
+      accounts: AssetAccount[],
+      records: DerivedBalanceRecords
+    ): Promise<void> => {
+      const found = findBalanceDiscrepancies(accounts, records);
+      if (found.length === 0) return;
+      await (discrepanciesLoaded ??= loadBalanceDiscrepancies());
+      const known = new Set(store.balanceDiscrepancies().map((item) => item.accountId));
+      const fresh = found.filter((item) => !known.has(item.accountId));
+      if (fresh.length === 0) return;
+      const merged = [...store.balanceDiscrepancies(), ...fresh];
+      patchState(store, { balanceDiscrepancies: merged });
+      void storageService.set(BALANCE_RECONCILIATION_KEY, JSON.stringify(merged));
+    };
+
+    const clearBalanceDiscrepancy = async (accountId: string): Promise<void> => {
+      const remaining = store.balanceDiscrepancies().filter((item) => item.accountId !== accountId);
+      patchState(store, { balanceDiscrepancies: remaining });
+      if (remaining.length === 0) await storageService.remove(BALANCE_RECONCILIATION_KEY);
+      else await storageService.set(BALANCE_RECONCILIATION_KEY, JSON.stringify(remaining));
+    };
+
+    // ── Credit-card outstanding: same cure as account balances ────────────
+    // Cards created before the migration have no opening anchor — back-solve
+    // it ONCE from the current stored outstanding (derived == stored at that
+    // instant, so no false banner). Anchored cards derive from records.
+    const derivedOutstandingRecordsFromDoc = (doc: BackupDocument): DerivedOutstandingRecords => ({
+      entries: doc.expenses,
+      debtPayments: backupDebtPayments(doc),
+      debtAdjustments: backupDebtAdjustments(doc),
+    });
+
+    const normalizeCardOutstandings = (
+      debts: DebtAccount[],
+      records: DerivedOutstandingRecords
+    ): DebtAccount[] => {
+      const movements = cardMovementTotals(records);
+      const derived = computeDerivedOutstandings(debts, records);
+      let changed = false;
+      const next = debts.map((debt) => {
+        if (debt.type !== 'credit-card') return debt;
+        if (debt.openingOutstanding === undefined) {
+          changed = true;
+          return {
+            ...debt,
+            openingOutstanding: roundMoney(debt.remainingBalance - (movements.get(debt.id) ?? 0)),
+          };
+        }
+        const outstanding = derived.get(debt.id);
+        if (outstanding === undefined || Math.abs(debt.remainingBalance - outstanding) < 0.005) return debt;
+        changed = true;
+        return { ...debt, remainingBalance: outstanding };
+      });
+      return changed ? next : debts;
+    };
+
+    const loadCardDiscrepancies = async (): Promise<void> => {
+      try {
+        const raw = await storageService.get(CARD_RECONCILIATION_KEY);
+        if (!raw) return;
+        const items = JSON.parse(raw) as CardOutstandingDiscrepancy[];
+        if (Array.isArray(items) && items.length > 0) {
+          patchState(store, { cardOutstandingDiscrepancies: items });
+        }
+      } catch { /* corrupt payload — drop silently */ }
+    };
+
+    let cardDiscrepanciesLoaded: Promise<void> | null = null;
+
+    const captureCardDiscrepancies = async (
+      debts: DebtAccount[],
+      records: DerivedOutstandingRecords
+    ): Promise<void> => {
+      const found = findCardOutstandingDiscrepancies(debts, records);
+      if (found.length === 0) return;
+      await (cardDiscrepanciesLoaded ??= loadCardDiscrepancies());
+      const known = new Set(store.cardOutstandingDiscrepancies().map((item) => item.debtId));
+      const fresh = found.filter((item) => !known.has(item.debtId));
+      if (fresh.length === 0) return;
+      const merged = [...store.cardOutstandingDiscrepancies(), ...fresh];
+      patchState(store, { cardOutstandingDiscrepancies: merged });
+      void storageService.set(CARD_RECONCILIATION_KEY, JSON.stringify(merged));
+    };
+
+    const clearCardDiscrepancy = async (debtId: string): Promise<void> => {
+      const remaining = store.cardOutstandingDiscrepancies().filter((item) => item.debtId !== debtId);
+      patchState(store, { cardOutstandingDiscrepancies: remaining });
+      if (remaining.length === 0) await storageService.remove(CARD_RECONCILIATION_KEY);
+      else await storageService.set(CARD_RECONCILIATION_KEY, JSON.stringify(remaining));
+    };
+
+    // ── Credit-card statements ─────────────────────────────────────────────
+    const cardRecords = (): CardRecords => ({
+      entries: store.entries(),
+      adjustments: store.debtAdjustments(),
+      payments: store.debtPayments(),
+    });
+
+    const normalizeStatementDetection = (raw: unknown): CardStatementDetection | null => {
+      if (typeof raw !== 'object' || raw === null) return null;
+      const record = raw as Record<string, unknown>;
+      const amount = record['amount'];
+      if (typeof record['id'] !== 'string' || record['id'].trim() === '') return null;
+      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) return null;
+      const dateOf = (value: unknown): string | undefined =>
+        typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+      const minDue = record['minDue'];
+      return {
+        id: record['id'],
+        amount: roundMoney(amount),
+        ...(typeof minDue === 'number' && Number.isFinite(minDue) && minDue > 0 && minDue <= amount
+          ? { minDue: roundMoney(minDue) }
+          : {}),
+        ...(dateOf(record['dueDateStr']) ? { dueDateStr: dateOf(record['dueDateStr']) } : {}),
+        ...(typeof record['cardLast4'] === 'string' && /^\d{4}$/.test(record['cardLast4'])
+          ? { cardLast4: record['cardLast4'] }
+          : {}),
+        detectedDateStr: dateOf(record['detectedDateStr']) ?? toLocalDateString(),
+        userEmail: typeof record['userEmail'] === 'string' ? record['userEmail'] : null,
+        ...(typeof record['debtId'] === 'string' && record['debtId'] ? { debtId: record['debtId'] } : {}),
+      };
+    };
+
+    const readStoredStatementDetections = async (): Promise<unknown[]> => {
+      try {
+        const raw = await storageService.get(CARD_STATEMENT_DETECTIONS_KEY);
+        const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+
+    // Detections this session has already read. Anything in storage that is
+    // NOT in here arrived from the native listener after the last read and
+    // must survive a rewrite untouched.
+    const seenStatementDetectionIds = new Set<string>();
+
+    /**
+     * Rewrites the shared key with what is still waiting: this account's
+     * unreviewed detections, plus raw items this session has not processed
+     * (other accounts', or captured natively since the last read).
+     */
+    const persistStatementDetections = async (): Promise<void> => {
+      const currentEmail = authService.userEmail();
+      const untouched = (await readStoredStatementDetections()).filter((raw) => {
+        const item = normalizeStatementDetection(raw);
+        if (!item) return false;
+        if (item.userEmail && item.userEmail !== currentEmail) return true;
+        return !seenStatementDetectionIds.has(item.id);
+      });
+      const remaining = [...untouched, ...store.cardStatementDetections()];
+      if (remaining.length === 0) await storageService.remove(CARD_STATEMENT_DETECTIONS_KEY);
+      else await storageService.set(CARD_STATEMENT_DETECTIONS_KEY, JSON.stringify(remaining));
+    };
+
+    /**
+     * Consumes bank statement messages captured by the Android listener.
+     * A detection is applied on its own only when nothing needs a decision:
+     * the card is unambiguous, its latest bill is still awaiting the bank's
+     * amount, the message arrived close to that bill date and the numbers
+     * split cleanly. Everything else waits for the user in the statement dialog.
+     */
+    let statementDetectionsInFlight: Promise<void> | null = null;
+    const processStatementDetections = (): Promise<void> => {
+      if (statementDetectionsInFlight) return statementDetectionsInFlight;
+      statementDetectionsInFlight = processStatementDetectionsInner().finally(() => {
+        statementDetectionsInFlight = null;
+      });
+      return statementDetectionsInFlight;
+    };
+
+    const processStatementDetectionsInner = async (): Promise<void> => {
+      const currentEmail = authService.userEmail();
+      const stored = (await readStoredStatementDetections())
+        .map(normalizeStatementDetection)
+        .filter((item): item is CardStatementDetection =>
+          !!item && (!item.userEmail || item.userEmail === currentEmail));
+      if (stored.length === 0) {
+        if (store.cardStatementDetections().length > 0) patchState(store, { cardStatementDetections: [] });
+        return;
+      }
+      // Debts not loaded yet (or none exist): leave the captured messages
+      // untouched in storage — the next trigger retries.
+      if (store.debts().length === 0) return;
+      for (const detection of stored) seenStatementDetectionIds.add(detection.id);
+
+      const now = new Date();
+      const todayStr = toLocalDateString(now);
+      const waiting: CardStatementDetection[] = [];
+      for (const detection of stored) {
+        // A statement message is only meaningful around its bill date.
+        if (daysBetweenStr(detection.detectedDateStr, todayStr) > STATEMENT_DETECTION_MAX_AGE_DAYS) continue;
+        const card = resolveDetectionCard(store.debts(), detection);
+        if (!card) {
+          // Ambiguous or unknown card: the user picks it in the statement
+          // prompt. A detection pinned to a card that no longer exists is dropped.
+          if (!detection.debtId) waiting.push(detection);
+          continue;
+        }
+        const state = cardCycleState(card, cardRecords(), now);
+        // The bill this message describes is already answered — drop it.
+        if (state.status === 'confirmed' || !state.billDateStr) continue;
+        const assigned: CardStatementDetection = { ...detection, debtId: card.id };
+        const plan = planStatementConfirmation(card, cardRecords(), now, detection.amount);
+        const fresh = daysBetweenStr(state.billDateStr, todayStr) <= STATEMENT_AUTO_CONFIRM_WINDOW_DAYS;
+        if (state.status === 'pending' && fresh && plan && isCleanConfirmation(plan)) {
+          try {
+            await methods.confirmCardStatement(card.id, {
+              amount: detection.amount,
+              ...(detection.minDue !== undefined ? { minDue: detection.minDue } : {}),
+              ...(detection.dueDateStr && detection.dueDateStr > state.billDateStr
+                ? { dueDateStr: detection.dueDateStr }
+                : {}),
+              source: 'sms',
+            });
+            cardStatementAutoConfirmed$.next({ cardName: card.name, amount: detection.amount });
+            continue;
+          } catch (error) {
+            if (isDevMode()) { console.warn('[ExpenseStore] Statement auto-confirm failed, keeping for review:', error); }
+          }
+        }
+        // One waiting detection per card — the newest message wins.
+        const index = waiting.findIndex((item) => item.debtId === card.id);
+        if (index >= 0) waiting[index] = assigned;
+        else waiting.push(assigned);
+      }
+
+      patchState(store, { cardStatementDetections: waiting });
+      await persistStatementDetections();
+    };
+
     const buildBackupDocument = (): BackupDocument => ({
       version: '1.0',
       lastUpdated: new Date().toISOString(),
@@ -703,9 +950,18 @@ export const ExpenseStore = signalStore(
       },
       expenses: store.entries(),
       limits: store.limits(),
-      accounts: store.accounts(),
+      // Balance = derived-from-records cache; every persisted doc self-heals.
+      accounts: normalizeAccountBalances(store.accounts(), {
+        accountAdjustments: store.accountAdjustments(),
+        entries: store.entries(),
+        debtAdjustments: store.debtAdjustments(),
+      }),
       accountAdjustments: store.accountAdjustments(),
-      debts: store.debts(),
+      debts: normalizeCardOutstandings(store.debts(), {
+        entries: store.entries(),
+        debtPayments: store.debtPayments(),
+        debtAdjustments: store.debtAdjustments(),
+      }),
       debtPayments: store.debtPayments(),
       debtAdjustments: store.debtAdjustments(),
     });
@@ -906,6 +1162,9 @@ export const ExpenseStore = signalStore(
       if (widgetFlushInFlight) return widgetFlushInFlight;
       widgetFlushInFlight = flushPendingWidgetExpensesInner().finally(() => {
         widgetFlushInFlight = null;
+        // Same trigger points (startup, resume, Drive load): pick up any bank
+        // statement message the listener captured while the app was closed.
+        void processStatementDetections();
       });
       return widgetFlushInFlight;
     };
@@ -1418,6 +1677,21 @@ export const ExpenseStore = signalStore(
         familyMergeChanged = true; // duplicate removal must be written back to Drive
       }
 
+      // Derived-balance boundary: capture legacy drift for the reconciliation
+      // banner, then regenerate every balance from the (merged) records.
+      const docRecords = derivedRecordsFromDoc(effectiveDoc);
+      void captureBalanceDiscrepancies(backupAccounts(effectiveDoc), docRecords);
+      const normalizedAccounts = normalizeAccountBalances(backupAccounts(effectiveDoc), docRecords);
+      if (normalizedAccounts !== effectiveDoc.accounts) {
+        effectiveDoc = { ...effectiveDoc, accounts: normalizedAccounts };
+      }
+      const docCardRecords = derivedOutstandingRecordsFromDoc(effectiveDoc);
+      void captureCardDiscrepancies(backupDebts(effectiveDoc), docCardRecords);
+      const normalizedDebts = normalizeCardOutstandings(backupDebts(effectiveDoc), docCardRecords);
+      if (normalizedDebts !== effectiveDoc.debts) {
+        effectiveDoc = { ...effectiveDoc, debts: normalizedDebts };
+      }
+
       patchState(store, {
         entries: effectiveDoc.expenses,
         limits: effectiveDoc.limits,
@@ -1435,6 +1709,8 @@ export const ExpenseStore = signalStore(
       });
       localRevision = 0;
       persistedRevision = 0;
+      snapshotRevisionWritten = 0;
+      snapshotDirtyWritten = false;
       void writeLocalBackupSnapshot(fileId, effectiveDoc, modifiedTime, false);
       if (healed || familyMergeChanged) {
         // The merged doc is richer than what Drive holds — write it back.
@@ -1546,8 +1822,53 @@ export const ExpenseStore = signalStore(
      */
     const markLocalChangeAndPersist = async (): Promise<void> => {
       localRevision += 1;
+      // Durable-first, NOT queued behind an in-flight Drive write: a slow Drive
+      // round-trip used to leave a just-saved record in memory only, so closing
+      // the app (or a screen that trusted the record) lost it. Local snapshot
+      // writes are serialized separately and never touch the network.
+      void writeDirtySnapshotNow();
       await methods.persistToDrive();
       pushFamilyLedger();
+    };
+
+    /**
+     * Serialized local snapshot writer keyed by revision. A write for an older
+     * revision never overwrites a newer one, and a CLEAN write is skipped when a
+     * newer local change exists (its dirty snapshot must survive until its own
+     * Drive write confirms).
+     */
+    const writeSnapshotForRevision = (
+      fileId: string,
+      doc: BackupDocument,
+      modifiedTime: string | null,
+      dirty: boolean,
+      revision: number
+    ): Promise<void> => {
+      const task = snapshotWriteChain.then(async () => {
+        if (revision < snapshotRevisionWritten) return;
+        if (!dirty && revision !== localRevision) return;
+        // Same revision already durable as dirty: skip the duplicate write.
+        if (dirty && snapshotDirtyWritten && revision === snapshotRevisionWritten) return;
+        snapshotRevisionWritten = revision;
+        snapshotDirtyWritten = dirty;
+        await writeLocalBackupSnapshot(fileId, doc, modifiedTime, dirty);
+      });
+      snapshotWriteChain = task.catch((error) => {
+        if (isDevMode()) { console.warn('[ExpenseStore] Local snapshot write failed:', error); }
+      });
+      return task;
+    };
+
+    const writeDirtySnapshotNow = (): Promise<void> => {
+      const fileId = store.driveFileId();
+      if (!fileId) return Promise.resolve();
+      return writeSnapshotForRevision(
+        fileId,
+        buildBackupDocument(),
+        store.lastKnownDriveModifiedTime(),
+        true,
+        localRevision
+      ).catch(() => undefined);
     };
 
     /**
@@ -1717,12 +2038,18 @@ export const ExpenseStore = signalStore(
           if (rawPendingCc) pendingCcExpenses = JSON.parse(rawPendingCc) as PendingCcExpense[];
         } catch { /* ignore parse errors */ }
 
+        // Derived-balance boundary (see applyBackupDocument for rationale).
+        const snapshotRecords = derivedRecordsFromDoc(snapshot.doc);
+        void captureBalanceDiscrepancies(backupAccounts(snapshot.doc), snapshotRecords);
+        const snapshotCardRecords = derivedOutstandingRecordsFromDoc(snapshot.doc);
+        void captureCardDiscrepancies(backupDebts(snapshot.doc), snapshotCardRecords);
+
         patchState(store, {
           entries: dedupeExpensesById(snapshot.doc.expenses),
           limits: snapshot.doc.limits,
-          accounts: backupAccounts(snapshot.doc),
+          accounts: normalizeAccountBalances(backupAccounts(snapshot.doc), snapshotRecords),
           accountAdjustments: backupAccountAdjustments(snapshot.doc),
-          debts: backupDebts(snapshot.doc),
+          debts: normalizeCardOutstandings(backupDebts(snapshot.doc), snapshotCardRecords),
           debtPayments: backupDebtPayments(snapshot.doc),
           debtAdjustments: backupDebtAdjustments(snapshot.doc),
           monthlyIncome: snapshot.doc.metadata.monthlyIncome,
@@ -1734,6 +2061,8 @@ export const ExpenseStore = signalStore(
         });
         localRevision = snapshot.dirty ? 1 : 0;
         persistedRevision = 0;
+        snapshotRevisionWritten = 0;
+        snapshotDirtyWritten = false;
         // Fire-and-forget: the flush includes a Drive write (persistToDrive) which
         // must not block cached startup (< 500 ms budget). The local merge inside
         // the flush still runs immediately after first render.
@@ -1989,6 +2318,58 @@ export const ExpenseStore = signalStore(
         await markLocalChangeAndPersist();
       },
 
+      /**
+       * Resolves a legacy stored-vs-derived balance discrepancy (Finances
+       * reconciliation banner, derived-balance migration 2026-07-25).
+       * 'keep-stored': posts an audited adjustment restoring the pre-migration
+       * displayed balance on top of the record-derived one.
+       * 'accept-derived': keeps the record-derived balance as-is.
+       */
+      async reconcileAccountBalance(
+        accountId: string,
+        mode: 'keep-stored' | 'accept-derived'
+      ): Promise<void> {
+        const item = store.balanceDiscrepancies().find((d) => d.accountId === accountId);
+        if (!item) return;
+        const account = store.accounts().find((a) => a.id === accountId && !a.archived);
+        if (account && mode === 'keep-stored' && Math.abs(item.drift) >= 0.01) {
+          await methods.adjustAccountBalance({
+            accountId,
+            amount: Math.abs(item.drift),
+            kind: item.drift > 0 ? 'increase' : 'decrease',
+            reason: `Balance reconciliation (kept pre-migration balance ${item.stored})`,
+          });
+        }
+        await clearBalanceDiscrepancy(accountId);
+      },
+
+      /**
+       * Resolves a stored-vs-derived credit-card outstanding discrepancy.
+       * 'keep-stored': posts an audited charge/refund debt adjustment covering
+       * the drift (an inflated stored outstanding = untracked charges; a
+       * deflated one = untracked credits). 'accept-derived': trusts records.
+       */
+      async reconcileCardOutstanding(
+        debtId: string,
+        mode: 'keep-stored' | 'accept-derived'
+      ): Promise<void> {
+        const item = store.cardOutstandingDiscrepancies().find((d) => d.debtId === debtId);
+        if (!item) return;
+        const card = store.debts().find(
+          (d) => d.id === debtId && d.type === 'credit-card' && d.status === 'active'
+        );
+        if (card && mode === 'keep-stored' && Math.abs(item.drift) >= 0.01) {
+          await methods.recordDebtAdjustment({
+            debtId,
+            kind: item.drift > 0 ? 'charge' : 'refund',
+            amount: Math.abs(item.drift),
+            date: toLocalDateString(),
+            reason: `Outstanding reconciliation (kept pre-migration outstanding ${item.stored})`,
+          });
+        }
+        await clearCardDiscrepancy(debtId);
+      },
+
       async deleteAccount(accountId: string): Promise<void> {
         const account = store.accounts().find((candidate) => candidate.id === accountId);
         if (!account) {
@@ -2150,6 +2531,8 @@ export const ExpenseStore = signalStore(
           ...(input.cardNetworkOrBank ? { cardNetworkOrBank: input.cardNetworkOrBank } : {}),
           ...(input.cardLast4 && /^\d{4}$/.test(input.cardLast4) ? { cardLast4: input.cardLast4 } : {}),
           ...(input.creditLimit !== undefined && input.creditLimit > 0 ? { creditLimit: roundMoney(Number(input.creditLimit)) } : {}),
+          // Anchor for the record-derived outstanding (cards only).
+          ...(input.type === 'credit-card' ? { openingOutstanding: remainingBalance } : {}),
           // A credit card with zero outstanding is simply healthy, not "paid off"
           // — it must stay active so it remains selectable as a payment method.
           status: remainingBalance === 0 && input.type !== 'credit-card' ? 'paid' : 'active',
@@ -2232,6 +2615,11 @@ export const ExpenseStore = signalStore(
                   type: input.type ?? debt.type,
                   principalAmount,
                   remainingBalance,
+                  // A manual outstanding edit must move the derived anchor by
+                  // the same delta, or the next normalization would revert it.
+                  ...(nextType === 'credit-card' && debt.openingOutstanding !== undefined
+                    ? { openingOutstanding: roundMoney(debt.openingOutstanding + (remainingBalance - debt.remainingBalance)) }
+                    : {}),
                   ...(interestRate !== undefined ? { interestRate } : { interestRate: undefined }),
                   ...(monthlyEmi !== undefined ? { monthlyEmi } : { monthlyEmi: undefined }),
                   startDate,
@@ -2256,14 +2644,27 @@ export const ExpenseStore = signalStore(
       },
 
       /**
-       * User confirms or corrects the latest statement amount for a credit
-       * card (Finances → statement banner). Stores a `source: 'user'`
-       * snapshot for the card's latest bill date so reminders show the exact
-       * bank amount instead of the derived estimate.
+       * Stores the bank's statement amount — the truth — for a card's latest
+       * bill (Finances / statement dialog / captured bank message / PDF).
+       * The split is by arithmetic, never by guessing per transaction:
+       * bill due = bank amount − payments since; unbilled spend = whatever
+       * else is outstanding (see credit-card-cycle.ts).
+       *
+       * - Bank amount HIGHER than everything recorded (`shortfall`): the gap
+       *   is posted as an audited card charge so the total stays true.
+       * - Total higher than the bank bill plus the spends logged since the
+       *   bill date (`unexplainedCarry`): carried as unbilled, or — when
+       *   `correctTotal` is set — posted as an audited credit instead.
        */
       async confirmCardStatement(
         debtId: string,
-        input: { amount: number; minDue?: number }
+        input: {
+          amount: number;
+          minDue?: number;
+          dueDateStr?: string;
+          source?: CardStatementSource;
+          correctTotal?: boolean;
+        }
       ): Promise<void> {
         const existing = store.debts().find((debt) => debt.id === debtId);
         if (!existing || existing.type !== 'credit-card') {
@@ -2281,69 +2682,143 @@ export const ExpenseStore = signalStore(
           throw new Error('Minimum due must be between 0 and the statement amount.');
         }
 
-        // Keep the derived snapshot's bill date when it already covers the
-        // latest bill; otherwise resolve it fresh (card had no snapshot yet).
-        const derived = pendingDerivedStatement(
-          existing,
-          store.entries(),
-          store.debtAdjustments(),
-          store.debtPayments(),
-          new Date()
-        );
-        const billDateStr = derived?.billDateStr ?? existing.statement?.billDateStr;
-        if (!billDateStr) {
+        const plan = planStatementConfirmation(existing, cardRecords(), new Date(), amount);
+        if (!plan) {
           throw new Error('No generated statement to confirm yet.');
+        }
+        if (input.dueDateStr !== undefined) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDateStr) || input.dueDateStr <= plan.billDateStr) {
+            throw new Error('The due date must be after the bill date.');
+          }
         }
 
         const now = new Date().toISOString();
         const actor = activityActor();
-        const statement: CardStatement = {
-          billDateStr,
-          amount,
-          ...(minDue !== undefined && minDue > 0 ? { minDue } : {}),
-          source: 'user',
-          updatedAt: now,
+        const newAdjustments: DebtAdjustment[] = [];
+        let remainingBalance = existing.remainingBalance;
+        const postAdjustment = (kind: 'charge' | 'refund', adjustmentAmount: number, reason: string): void => {
+          newAdjustments.push({
+            id: crypto.randomUUID(),
+            debtId,
+            kind,
+            amount: adjustmentAmount,
+            date: plan.billDateStr,
+            reason,
+            createdAt: now,
+            createdByEmail: actor.email,
+            createdByRole: actor.role,
+          });
+          remainingBalance = Math.max(
+            0,
+            roundMoney(remainingBalance + (kind === 'charge' ? adjustmentAmount : -adjustmentAmount))
+          );
         };
+        if (plan.shortfall >= 0.01) {
+          postAdjustment('charge', plan.shortfall, 'Statement difference: fees, interest or unrecorded spend');
+        } else if (input.correctTotal && plan.unexplainedCarry >= 0.01) {
+          postAdjustment('refund', plan.unexplainedCarry, 'Statement correction: unrecorded payment or refund');
+        }
+
+        const previous = confirmedStatementFor(existing, plan.billDateStr);
+        const statement: CardStatement = {
+          billDateStr: plan.billDateStr,
+          amount: plan.statementAmount,
+          ...(minDue !== undefined && minDue > 0 ? { minDue } : {}),
+          ...(input.dueDateStr ? { dueDateStr: input.dueDateStr } : {}),
+          paymentsFromStr: plan.paymentsFromStr,
+          source: input.source ?? 'user',
+          updatedAt: now,
+          ...(previous?.pdfCheck ? { pdfCheck: previous.pdfCheck } : {}),
+        };
+
         patchState(store, {
           debts: store.debts().map((debt) =>
             debt.id === debtId
-              ? { ...debt, statement, updatedAt: now, updatedByEmail: actor.email, updatedByRole: actor.role }
+              ? {
+                  ...debt,
+                  remainingBalance,
+                  statement,
+                  statementHistory: upsertStatementHistory(debt, statement),
+                  updatedAt: now,
+                  updatedByEmail: actor.email,
+                  updatedByRole: actor.role,
+                }
               : debt
           ),
+          ...(newAdjustments.length > 0
+            ? {
+                debtAdjustments: [...newAdjustments, ...store.debtAdjustments()],
+                pendingSyncIds: [...newAdjustments.map((item) => item.id), ...store.pendingSyncIds()],
+              }
+            : {}),
+          // Any captured bank message for this card is now answered.
+          cardStatementDetections: store.cardStatementDetections().filter((item) => item.debtId !== debtId),
+        });
+        await persistStatementDetections();
+        await markLocalChangeAndPersist();
+      },
+
+      /**
+       * Saves the result of checking a bank statement PDF against the logged
+       * data. When the bill has no stored statement yet and the PDF printed a
+       * total due, the PDF becomes that bill's statement (`source: 'pdf'`).
+       */
+      async saveStatementPdfCheck(
+        debtId: string,
+        billDateStr: string,
+        pdfCheck: CardStatementPdfCheck
+      ): Promise<void> {
+        const existing = store.debts().find((debt) => debt.id === debtId);
+        if (!existing || existing.type !== 'credit-card') {
+          throw new Error('Credit card was not found.');
+        }
+        const current = confirmedStatementFor(existing, billDateStr);
+        if (!current) {
+          if (pdfCheck.bankTotalDue === undefined) return;
+          // The latest bill must be confirmed through confirmCardStatement
+          // (it decides how payments and differences are handled) — never
+          // silently from a PDF check.
+          if (cardCycleState(existing, cardRecords(), new Date()).billDateStr === billDateStr) return;
+        }
+
+        const now = new Date().toISOString();
+        const actor = activityActor();
+        const statement: CardStatement = current
+          ? { ...current, pdfCheck }
+          : { billDateStr, amount: roundMoney(pdfCheck.bankTotalDue!), source: 'pdf', updatedAt: now, pdfCheck };
+        patchState(store, {
+          debts: store.debts().map((debt) => {
+            if (debt.id !== debtId) return debt;
+            const statementHistory = upsertStatementHistory(debt, statement);
+            return {
+              ...debt,
+              statement: statementHistory[0],
+              statementHistory,
+              updatedAt: now,
+              updatedByEmail: actor.email,
+              updatedByRole: actor.role,
+            };
+          }),
         });
         await markLocalChangeAndPersist();
       },
 
       /**
-       * Auto-snapshots the statement for every active credit card whose
-       * bill-generation day has passed without a snapshot for that bill
-       * (`source: 'derived'`, confirmable in Finances). Idempotent — cards
-       * whose snapshot already covers the latest bill are untouched, so the
-       * watching effect settles after one pass per cycle.
+       * Assigns a captured bank statement message to a card (the user picked
+       * it), or drops it when `debtId` is null.
        */
-      async ensureCardStatements(): Promise<void> {
-        const now = new Date();
-        const entries = store.entries();
-        const adjustments = store.debtAdjustments();
-        const payments = store.debtPayments();
-        const updates = new Map<string, CardStatement>();
-        for (const debt of store.debts()) {
-          const snapshot = pendingDerivedStatement(debt, entries, adjustments, payments, now);
-          if (snapshot) updates.set(debt.id, snapshot);
-        }
-        if (updates.size === 0) return;
-
-        const nowIso = new Date().toISOString();
-        const actor = activityActor();
+      async resolveCardStatementDetection(detectionId: string, debtId: string | null): Promise<void> {
         patchState(store, {
-          debts: store.debts().map((debt) => {
-            const statement = updates.get(debt.id);
-            return statement
-              ? { ...debt, statement, updatedAt: nowIso, updatedByEmail: actor.email, updatedByRole: actor.role }
-              : debt;
-          }),
+          cardStatementDetections: debtId
+            ? store.cardStatementDetections().map((item) => (item.id === detectionId ? { ...item, debtId } : item))
+            : store.cardStatementDetections().filter((item) => item.id !== detectionId),
         });
-        await markLocalChangeAndPersist();
+        await persistStatementDetections();
+      },
+
+      /** Reads bank statement messages captured natively and applies/queues them. */
+      async processCardStatementDetections(): Promise<void> {
+        await processStatementDetections();
       },
 
       async deleteDebt(debtId: string): Promise<void> {
@@ -2887,7 +3362,7 @@ export const ExpenseStore = signalStore(
             const idsBeingPersisted = new Set(store.pendingSyncIds());
             // Durable-first: write the local snapshot (dirty) BEFORE the network
             // call. If everything below fails, the user's data still survives here.
-            await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), true);
+            await writeSnapshotForRevision(fileId, doc, store.lastKnownDriveModifiedTime(), true, revisionBeingPersisted);
             const modifiedTime = await googleDriveService.writeBackupFile(fileId, doc);
             persistedRevision = Math.max(persistedRevision, revisionBeingPersisted);
             // Drive write confirmed — everything included in THIS doc is in Drive.
@@ -2897,8 +3372,9 @@ export const ExpenseStore = signalStore(
               isOffline: false,
               pendingSyncIds: store.pendingSyncIds().filter((id) => !idsBeingPersisted.has(id)),
             });
-            // Snapshot is now in sync with Drive — clear the dirty flag.
-            await writeLocalBackupSnapshot(fileId, doc, store.lastKnownDriveModifiedTime(), false);
+            // Snapshot is now in sync with Drive — clear the dirty flag (skipped
+            // when a newer local change already wrote a newer dirty snapshot).
+            await writeSnapshotForRevision(fileId, doc, store.lastKnownDriveModifiedTime(), false, revisionBeingPersisted);
             onSyncSucceeded();
           } catch (err) {
             const status = (err as DriveApiError)?.status;
@@ -2970,6 +3446,16 @@ export const ExpenseStore = signalStore(
       },
 
       /**
+       * Resolves once every local change made so far is in the durable local
+       * snapshot (no network). Screens that must not wait for the Drive
+       * round-trip (e.g. the notification-inbox log sheet) await this instead
+       * of the full mutation promise.
+       */
+      whenLocallySaved(): Promise<void> {
+        return snapshotWriteChain;
+      },
+
+      /**
        * Immediately attempts to flush any unsynced local changes to Drive.
        * Call this when the system becomes ready again (network back online, app
        * regains focus). Resets the background backoff so the retry is prompt.
@@ -3014,9 +3500,19 @@ export const ExpenseStore = signalStore(
             if (result.currency) setCurrencyFromBackup(result.currency);
             patchState(store, {
               entries: result.entries,
-              accounts: result.accounts,
+              // Partner account records may carry stale cached balances —
+              // regenerate from the merged records (derived-balance boundary).
+              accounts: normalizeAccountBalances(result.accounts, {
+                accountAdjustments: result.accountAdjustments,
+                entries: result.entries,
+                debtAdjustments: result.debtAdjustments,
+              }),
+              debts: normalizeCardOutstandings(result.debts, {
+                entries: result.entries,
+                debtPayments: result.debtPayments,
+                debtAdjustments: result.debtAdjustments,
+              }),
               accountAdjustments: result.accountAdjustments,
-              debts: result.debts,
               debtPayments: result.debtPayments,
               debtAdjustments: result.debtAdjustments,
               limits: result.limits,
@@ -3103,26 +3599,6 @@ export const ExpenseStore = signalStore(
           void localNotificationService.scheduleCreditCardDueReminders(debts, entries, payments, debtAdjustments);
           void localNotificationService.scheduleSalaryReminder(adjustments);
         }, 1500);
-      });
-    }
-
-    // Statement snapshots (web + native): when a card's bill-generation day
-    // passes, freeze the derived statement amount so reminders/Finances show
-    // the payable bill, not the live outstanding. Debounced — data loads
-    // patch debts/entries several times in quick succession; idempotent once
-    // every card carries a snapshot for its latest bill.
-    {
-      let statementSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
-      effect(() => {
-        store.debts();
-        store.entries();
-        store.debtPayments();
-        store.debtAdjustments();
-        if (statementSnapshotTimer) clearTimeout(statementSnapshotTimer);
-        statementSnapshotTimer = setTimeout(() => {
-          statementSnapshotTimer = null;
-          void methods.ensureCardStatements();
-        }, 2000);
       });
     }
 

@@ -3,6 +3,7 @@
  * TC-DEBT-01 through TC-DEBT-10
  */
 import { test, expect } from '../fixtures/auth.fixture';
+import { expandFinanceItems } from '../helpers/page-helpers';
 
 test.describe('Finances — Debt Accounts — TC-DEBT', () => {
 
@@ -30,6 +31,7 @@ test.describe('Finances — Debt Accounts — TC-DEBT', () => {
     await page.goto('/#/finances');
     await page.waitForURL(/finances/);
     // Find the seeded debt (HDFC Credit Card, remainingBalance=45000)
+    await expandFinanceItems(page);
     const debtItem = page.locator('[class*="debt-item"]').filter({ hasText: /hdfc credit/i }).first();
     const payBtn = debtItem.locator('button').filter({ hasText: /record.*payment|pay/i }).first()
       .or(page.locator('button').filter({ hasText: /record.*payment|pay now/i }).first());
@@ -63,6 +65,7 @@ test.describe('Finances — Debt Accounts — TC-DEBT', () => {
       await page.locator('button[type="submit"]:visible').first().click();
       await expect(page.locator('text=Small Loan')).toBeVisible({ timeout: 5000 });
       // Pay it off entirely
+      await expandFinanceItems(page);
       const debtItem = page.locator('[class*="debt-item"]').filter({ hasText: /small loan/i }).first();
       const payBtn = debtItem.locator('button').filter({ hasText: /pay/i }).first();
       if (await payBtn.isVisible({ timeout: 2000 })) {
@@ -80,6 +83,7 @@ test.describe('Finances — Debt Accounts — TC-DEBT', () => {
     await page.goto('/#/finances');
     await page.waitForURL(/finances/);
     // After a payment, navigate to daily and check that a "Debt Payment" entry appears
+    await expandFinanceItems(page);
     const debtItem = page.locator('[class*="debt-item"]').first();
     const payBtn = debtItem.locator('button').filter({ hasText: /pay/i }).first();
     if (await payBtn.isVisible({ timeout: 3000 })) {
@@ -105,6 +109,7 @@ test.describe('Finances — Debt Accounts — TC-DEBT', () => {
     await page.waitForURL(/finances/);
     // If we had no accounts, record payment should be blocked
     // Simulate by checking the account dropdown is required
+    await expandFinanceItems(page);
     const payBtn = page.locator('button').filter({ hasText: /record.*payment|pay/i }).first();
     if (await payBtn.isVisible({ timeout: 3000 })) {
       await payBtn.click();

@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         registerPlugin(SpendNotificationAccessPlugin.class);
         registerPlugin(ExpenseWidgetPlugin.class);
         registerPlugin(StreakWidgetPlugin.class);
+        registerPlugin(FileExportPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Initialize notification channels for reliable delivery

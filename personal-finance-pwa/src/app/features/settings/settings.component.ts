@@ -30,6 +30,8 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 import { GoogleDriveService, BackupDocument } from '../../core/services/google-drive.service';
 import { StorageService } from '../../core/services/storage.service';
 import { AppLanguage, I18nService } from '../../core/services/i18n.service';
+import { toLocalDateString } from '../../core/utils/local-date';
+import { deliverTextFile, deliveryDetail } from '../../core/utils/file-download';
 import { AppCurrency, CurrencyService } from '../../core/services/currency.service';
 import { AiProviderMode, AiSettingsService } from '../../core/services/ai-settings.service';
 import { SpendNotificationAccessService } from '../../core/services/spend-notification-access.service';
@@ -2332,7 +2334,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // ─── Task 12.5: Export backup JSON ────────────────────────────────────────────
 
-  onExportBackupJson(): void {
+  async onExportBackupJson(): Promise<void> {
     const doc: BackupDocument = {
       version: '1.0',
       lastUpdated: new Date().toISOString(),
@@ -2347,23 +2349,26 @@ export class SettingsComponent implements OnInit, OnDestroy {
       accountAdjustments: this.expenseStore.accountAdjustments(),
       debts: this.expenseStore.debts(),
       debtPayments: this.expenseStore.debtPayments(),
+      // 2026-07-25: was missing — exports silently dropped refund/cashback/
+      // cash-withdrawal records, so restoring from an export corrupted card
+      // outstanding and derived account balances. Keep EVERY BackupDocument field.
+      debtAdjustments: this.expenseStore.debtAdjustments(),
     };
     const json = `${JSON.stringify(doc, null, 2)}\n`;
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `spenza-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-    this.feedback.success(
-      'Backup exported.',
-      'A restore-ready JSON backup was downloaded to this device.'
-    );
+    // Android WebView ignores <a download>; deliverTextFile saves natively there.
+    try {
+      const delivery = await deliverTextFile(
+        `spenza-backup-${toLocalDateString()}.json`,
+        json,
+        'application/json'
+      );
+      if (delivery.method !== 'shared') {
+        this.feedback.success('Backup exported.', deliveryDetail(delivery, (key, params) => this.i18n.t(key, params)));
+      }
+    } catch (error) {
+      console.warn('[Settings] backup export failed:', error);
+      this.feedback.error('Backup not exported.', 'Please try again.');
+    }
   }
 
   async onRestoreJsonSelected(event: Event): Promise<void> {

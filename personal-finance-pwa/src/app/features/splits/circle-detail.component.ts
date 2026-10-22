@@ -53,6 +53,7 @@ import {
   computeSettlementTransfers,
 } from '../../core/utils/circle-settlement';
 import { toLocalDateString } from '../../core/utils/local-date';
+import { deliverDataUrlFile, deliveryDetail } from '../../core/utils/file-download';
 import { AuthService } from '../../core/services/auth.service';
 import { CircleApiService, CircleApiError } from '../../core/services/circle-api.service';
 import { CircleSyncService } from '../../core/services/circle-sync.service';
@@ -1002,15 +1003,22 @@ export class CircleDetailComponent implements OnInit, OnDestroy {
     );
   }
 
-  downloadBill(): void {
+  async downloadBill(): Promise<void> {
     const bill = this.billData();
     const expense = this.billViewerExpense();
     if (!bill || !expense) return;
     const ext = bill.mimeType === 'image/webp' ? 'webp' : 'jpg';
-    const anchor = document.createElement('a');
-    anchor.href = bill.dataUrl;
-    anchor.download = `spenza-bill-${expense.date}-${expense.description.slice(0, 24).replace(/[^\w-]+/g, '_')}.${ext}`;
-    anchor.click();
+    const fileName = `spenza-bill-${expense.date}-${expense.description.slice(0, 24).replace(/[^\w-]+/g, '_')}.${ext}`;
+    try {
+      // Android WebView ignores <a download>; deliverDataUrlFile saves natively there.
+      const delivery = await deliverDataUrlFile(fileName, bill.dataUrl);
+      if (delivery.method !== 'shared') {
+        this.feedback.success(this.i18n.t('export.done'), deliveryDetail(delivery, (key, params) => this.i18n.t(key, params)));
+      }
+    } catch (error) {
+      console.warn('[Splits] downloadBill failed:', error);
+      this.feedback.error(this.i18n.t('export.failed'));
+    }
   }
 
   async removeBill(): Promise<void> {

@@ -14,3 +14,11 @@ export interface CardUtilizationEvent {
 }
 
 export const cardUtilizationCrossed$ = new Subject<CardUtilizationEvent>();
+
+/** A captured bank statement message was applied to a card without needing review. */
+export interface CardStatementAutoConfirmedEvent {
+  cardName: string;
+  amount: number;
+}
+
+export const cardStatementAutoConfirmed$ = new Subject<CardStatementAutoConfirmedEvent>();

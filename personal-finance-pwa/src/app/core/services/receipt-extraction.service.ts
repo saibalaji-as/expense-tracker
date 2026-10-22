@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { PREDEFINED_EXPENSE_TYPES } from '../models';
+import { loadPdfJs } from '../utils/pdf-js';
 
 export interface ReceiptExtractionResult {
   rawText: string;
@@ -113,13 +114,12 @@ const LINE_ITEM_SKIP_KEYWORDS = [
   'date', 'time', 'invoice', 'receipt', 'token', 'cashier', 'counter', 'address', 'branch',
 ];
 
-let pdfWorkerConfigured = false;
 
 @Injectable({ providedIn: 'root' })
 export class ReceiptExtractionService {
   async extract(file: File): Promise<ReceiptExtractionResult> {
     if (file.type === 'application/pdf') {
-      const pdfjsLib = await import('pdfjs-dist');
+      const pdfjsLib = await loadPdfJs();
       return this.parse(await this.extractPdfText(file, pdfjsLib));
     }
 
@@ -142,7 +142,7 @@ export class ReceiptExtractionService {
 
   async convertPdfToCompressedImage(file: File): Promise<File> {
     await this.configurePdfWorker();
-    const pdfjsLib = await import('pdfjs-dist');
+    const pdfjsLib = await loadPdfJs();
     const data = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data }).promise;
 
@@ -343,15 +343,9 @@ export class ReceiptExtractionService {
     });
   }
 
+  /** Kept for call-site clarity: pdf.js and its worker are set up by loadPdfJs. */
   private async configurePdfWorker(): Promise<void> {
-    if (pdfWorkerConfigured) return;
-
-    const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.mjs',
-      import.meta.url
-    ).toString();
-    pdfWorkerConfigured = true;
+    await loadPdfJs();
   }
 
   private async fileToCanvas(file: File): Promise<HTMLCanvasElement> {

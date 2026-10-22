@@ -643,7 +643,7 @@ export class DashboardComponent implements OnInit {
     const startStr = toLocalDateString(sevenDaysAgo);
     const todayStr = toLocalDateString(now);
     return this.expenseStore
-      .entries()
+      .expenseEntries()
       .filter((e) => e.date >= startStr && e.date <= todayStr)
       .reduce((s, e) => s + e.amount, 0);
   });
@@ -651,7 +651,7 @@ export class DashboardComponent implements OnInit {
   readonly avgPerDay = computed(() => {
     const currentMonth = toLocalDateString().slice(0, 7);
     const monthEntries = this.expenseStore
-      .entries()
+      .expenseEntries()
       .filter((e) => e.date.startsWith(currentMonth));
     if (monthEntries.length === 0) return 0;
     const total = monthEntries.reduce((s, e) => s + e.amount, 0);
@@ -688,7 +688,7 @@ export class DashboardComponent implements OnInit {
   });
 
   readonly weeklyInsightSummary = computed(() => {
-    const entries = this.expenseStore.entries();
+    const entries = this.expenseStore.expenseEntries();
     const current = this.entriesBetween(entries, 6, 0);
     const previous = this.entriesBetween(entries, 13, 7);
     const total = this.sumEntries(current);
@@ -704,7 +704,7 @@ export class DashboardComponent implements OnInit {
   readonly monthlyForecast = computed(() => {
     const today = parseLocalDate(toLocalDateString());
     const month = toLocalDateString().slice(0, 7);
-    const monthEntries = this.expenseStore.entries().filter((entry) => entry.date.startsWith(month));
+    const monthEntries = this.expenseStore.expenseEntries().filter((entry) => entry.date.startsWith(month));
     const spent = this.sumEntries(monthEntries);
     const daysElapsed = Math.max(1, today.getDate());
     const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -716,7 +716,7 @@ export class DashboardComponent implements OnInit {
   );
 
   readonly localInsightSections = computed<AiInsightSection[]>(() => {
-    const entries = this.expenseStore.entries();
+    const entries = this.expenseStore.expenseEntries();
     const current = this.entriesBetween(entries, 6, 0);
     if (current.length === 0) return [];
 
@@ -808,7 +808,7 @@ export class DashboardComponent implements OnInit {
   });
 
   readonly aiInsightPayload = computed<AiInsightPayload | null>(() => {
-    const entries = this.expenseStore.entries();
+    const entries = this.expenseStore.expenseEntries();
     const current = this.entriesBetween(entries, 6, 0);
     if (current.length === 0) return null;
 
@@ -854,7 +854,7 @@ export class DashboardComponent implements OnInit {
   });
 
   readonly activityTimeline = computed<ActivityItem[]>(() => {
-    return [...this.expenseStore.entries()]
+    return [...this.expenseStore.expenseEntries()]
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, 8)
       .map((entry) => {
@@ -886,7 +886,7 @@ export class DashboardComponent implements OnInit {
   constructor() {
     // Recompute all chart data when entries or budgetRuleSummary changes
     effect(() => {
-      const entries = this.expenseStore.entries();
+      const entries = this.expenseStore.expenseEntries();
       const summary = this.expenseStore.budgetRuleSummary();
 
       const ytd = this.computeYtdDailyData(entries);
@@ -1449,7 +1449,7 @@ export class DashboardComponent implements OnInit {
     if (income <= 0) return [];
 
     const totals = new Map<string, number>();
-    for (const entry of this.expenseStore.entries().filter((item) => item.date.startsWith(month))) {
+    for (const entry of this.expenseStore.expenseEntries().filter((item) => item.date.startsWith(month))) {
       totals.set(entry.type, (totals.get(entry.type) ?? 0) + entry.amount);
     }
 

@@ -301,8 +301,11 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
                 context, expenses, activeEmail, snapshotSavedAtMillis(prefs));
             String today = WidgetExpenseUtils.localDateToday();
             String yesterday = yesterday();
-            double todaySpent = totalForDate(expenses, today);
-            double yesterdaySpent = totalForDate(expenses, yesterday);
+            // Paying a credit-card bill is not spending (the purchases already
+            // counted) — mirrors expenseOnlyEntries() in credit-card-cycle.ts.
+            java.util.Set<String> creditCardIds = creditCardIds(doc);
+            double todaySpent = totalForDate(expenses, today, creditCardIds);
+            double yesterdaySpent = totalForDate(expenses, yesterday, creditCardIds);
             JSONArray queued = WidgetExpenseQueue.readQueue(context);
             todaySpent += queuedTotalForDate(queued, today, activeEmail);
             yesterdaySpent += queuedTotalForDate(queued, yesterday, activeEmail);
@@ -418,14 +421,28 @@ public class ExpenseWidgetProvider extends AppWidgetProvider {
             }
         }
 
-        private static double totalForDate(JSONArray expenses, String date) {
+        private static java.util.Set<String> creditCardIds(JSONObject doc) {
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            JSONArray debts = doc == null ? null : doc.optJSONArray("debts");
+            if (debts == null) return ids;
+            for (int i = 0; i < debts.length(); i++) {
+                JSONObject debt = debts.optJSONObject(i);
+                if (debt != null && "credit-card".equals(debt.optString("type"))) {
+                    ids.add(debt.optString("id"));
+                }
+            }
+            return ids;
+        }
+
+        private static double totalForDate(JSONArray expenses, String date, java.util.Set<String> creditCardIds) {
             if (expenses == null) return 0;
             double total = 0;
             for (int i = 0; i < expenses.length(); i++) {
                 JSONObject entry = expenses.optJSONObject(i);
-                if (entry != null && date.equals(entry.optString("date"))) {
-                    total += entry.optDouble("amount", 0);
-                }
+                if (entry == null || !date.equals(entry.optString("date"))) continue;
+                boolean cardBillPayment = "debt-payment".equals(entry.optString("source"))
+                    && creditCardIds.contains(entry.optString("debtId"));
+                if (!cardBillPayment) total += entry.optDouble("amount", 0);
             }
             return total;
         }

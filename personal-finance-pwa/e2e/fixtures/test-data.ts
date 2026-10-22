@@ -91,6 +91,9 @@ export const TEST_ACCOUNTS = [
     name: 'HDFC Salary',
     type: 'bank',
     balance: 25000,
+    // Balances are derived from records (initialBalance + adjustments - linked entries);
+    // without this the app shows 0 and raises a reconciliation banner.
+    initialBalance: 25000,
     allowOverdraft: false,
     isDefault: true,
     archived: false,
@@ -102,6 +105,7 @@ export const TEST_ACCOUNTS = [
     name: 'Cash Wallet',
     type: 'cash',
     balance: 2000,
+    initialBalance: 2000,
     allowOverdraft: false,
     isDefault: false,
     archived: false,

@@ -1,5 +1,6 @@
 package com.spenza.app;
 
+import java.util.Calendar;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -10,6 +11,8 @@ final class SpendNotificationClassifier {
         INCOME_OR_REFUND,
         /** A payment TOWARDS a credit card bill (bank debit or card-side confirmation). */
         CREDIT_CARD_PAYMENT,
+        /** The bank's credit-card statement: total due (+ minimum due, due date). Never prompts as a spend. */
+        CARD_STATEMENT,
         BALANCE_OR_STATEMENT,
         PAYMENT_REQUEST,
         FAILED_OR_PENDING,
@@ -28,6 +31,8 @@ final class SpendNotificationClassifier {
         final String cardLast4;
         /** Income message that specifically looks like salary. */
         final boolean isSalary;
+        /** Parsed statement figures — set only for {@link Type#CARD_STATEMENT}. */
+        final StatementInfo statement;
 
         private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard) {
             this(type, confidence, amount, normalizedText, isCreditCard, null, false);
@@ -38,6 +43,11 @@ final class SpendNotificationClassifier {
         }
 
         private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard, String cardLast4, boolean isSalary) {
+            this(type, confidence, amount, normalizedText, isCreditCard, cardLast4, isSalary, null);
+        }
+
+        private Classification(Type type, double confidence, double amount, String normalizedText, boolean isCreditCard, String cardLast4, boolean isSalary, StatementInfo statement) {
+            this.statement = statement;
             this.type = type;
             this.confidence = confidence;
             this.amount = amount;
@@ -271,6 +281,171 @@ final class SpendNotificationClassifier {
         Pattern.CASE_INSENSITIVE
     );
 
+    // ─── Credit-card statement messages ──────────────────────────────────────
+    // Mirrors src/app/core/utils/card-statement-message.ts (parseStatementMessage)
+    // — keep the two in step. Parsed on-device only.
+
+    /** Figures read from a bank's statement message. */
+    static final class StatementInfo {
+        /** Total amount due. */
+        final double amount;
+        /** Minimum due, or -1 when the message does not state one. */
+        final double minDue;
+        /** Payment due date as local yyyy-MM-dd, or null. */
+        final String dueDateStr;
+        final String cardLast4;
+        /** True when the text explicitly mentions a statement / generated bill. */
+        final boolean mentionsStatement;
+
+        StatementInfo(double amount, double minDue, String dueDateStr, String cardLast4, boolean mentionsStatement) {
+            this.amount = amount;
+            this.minDue = minDue;
+            this.dueDateStr = dueDateStr;
+            this.cardLast4 = cardLast4;
+            this.mentionsStatement = mentionsStatement;
+        }
+    }
+
+    private static final int ST_FLAGS = Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+    private static final String ST_CURRENCY = "(?:rs\\.?|inr|₹|aed|usd|us\\$|\\$|dhs?\\.?)";
+    private static final String ST_NUMBER = "([0-9][0-9,]*(?:\\.[0-9]{1,2})?)";
+    private static final String ST_MONEY = "(?:" + ST_CURRENCY + "\\s*)?" + ST_NUMBER;
+    private static final String ST_STRICT_MONEY = ST_CURRENCY + "\\s*" + ST_NUMBER;
+    private static final String ST_LINK = "\\s*(?:is|of|:|-|=|as)?\\s*";
+
+    private static final Pattern[] ST_MIN_DUE = {
+        Pattern.compile("min(?:imum)?\\.?\\s*(?:amount|amt)?\\.?\\s*(?:due|payable)" + ST_LINK + ST_MONEY, ST_FLAGS),
+        Pattern.compile("min(?:imum)?\\.?\\s*(?:amount|amt)?\\.?\\s*of\\s*" + ST_MONEY, ST_FLAGS),
+        Pattern.compile("min(?:imum)?\\.?\\s*(?:amount|amt)\\.?" + ST_LINK + ST_MONEY, ST_FLAGS),
+        Pattern.compile("mad" + ST_LINK + ST_MONEY, ST_FLAGS),
+    };
+
+    private static final Pattern[] ST_TOTAL_DUE = {
+        Pattern.compile("total\\s*(?:amount|amt)?\\.?\\s*(?:due|payable|outstanding)" + ST_LINK + ST_MONEY, ST_FLAGS),
+        Pattern.compile("total\\s*of\\s*" + ST_MONEY, ST_FLAGS),
+        Pattern.compile("(?:statement|stmt|bill)\\s*(?:amount|amt|balance|bal)\\.?" + ST_LINK + ST_MONEY, ST_FLAGS),
+        Pattern.compile("(?:amount|amt)\\.?\\s*(?:due|payable)" + ST_LINK + ST_MONEY, ST_FLAGS),
+        Pattern.compile("(?:statement|stmt|bill)[^.]{0,60}?\\bfor\\s*" + ST_STRICT_MONEY, ST_FLAGS),
+        Pattern.compile("(?:due|payable|outstanding)\\s*(?:of|is|:)?\\s*" + ST_STRICT_MONEY, ST_FLAGS),
+        Pattern.compile(ST_STRICT_MONEY + "\\s*(?:is\\s*)?(?:due|payable)", ST_FLAGS),
+    };
+
+    private static final Pattern ST_STATEMENT_WORDS = Pattern.compile(
+        "\\b(?:e-?statement|statement|stmt)\\b|\\bbill\\b[^.]{0,30}\\bgenerated\\b|\\bbill\\s+(?:amount|amt)\\b",
+        ST_FLAGS
+    );
+
+    private static final String ST_MONTH = "(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*";
+    private static final String ST_DUE_LEAD =
+        "(?:due\\s*(?:date|dt|on|by)?|payable\\s*(?:by|on)|pay\\s*by|payment\\s*by|\\bby)\\s*(?:is|:|-)?\\s*";
+    /** 15-10-2026, 15/10/26, 15.10.2026 */
+    private static final Pattern ST_DUE_NUMERIC = Pattern.compile(
+        ST_DUE_LEAD + "(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4}|\\d{2})\\b", ST_FLAGS);
+    /** 15-Oct-2026, 15 OCT 26, 15Oct, 15th October */
+    private static final Pattern ST_DUE_NAMED = Pattern.compile(
+        ST_DUE_LEAD + "(\\d{1,2})(?:st|nd|rd|th)?[-\\s]?" + ST_MONTH + "(?:[-\\s,']*(\\d{4}|\\d{2})\\b)?", ST_FLAGS);
+    /** Oct 15, 2026 / October 15 */
+    private static final Pattern ST_DUE_US = Pattern.compile(
+        ST_DUE_LEAD + ST_MONTH + "\\s*(\\d{1,2})(?:st|nd|rd|th)?(?:[\\s,]*(\\d{4})\\b)?", ST_FLAGS);
+
+    private static final String[] ST_MONTH_KEYS = {
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
+    };
+
+    /** Reads the statement figures from a (normalized, single-line) message, or null without a total due. */
+    static StatementInfo parseStatement(String normalizedText, Calendar now) {
+        if (isBlank(normalizedText) || normalizedText.length() < 8) return null;
+
+        // Minimum due first, then blank it out so "min amount due" is never read as the total.
+        double minDue = -1;
+        String withoutMin = normalizedText;
+        for (Pattern pattern : ST_MIN_DUE) {
+            Matcher matcher = pattern.matcher(normalizedText);
+            if (matcher.find()) {
+                minDue = parseMoney(matcher.group(1));
+                withoutMin = normalizedText.substring(0, matcher.start()) + " " + normalizedText.substring(matcher.end());
+                break;
+            }
+        }
+
+        double total = -1;
+        for (Pattern pattern : ST_TOTAL_DUE) {
+            Matcher matcher = pattern.matcher(withoutMin);
+            if (matcher.find()) {
+                total = parseMoney(matcher.group(1));
+                break;
+            }
+        }
+        if (total < 0) return null;
+
+        String dueDateStr = null;
+        Matcher numeric = ST_DUE_NUMERIC.matcher(normalizedText);
+        if (numeric.find()) {
+            dueDateStr = resolveDueDate(
+                Integer.parseInt(numeric.group(1)), Integer.parseInt(numeric.group(2)), Integer.parseInt(numeric.group(3)), now);
+        }
+        if (dueDateStr == null) {
+            Matcher named = ST_DUE_NAMED.matcher(normalizedText);
+            if (named.find()) {
+                dueDateStr = resolveDueDate(
+                    Integer.parseInt(named.group(1)), monthNumber(named.group(2)),
+                    named.group(3) == null ? -1 : Integer.parseInt(named.group(3)), now);
+            }
+        }
+        if (dueDateStr == null) {
+            Matcher us = ST_DUE_US.matcher(normalizedText);
+            if (us.find()) {
+                dueDateStr = resolveDueDate(
+                    Integer.parseInt(us.group(2)), monthNumber(us.group(1)),
+                    us.group(3) == null ? -1 : Integer.parseInt(us.group(3)), now);
+            }
+        }
+
+        return new StatementInfo(
+            total,
+            minDue > 0 && minDue <= total ? minDue : -1,
+            dueDateStr,
+            extractCardLast4(normalizedText.toLowerCase(Locale.US)),
+            ST_STATEMENT_WORDS.matcher(normalizedText).find()
+        );
+    }
+
+    private static int monthNumber(String name) {
+        String key = name.toLowerCase(Locale.US);
+        key = key.length() > 3 ? key.substring(0, 3) : key;
+        for (int i = 0; i < ST_MONTH_KEYS.length; i++) {
+            if (ST_MONTH_KEYS[i].equals(key)) return i + 1;
+        }
+        return -1;
+    }
+
+    /** yyyy-MM-dd for a real calendar date; a missing year (-1) resolves to the next such date not well in the past. */
+    private static String resolveDueDate(int day, int month, int year, Calendar now) {
+        if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+        int fullYear;
+        if (year < 0) {
+            fullYear = now.get(Calendar.YEAR);
+            Calendar candidate = Calendar.getInstance();
+            candidate.clear();
+            candidate.set(fullYear, month - 1, day);
+            Calendar cutoff = (Calendar) now.clone();
+            cutoff.add(Calendar.DAY_OF_MONTH, -45);
+            if (candidate.before(cutoff)) fullYear += 1;
+        } else {
+            fullYear = year < 100 ? 2000 + year : year;
+        }
+        Calendar date = Calendar.getInstance();
+        date.clear();
+        date.setLenient(false);
+        try {
+            date.set(fullYear, month - 1, day);
+            date.getTimeInMillis();
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+        return String.format(Locale.US, "%04d-%02d-%02d", fullYear, month, day);
+    }
+
     private SpendNotificationClassifier() {}
 
     static Classification classify(String rawText, String sourcePackage) {
@@ -293,6 +468,17 @@ final class SpendNotificationClassifier {
         }
         if (!isSmsSource(packageName)) {
             return new Classification(Type.UNKNOWN, 0, 0, normalized, false);
+        }
+        // A credit-card statement message ("Statement generated. Total due Rs X,
+        // min due Rs Y, due date …") is the bank's truth for the bill. Checked
+        // before the security terms: statement mails often mention the PDF
+        // "password". It is recorded for the app, never prompted as a spend.
+        if (lower.contains("card")) {
+            StatementInfo statement = parseStatement(normalized, Calendar.getInstance());
+            if (statement != null && statement.mentionsStatement) {
+                return new Classification(
+                    Type.CARD_STATEMENT, 0.9, statement.amount, normalized, true, statement.cardLast4, false, statement);
+            }
         }
         if (containsAny(lower, SECURITY_TERMS)) {
             return new Classification(Type.SECURITY_OR_OTP, 0.98, 0, normalized, false);

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getGoogleAccessToken = exports.exchangeGoogleAuthCode = exports.notifyPartnerLedgerWrite = exports.deleteCircle = exports.settleCircle = exports.updateCircle = exports.previewCircleInvite = exports.redeemCircleInvite = exports.createCircleInvite = exports.createCircle = exports.commitFamilyLedger = exports.leaveFamily = exports.dissolveFamily = exports.redeemFamilyInvite = exports.createFamilyInvite = exports.createFamily = exports.parseVoiceReminder = exports.parseVoiceExpense = exports.generateInsights = exports.extractReceipt = exports.unregisterToken = exports.registerToken = exports.sendDueReminders = exports.sendReminders = exports.redeemSubscriptionHandoff = exports.createSubscriptionHandoff = exports.webhookHealthCheck = exports.razorpayWebhook = exports.cancelRazorpaySubscription = exports.restoreRazorpaySubscription = exports.verifyRazorpayPayment = exports.createRazorpaySubscription = void 0;
+exports.mcp = exports.getGoogleAccessToken = exports.exchangeGoogleAuthCode = exports.notifyPartnerLedgerWrite = exports.deleteCircle = exports.settleCircle = exports.updateCircle = exports.previewCircleInvite = exports.redeemCircleInvite = exports.createCircleInvite = exports.createCircle = exports.commitFamilyLedger = exports.leaveFamily = exports.dissolveFamily = exports.redeemFamilyInvite = exports.createFamilyInvite = exports.createFamily = exports.parseVoiceReminder = exports.parseVoiceExpense = exports.generateInsights = exports.extractReceipt = exports.unregisterToken = exports.registerToken = exports.sendDueReminders = exports.sendReminders = exports.redeemSubscriptionHandoff = exports.createSubscriptionHandoff = exports.webhookHealthCheck = exports.razorpayWebhook = exports.cancelRazorpaySubscription = exports.restoreRazorpaySubscription = exports.verifyRazorpayPayment = exports.createRazorpaySubscription = void 0;
 const admin = __importStar(require("firebase-admin"));
 const razorpay_1 = require("./razorpay");
 Object.defineProperty(exports, "createRazorpaySubscription", { enumerable: true, get: function () { return razorpay_1.createRazorpaySubscription; } });
@@ -85,5 +85,7 @@ Object.defineProperty(exports, "notifyPartnerLedgerWrite", { enumerable: true, g
 const google_tokens_1 = require("./google-tokens");
 Object.defineProperty(exports, "exchangeGoogleAuthCode", { enumerable: true, get: function () { return google_tokens_1.exchangeGoogleAuthCode; } });
 Object.defineProperty(exports, "getGoogleAccessToken", { enumerable: true, get: function () { return google_tokens_1.getGoogleAccessToken; } });
+const http_1 = require("./mcp/http");
+Object.defineProperty(exports, "mcp", { enumerable: true, get: function () { return http_1.mcp; } });
 admin.initializeApp();
 //# sourceMappingURL=index.js.map

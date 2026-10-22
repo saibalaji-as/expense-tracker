@@ -17,6 +17,7 @@ import { commitFamilyLedger } from './family-ledger';
 import { createCircle, createCircleInvite, redeemCircleInvite, previewCircleInvite, updateCircle, settleCircle, deleteCircle } from './circles';
 import { notifyPartnerLedgerWrite } from './ledger-push';
 import { exchangeGoogleAuthCode, getGoogleAccessToken } from './google-tokens';
+import { mcp } from './mcp/http';
 
 admin.initializeApp();
 
@@ -53,4 +54,5 @@ export {
   notifyPartnerLedgerWrite,
   exchangeGoogleAuthCode,
   getGoogleAccessToken,
+  mcp,
 };

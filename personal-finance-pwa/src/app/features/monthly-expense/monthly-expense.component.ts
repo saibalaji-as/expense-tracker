@@ -468,7 +468,7 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
 
   readonly previousMonthEntries = computed(() => {
     const prevMonth = this.previousMonth();
-    return this.expenseStore.entries().filter((e) => e.date.startsWith(prevMonth));
+    return this.expenseStore.expenseEntries().filter((e) => e.date.startsWith(prevMonth));
   });
 
   readonly previousMonthSpent = computed(() =>
@@ -672,7 +672,7 @@ export class MonthlyExpenseComponent implements OnInit, OnDestroy {
   }
 
   private hasEntriesForMonth(month: string): boolean {
-    return this.expenseStore.entries().some((entry) => entry.date.startsWith(month));
+    return this.expenseStore.expenseEntries().some((entry) => entry.date.startsWith(month));
   }
 
   private showMonthPickerToast(message: string): void {

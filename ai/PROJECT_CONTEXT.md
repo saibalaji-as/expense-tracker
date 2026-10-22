@@ -254,7 +254,7 @@
   - Reads posted notification title/body/expanded lines locally on-device.
   - Also reads messaging-style notification extras and parses group-summary notifications, since some SMS/payment apps expose useful text only through those surfaces.
   - Uses `SpendNotificationClassifier` as a local deterministic classifier before amount extraction/prompting.
-  - Classifier result types include expense transaction, income/refund, balance/statement, payment request, failed/pending, security/OTP, app-update/system, and unknown.
+  - Classifier result types include expense transaction, income/refund, credit-card payment, card statement (figures handed to the app via `spenza_card_statement_detections_v1`, never prompted as a spend), balance/statement, payment request, failed/pending, security/OTP, app-update/system, and unknown.
   - Only high-confidence `EXPENSE_TRANSACTION` or `INCOME_OR_REFUND` classifications open the review sheet.
   - Ignores Spenza's own notifications, ongoing notifications, failed/pending/cancelled/request-only messages, OTP/security messages, and balance/reference amount contexts.
   - Parses likely debit/spend/payment/card/UPI/POS/ATM/NACH/AutoPay/fee notifications for amount hints, including common spend words such as `used`, `debited`, `spent`, `paid`, `purchase`, `withdrawn`, `charged`, `deducted`, `sent`, and `transferred`.
@@ -435,6 +435,19 @@
   - View active and paid debts with progress bars.
   - Record, edit, and delete debt payments from active accounts.
   - Delete debts after their payment logs are removed.
+
+## Credit Card Cycle (2026-10-02 model)
+- Engine: `core/utils/credit-card-cycle.ts` (pure). Three numbers per card that ALWAYS reconcile: **Total outstanding = Bill due + Unbilled spend**.
+  - Total outstanding = `DebtAccount.remainingBalance` (record-derived, see Account Balances).
+  - Statement amount = the BANK'S figure for the latest bill date. Bill due = statement amount − payments dated on/after `statement.paymentsFromStr`, capped at the total.
+  - Unbilled spend = total − bill due. It is a difference, never a per-transaction date bucket, so bill-day spends, backdated entries, edits and overpayments can never fall between the two.
+- The app never guesses a statement. On the bill date the cycle becomes **statement pending** and shows a live estimate (outstanding as of the end of the bill date). The truth arrives from: a bank message captured by the Android listener (`source: 'sms'`), a bank PDF (`'pdf'`), or the user (`'user'`). Legacy `source: 'derived'` snapshots are ignored.
+- Statements are stored per bill date in `DebtAccount.statementHistory` (newest first, cap 36); `DebtAccount.statement` mirrors the newest for older builds. Helpers: `core/utils/credit-card-statement.ts`.
+- `ExpenseStore.confirmCardStatement` is the only writer for the latest bill. Bank amount above everything recorded → audited `charge` adjustment for the gap. Total above bank bill + spends since the bill date → carried as unbilled, or (user choice) audited `refund` adjustment.
+- Bill day and due day are required on the card form (legacy cards without a bill day have status `none`: whole outstanding treated as due).
+- Paying a card bill is NOT an expense: the generated `Debt Payment` entry stays in `entries` (it debits the paying account) but `ExpenseStore.expenseEntries` excludes it and every spending view/total/budget reads that. Loan/EMI repayments remain expenses. The Android widget applies the same rule.
+- UI: `<app-card-statement-prompt>` (app shell) is the statement dialog — opened from Finances, by a captured bank message needing review, or automatically from the day after a bill date for 7 days ("Not yet" snoozes to tomorrow). `<app-card-statements>` (Finances → Statements) shows each bill window, checks it against the bank's PDF on-device (pdfjs; nothing uploaded/stored) and exports CSV.
+- Reminders (`core/utils/credit-card-reminders.ts`, native only): statement ask on bill date +1/+2/+3; due date −3/−2/−1 days at 09:00; due date at 06:00, 09:00, 12:00, 18:00; one overdue nudge; one generic next-cycle safety net. All due reminders exist only while Bill due > 0.
 
 ## State Management
 - Central store: `ExpenseStore` in `core/services/expense-store.service.ts`.
@@ -696,6 +709,12 @@
 - AI weekly insights are cached and daily-call limited.
 - OCR downsizes/enhances images and caps PDF pages/pixels.
 - Chart colors resolve CSS variables at runtime because canvas cannot read CSS vars directly.
+
+## MCP Server (read-only Claude connector)
+- Function `mcp` (`functions/src/mcp/`), one router for `/mcp`, `/oauth/*` and `/.well-known/oauth-*`, exposed on spenza.site through Hosting rewrites (ngsw navigationUrls exclude these paths so the service worker never serves index.html for them).
+- Read-only by construction; Pro only. Data source: Drive `appDataFolder/spenza-backup.json` (single) or `families/{id}/ledger` (family). Balances/card outstandings healed with derived-balance utils, as the store does.
+- OAuth: own authorization server (DCR, PKCE S256, refresh rotation) delegating identity to Google (web client, `drive.appdata`, offline). Server-only collections: `mcpClients`, `mcpAuthRequests`, `mcpAuthCodes`, `mcpTokens` (hashed), `mcpGrants/{uid}` (Google refresh token).
+- Shared maths: `functions/src/spenza-core/` is a GENERATED copy of pure app models/utils — edit the app files, never the copy; `npm run build` in functions re-syncs.
 
 ## Known Architectural Risks
 - `DailyExpenseComponent`, `SettingsComponent`, and `LocalNotificationService` are very large and mix UI, orchestration, and business logic.

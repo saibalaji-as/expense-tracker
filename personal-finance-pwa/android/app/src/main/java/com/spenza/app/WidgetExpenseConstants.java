@@ -38,6 +38,10 @@ final class WidgetExpenseConstants {
     // Device-local notification inbox. PRIVACY: contains SMS-derived text; must
     // never be synced into the Drive backup or family Firestore documents.
     static final String NOTIFICATION_INBOX_KEY = "spenza_notification_inbox_v1";
+    // Captured credit-card statement figures (total due, min due, due date,
+    // last-4) waiting for the Angular ExpenseStore. Shared with TS — pinned by
+    // storage-key-contract.spec.ts. Holds numbers only, never message text.
+    static final String CARD_STATEMENT_DETECTIONS_KEY = "spenza_card_statement_detections_v1";
     static final String WIDGET_INBOX_ID_EXTRA = "com.spenza.app.WIDGET_INBOX_ID";
     static final String PRO_TIER_KEY = "spenza_pro_tier";
     static final String WIDGET_CATEGORY_EXTRA = "com.spenza.app.WIDGET_CATEGORY";

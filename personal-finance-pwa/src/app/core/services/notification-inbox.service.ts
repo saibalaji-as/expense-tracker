@@ -73,6 +73,14 @@ export class NotificationInboxService {
   }
 
   /**
+   * Restores an item's earlier status/link — used when a save that already
+   * claimed the item (status flipped synchronously) fails validation.
+   */
+  async restore(previous: NotificationInboxItem): Promise<void> {
+    await this.#setStatus(previous.id, previous.status, previous.linkedEntryId, !previous.linkedEntryId);
+  }
+
+  /**
    * Marks pending expense-like detections whose amount matches an expense
    * already logged on the same local day as auto-handled. Returns the number
    * of items matched.
@@ -80,6 +88,9 @@ export class NotificationInboxService {
   async autoMatch(entries: readonly ExpenseEntry[]): Promise<number> {
     const matches = findAutoMatches(this.items(), entries);
     for (const [itemId, entryId] of matches) {
+      // Re-check: an explicit log/dismiss may have landed while we awaited.
+      const current = this.items().find((item) => item.id === itemId);
+      if (current?.status !== 'pending') continue;
       await this.#setStatus(itemId, 'auto-handled', entryId);
     }
     return matches.length;
@@ -89,7 +100,23 @@ export class NotificationInboxService {
     itemId: string,
     status: NotificationInboxStatus,
     linkedEntryId?: string,
+    clearLink = false,
   ): Promise<void> {
+    const statusChangedAt = new Date().toISOString();
+    const apply = <T extends object>(record: T): T => {
+      const next: Record<string, unknown> = { ...record, status, statusChangedAt };
+      if (linkedEntryId) next['linkedEntryId'] = linkedEntryId;
+      else if (clearLink) delete next['linkedEntryId'];
+      return next as T;
+    };
+
+    // Reflect in memory SYNCHRONOUSLY: the auto-match effect reads items(), and
+    // a deferred update let it re-label a just-saved detection "Already logged"
+    // (auto-handled) before the explicit logged status landed.
+    this.items.update((items) =>
+      items.map((item) => (item.id === itemId ? apply(item) : item)),
+    );
+
     const task = this.#writeQueue.then(async () => {
       // Re-read raw storage so items of other accounts (or ones added by the
       // native listener since our last load) are preserved on write.
@@ -102,34 +129,18 @@ export class NotificationInboxService {
         all = [];
       }
 
-      const statusChangedAt = new Date().toISOString();
       let changed = false;
       const next = all.map((rawItem) => {
         if (!rawItem || typeof rawItem !== 'object') return rawItem;
         const record = rawItem as Record<string, unknown>;
         if (record['id'] !== itemId) return rawItem;
         changed = true;
-        return {
-          ...record,
-          status,
-          statusChangedAt,
-          ...(linkedEntryId ? { linkedEntryId } : {}),
-        };
+        return apply(record);
       });
 
       if (changed) {
         await this.storage.set(NOTIFICATION_INBOX_STORAGE_KEY, JSON.stringify(next));
       }
-
-      // Reflect in the in-memory signal regardless, so the UI updates even if
-      // the raw record was missing (e.g. evicted between load and action).
-      this.items.update((items) =>
-        items.map((item) =>
-          item.id === itemId
-            ? { ...item, status, statusChangedAt, ...(linkedEntryId ? { linkedEntryId } : {}) }
-            : item,
-        ),
-      );
     });
 
     // Keep the queue alive even when a task fails.

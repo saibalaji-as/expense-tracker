@@ -1,121 +1,51 @@
-import { CardStatement, DebtAccount, DebtAdjustment, DebtPayment, ExpenseEntry } from '../models';
-import { lastOccurrenceOnOrBefore } from './credit-card-reminders';
+import { CardStatement, DebtAccount } from '../models';
 
 /**
- * Pure statement-snapshot logic (2026-07-19).
+ * Stored credit-card statements (2026-10-02 model — replaces the frozen
+ * "derived snapshot" of 2026-07-19).
  *
- * Why: reminder amounts were derived live from the current outstanding, so
- * post-bill activity (and bank-side interest/fees Spenza never sees) made the
- * reminder drift from the real payable bill. Now each card keeps ONE snapshot
- * of the latest generated statement (`DebtAccount.statement`):
- *  - derived automatically when a bill-generation day passes (`source: 'derived'`),
- *  - confirmable/editable by the user in Finances (`source: 'user'`) so any
- *    discrepancy with the actual bank statement can be corrected.
+ * A statement is the BANK'S amount for one bill date. It is only ever written
+ * from a source of truth — the user, a bank message or a bank PDF — never
+ * guessed by the app. Until it exists the cycle is "statement pending" and
+ * credit-card-cycle.ts shows a live estimate instead.
  *
- * Date semantics: everything strictly AFTER the bill date (`> billDateStr`) is
- * post-statement; activity dated on the bill day itself is treated as included
- * in the statement.
+ * `DebtAccount.statementHistory` keeps one statement per bill date (newest
+ * first); `DebtAccount.statement` mirrors the newest for older builds.
  */
 
-const round2 = (n: number): number => Number(n.toFixed(2));
+/** Confirmed statements kept per card (3 years of monthly bills). */
+export const STATEMENT_HISTORY_LIMIT = 36;
 
-const isCardCredit = (kind: DebtAdjustment['kind']): boolean =>
-  kind === 'refund' || kind === 'cashback';
+/** A statement counts as the bank's truth unless it is a legacy auto-derived snapshot. */
+export const isConfirmedStatement = (statement: CardStatement | undefined | null): statement is CardStatement =>
+  !!statement && statement.source !== 'derived';
 
-/** Local YYYY-MM-DD (matches ExpenseEntry/DebtPayment/DebtAdjustment dates). */
-export function toLocalDateStr(date: Date): string {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, '0');
-  const d = `${date.getDate()}`.padStart(2, '0');
-  return `${y}-${m}-${d}`;
+/** All confirmed statements of a card, newest first, one per bill date. */
+export function confirmedStatements(card: DebtAccount): CardStatement[] {
+  const byBillDate = new Map<string, CardStatement>();
+  for (const statement of card.statementHistory ?? []) {
+    if (isConfirmedStatement(statement) && !byBillDate.has(statement.billDateStr)) {
+      byBillDate.set(statement.billDateStr, statement);
+    }
+  }
+  // `statement` is the field older builds write; honour a user-confirmed one
+  // that is newer than (or missing from) the history.
+  const latest = card.statement;
+  if (isConfirmedStatement(latest)) {
+    const existing = byBillDate.get(latest.billDateStr);
+    if (!existing || latest.updatedAt > existing.updatedAt) byBillDate.set(latest.billDateStr, latest);
+  }
+  return [...byBillDate.values()].sort((a, b) => b.billDateStr.localeCompare(a.billDateStr));
 }
 
-/**
- * The most recent bill-generation date for the card on or before `now`,
- * or null when the card has no billGenerationDay configured.
- */
-export function latestBillDate(card: DebtAccount, now: Date): Date | null {
-  if (!card.billGenerationDay) return null;
-  return lastOccurrenceOnOrBefore(card.billGenerationDay, now);
+export function confirmedStatementFor(card: DebtAccount, billDateStr: string): CardStatement | null {
+  return confirmedStatements(card).find((statement) => statement.billDateStr === billDateStr) ?? null;
 }
 
-/**
- * Reconstructs the card's outstanding AS OF the bill date from current state:
- * current outstanding, minus post-bill charges (purchases + debit adjustments),
- * plus post-bill credits (refunds/cashback) and post-bill payments (both
- * already reduced the outstanding but were NOT part of the statement).
- */
-export function deriveStatementAmount(
-  card: DebtAccount,
-  entries: readonly ExpenseEntry[],
-  adjustments: readonly DebtAdjustment[],
-  payments: readonly DebtPayment[],
-  billDate: Date
-): number {
-  const billStr = toLocalDateStr(billDate);
-  const postBillCharges = entries
-    .filter((e) => e.debtId === card.id && e.source !== 'debt-payment' && e.date > billStr)
-    .reduce((sum, e) => sum + e.amount, 0);
-  const postBillAdjustmentsNet = adjustments
-    .filter((a) => a.debtId === card.id && a.date > billStr)
-    .reduce((sum, a) => sum + (isCardCredit(a.kind) ? -a.amount : a.amount), 0);
-  const postBillPayments = payments
-    .filter((p) => p.debtId === card.id && p.date > billStr)
-    .reduce((sum, p) => sum + p.amount, 0);
-  return Math.max(
-    0,
-    round2(card.remainingBalance - postBillCharges - postBillAdjustmentsNet + postBillPayments)
-  );
-}
-
-/**
- * What is still left to pay for a snapshotted statement: the (possibly
- * user-corrected) statement amount minus payments recorded after the bill
- * date. Never negative.
- */
-export function statementRemainingDue(
-  statement: CardStatement,
-  payments: readonly DebtPayment[],
-  debtId: string
-): number {
-  const paidSinceBill = payments
-    .filter((p) => p.debtId === debtId && p.date > statement.billDateStr)
-    .reduce((sum, p) => sum + p.amount, 0);
-  return Math.max(0, round2(statement.amount - paidSinceBill));
-}
-
-/** True when `statement` covers the card's latest generated bill. */
-export function statementIsCurrent(
-  card: DebtAccount,
-  statement: CardStatement | undefined,
-  now: Date
-): statement is CardStatement {
-  if (!statement) return false;
-  const billDate = latestBillDate(card, now);
-  return billDate !== null && statement.billDateStr === toLocalDateStr(billDate);
-}
-
-/**
- * Builds the derived snapshot a card should carry for its latest bill, or
- * null when no snapshot update is needed (no bill day configured, or the
- * existing snapshot already covers the latest bill date).
- */
-export function pendingDerivedStatement(
-  card: DebtAccount,
-  entries: readonly ExpenseEntry[],
-  adjustments: readonly DebtAdjustment[],
-  payments: readonly DebtPayment[],
-  now: Date
-): CardStatement | null {
-  if (card.type !== 'credit-card' || card.status !== 'active') return null;
-  const billDate = latestBillDate(card, now);
-  if (billDate === null) return null;
-  const billDateStr = toLocalDateStr(billDate);
-  if (card.statement && card.statement.billDateStr === billDateStr) return null;
-  return {
-    billDateStr,
-    amount: deriveStatementAmount(card, entries, adjustments, payments, billDate),
-    source: 'derived',
-    updatedAt: new Date().toISOString(),
-  };
+/** History with `statement` inserted/replaced for its bill date, newest first, capped. */
+export function upsertStatementHistory(card: DebtAccount, statement: CardStatement): CardStatement[] {
+  const others = confirmedStatements(card).filter((item) => item.billDateStr !== statement.billDateStr);
+  return [statement, ...others]
+    .sort((a, b) => b.billDateStr.localeCompare(a.billDateStr))
+    .slice(0, STATEMENT_HISTORY_LIMIT);
 }

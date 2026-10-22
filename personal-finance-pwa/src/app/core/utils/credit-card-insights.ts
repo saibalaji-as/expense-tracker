@@ -1,10 +1,7 @@
 import { DebtAccount, DebtAdjustment, ExpenseEntry } from '../models';
-import { lastOccurrenceOnOrBefore, nextOccurrence } from './credit-card-reminders';
 
 /**
  * Pure credit-card insight helpers (2026-07-16):
- *  - statement-cycle window + spend (Finances per-card cycle view),
- *  - statement amount due including DebtAdjustments,
  *  - utilization threshold crossings (30% / 80% alerts),
  *  - refund → original purchase matching (suggested linkedExpenseId).
  *
@@ -20,78 +17,6 @@ function toDateStr(date: Date): string {
 }
 
 const round2 = (n: number): number => Number(n.toFixed(2));
-
-/** Outstanding-increasing adjustment kinds vs outstanding-reducing ones. */
-const isCardCredit = (kind: DebtAdjustment['kind']): boolean =>
-  kind === 'refund' || kind === 'cashback';
-
-// ─── Statement cycle ─────────────────────────────────────────────────────────
-
-export interface CycleWindow {
-  /** First day of the current (unbilled) cycle — the day after the last bill. */
-  startStr: string;
-  /** Last bill generation date (cycle boundary). */
-  billDate: Date;
-  /** Next bill generation date. */
-  nextBillDate: Date;
-  /** Payment due date for the LAST generated statement, when configured. */
-  dueDate: Date | null;
-}
-
-/**
- * The card's current statement cycle relative to `now`.
- * Returns null when the card has no billGenerationDay configured.
- */
-export function currentCycleWindow(card: DebtAccount, now: Date): CycleWindow | null {
-  if (!card.billGenerationDay) return null;
-  const billDate = lastOccurrenceOnOrBefore(card.billGenerationDay, now);
-  const nextBillDate = nextOccurrence(card.billGenerationDay, now);
-  const dayAfterBill = new Date(billDate);
-  dayAfterBill.setDate(dayAfterBill.getDate() + 1);
-  const dueDate = card.paymentDueDay ? nextOccurrence(card.paymentDueDay, billDate) : null;
-  return { startStr: toDateStr(dayAfterBill), billDate, nextBillDate, dueDate };
-}
-
-/**
- * Net card usage in the current (unbilled) cycle: purchases + fee/cash-advance
- * adjustments, minus refunds/cashback — everything dated after the last bill.
- */
-export function cycleSpend(
-  card: DebtAccount,
-  entries: readonly ExpenseEntry[],
-  adjustments: readonly DebtAdjustment[],
-  window: CycleWindow
-): number {
-  const purchases = entries
-    .filter((e) => e.debtId === card.id && e.source !== 'debt-payment' && e.date >= window.startStr)
-    .reduce((sum, e) => sum + e.amount, 0);
-  const adjusted = adjustments
-    .filter((a) => a.debtId === card.id && a.date >= window.startStr)
-    .reduce((sum, a) => sum + (isCardCredit(a.kind) ? -a.amount : a.amount), 0);
-  return round2(purchases + adjusted);
-}
-
-/**
- * Statement amount still due for the last generated bill:
- * outstanding minus post-bill debits plus post-bill credits.
- * (Payments since the bill already reduced the outstanding.)
- * Superset of credit-card-reminders.statementDueAmount — also nets
- * DebtAdjustments so refunds arriving after the bill show correctly.
- */
-export function statementDueWithAdjustments(
-  card: DebtAccount,
-  entries: readonly ExpenseEntry[],
-  adjustments: readonly DebtAdjustment[],
-  window: CycleWindow
-): number {
-  const postBillCharges = entries
-    .filter((e) => e.debtId === card.id && e.source !== 'debt-payment' && e.date >= window.startStr)
-    .reduce((sum, e) => sum + e.amount, 0);
-  const postBillAdjustments = adjustments
-    .filter((a) => a.debtId === card.id && a.date >= window.startStr)
-    .reduce((sum, a) => sum + (isCardCredit(a.kind) ? -a.amount : a.amount), 0);
-  return Math.max(0, round2(card.remainingBalance - postBillCharges - postBillAdjustments));
-}
 
 // ─── Utilization alerts ──────────────────────────────────────────────────────
 

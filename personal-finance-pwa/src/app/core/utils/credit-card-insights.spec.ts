@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cashbackEarned,
   crossedUtilizationThreshold,
-  currentCycleWindow,
-  cycleSpend,
   matchRefundCandidates,
-  statementDueWithAdjustments,
   utilizationPercent,
 } from './credit-card-insights';
 import type { DebtAccount, DebtAdjustment, ExpenseEntry } from '../models';
@@ -41,57 +38,6 @@ function entry(id: string, amount: number, date: string, extra: Partial<ExpenseE
 function adj(id: string, kind: DebtAdjustment['kind'], amount: number, date: string, extra: Partial<DebtAdjustment> = {}): DebtAdjustment {
   return { id, debtId: 'card1', kind, amount, date, createdAt: `${date}T10:00:00.000Z`, ...extra };
 }
-
-describe('currentCycleWindow', () => {
-  const now = new Date(2026, 6, 16); // 16 Jul 2026, bill day 5, due day 25
-
-  it('anchors the cycle at the last bill date and the next bill date', () => {
-    const window = currentCycleWindow(card(), now)!;
-    expect(window.billDate.getDate()).toBe(5);
-    expect(window.billDate.getMonth()).toBe(6); // July
-    expect(window.startStr).toBe('2026-07-06');
-    expect(window.nextBillDate.getMonth()).toBe(7); // August
-  });
-
-  it('due date is the next due-day occurrence after the bill', () => {
-    const window = currentCycleWindow(card(), now)!;
-    expect(window.dueDate!.getDate()).toBe(25);
-    expect(window.dueDate!.getMonth()).toBe(6); // 25 Jul, after 5 Jul bill
-  });
-
-  it('returns null without billGenerationDay; null dueDate without paymentDueDay', () => {
-    expect(currentCycleWindow(card({ billGenerationDay: undefined }), now)).toBeNull();
-    expect(currentCycleWindow(card({ paymentDueDay: undefined }), now)!.dueDate).toBeNull();
-  });
-});
-
-describe('cycleSpend / statementDueWithAdjustments', () => {
-  const now = new Date(2026, 6, 16);
-  const window = currentCycleWindow(card(), now)!; // cycle starts 2026-07-06
-
-  it('cycle spend counts post-bill purchases and fees, nets refunds/cashback, ignores pre-bill items', () => {
-    const entries = [entry('e1', 1000, '2026-07-10'), entry('e0', 400, '2026-07-01')]; // e0 pre-bill
-    const adjustments = [
-      adj('a1', 'charge', 100, '2026-07-12'),
-      adj('a2', 'refund', 300, '2026-07-14'),
-      adj('a3', 'cashback', 50, '2026-07-15'),
-      adj('a0', 'charge', 999, '2026-07-02'), // pre-bill
-    ];
-    expect(cycleSpend(card(), entries, adjustments, window)).toBe(750); // 1000+100-300-50
-  });
-
-  it('statement due = outstanding minus post-bill net debits (refund after bill raises the due back)', () => {
-    // Outstanding 5000; post-bill: +1000 purchase, -300 refund → billed part = 5000-1000+300 = 4300
-    const entries = [entry('e1', 1000, '2026-07-10')];
-    const adjustments = [adj('a2', 'refund', 300, '2026-07-14')];
-    expect(statementDueWithAdjustments(card(), entries, adjustments, window)).toBe(4300);
-  });
-
-  it('statement due never goes negative', () => {
-    const entries = [entry('e1', 9000, '2026-07-10')];
-    expect(statementDueWithAdjustments(card(), entries, [], window)).toBe(0);
-  });
-});
 
 describe('utilization thresholds', () => {
   it('percent needs a positive creditLimit', () => {

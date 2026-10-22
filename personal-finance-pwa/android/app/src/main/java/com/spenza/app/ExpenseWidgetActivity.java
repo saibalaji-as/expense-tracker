@@ -102,6 +102,7 @@ public class ExpenseWidgetActivity extends Activity {
     private LinearLayout smartFillContainer;
     private Button smartFillButton;
     private ImageButton commentMicButton;
+    private LinearLayout quickChipsContainer;
     private String activeVoiceMode;
     private ThemedDropdown typeDropdown;
     private Palette palette;
@@ -365,6 +366,11 @@ public class ExpenseWidgetActivity extends Activity {
         commentRow.addView(commentMicButton, commentMicParams);
         root.addView(commentRow, marginTop(matchWrap(), 12));
 
+        // Type-aware quick comments, rebuilt whenever the category changes.
+        quickChipsContainer = new LinearLayout(this);
+        quickChipsContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(quickChipsContainer, marginTop(matchWrap(), 12));
+
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
@@ -380,10 +386,6 @@ public class ExpenseWidgetActivity extends Activity {
         actions.addView(saveButton, actionParams());
         root.addView(actions, marginTop(matchWrap(), 22));
 
-        if (!WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
-            root.addView(buildQuickChips(), marginTop(matchWrap(), 18));
-        }
-
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
         progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(palette.primaryEnd));
@@ -396,6 +398,7 @@ public class ExpenseWidgetActivity extends Activity {
         root.addView(statusText, marginTop(matchWrap(), 8));
 
         updateAmountKindUi();
+        refreshQuickChips();
 
         FrameLayout.LayoutParams sheetParams = new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -581,6 +584,20 @@ public class ExpenseWidgetActivity extends Activity {
         if (typeDropdown != null) {
             typeDropdown.setSelectedValue(selectedType);
         }
+        refreshQuickChips();
+    }
+
+    /** Rebuilds the comment chips for the current category / mode. */
+    private void refreshQuickChips() {
+        if (quickChipsContainer == null) return;
+        quickChipsContainer.removeAllViews();
+        if (WidgetExpenseConstants.WIDGET_AMOUNT_KIND_CREDIT.equals(selectedAmountKind)) {
+            quickChipsContainer.setVisibility(View.GONE);
+            return;
+        }
+        String chipType = isCcPaymentMode() ? WidgetCommentSuggestions.TYPE_DEBT_PAYMENT : selectedType;
+        quickChipsContainer.addView(buildQuickChips(WidgetCommentSuggestions.forType(this, chipType)), matchWrap());
+        quickChipsContainer.setVisibility(View.VISIBLE);
     }
 
     private int selectedTypeIndex() {
@@ -907,24 +924,22 @@ public class ExpenseWidgetActivity extends Activity {
         return drawable;
     }
 
-    private View buildQuickChips() {
+    private View buildQuickChips(java.util.List<WidgetCommentSuggestions.Chip> chips) {
         HorizontalScrollView scrollView = new HorizontalScrollView(this);
         scrollView.setHorizontalScrollBarEnabled(false);
         scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        String[] chips = { "🍔 Lunch", "☕ Coffee", "🥗 Dinner", "🥕 Groceries", "⛽ Fuel" };
-        for (String chip : chips) {
+        for (WidgetCommentSuggestions.Chip chip : chips) {
             TextView chipView = new TextView(this);
-            chipView.setText(chip);
+            chipView.setText(chip.display());
             chipView.setTextColor(palette.chipText);
             chipView.setTextSize(14);
             chipView.setGravity(Gravity.CENTER);
             chipView.setPadding(dp(14), 0, dp(14), 0);
             chipView.setBackground(chipBackground());
             chipView.setOnClickListener(v -> {
-                String value = ((TextView) v).getText().toString();
-                commentInput.setText(value.replaceAll("^[^\\p{L}\\p{N}]+\\s*", ""));
+                applyCommentChip(chip.label);
                 popView(commentInput);
             });
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
@@ -933,6 +948,25 @@ public class ExpenseWidgetActivity extends Activity {
         }
         scrollView.addView(row, new HorizontalScrollView.LayoutParams(HorizontalScrollView.LayoutParams.WRAP_CONTENT, HorizontalScrollView.LayoutParams.WRAP_CONTENT));
         return scrollView;
+    }
+
+    /**
+     * Empty field or untouched detected-SMS text -> replace with the chip;
+     * otherwise append once (" · chip"), so a typed note is never wiped.
+     */
+    private void applyCommentChip(String label) {
+        String current = commentInput.getText().toString().trim();
+        String detected = prefillComment == null ? "" : prefillComment.trim();
+        String next;
+        if (current.isEmpty() || current.equals(detected)) {
+            next = label;
+        } else if (current.toLowerCase(Locale.ROOT).contains(label.toLowerCase(Locale.ROOT))) {
+            return;
+        } else {
+            next = current + " · " + label;
+        }
+        commentInput.setText(next);
+        commentInput.setSelection(commentInput.getText().length());
     }
 
     private GradientDrawable chipBackground() {

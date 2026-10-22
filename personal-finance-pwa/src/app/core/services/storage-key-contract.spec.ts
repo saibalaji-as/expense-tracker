@@ -25,6 +25,8 @@ const SHARED_KEYS = [
   'gapi_access_token_expires_at',
   'spenza_drive_backup_snapshot_v1',
   'spenza_widget_expense_queue_v1',
+  // Captured credit-card statement figures: Java listener writes, ExpenseStore consumes.
+  'spenza_card_statement_detections_v1',
 ];
 
 describe('Storage-key contract (web ⇄ Android widget)', () => {

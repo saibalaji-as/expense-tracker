@@ -132,7 +132,8 @@ final class WidgetCategoryPredictor {
 
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
-    private static JSONArray snapshotExpenses(SharedPreferences prefs) {
+    /** Expenses array of the local backup snapshot (also used by WidgetCommentSuggestions). */
+    static JSONArray snapshotExpenses(SharedPreferences prefs) {
         String raw = prefs.getString(WidgetExpenseConstants.LOCAL_BACKUP_CACHE_KEY, null);
         if (raw == null) return null;
         try {

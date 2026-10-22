@@ -126,6 +126,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Spenza MCP (read-only Claude connector): OAuth clients, codes, hashed
+    // tokens and Google refresh tokens. SERVER ONLY — the catch-all below already
+    // denies these; listed explicitly so nobody opens them by accident.
+    match /mcpClients/{id} { allow read, write: if false; }
+    match /mcpAuthRequests/{id} { allow read, write: if false; }
+    match /mcpAuthCodes/{id} { allow read, write: if false; }
+    match /mcpTokens/{id} { allow read, write: if false; }
+    match /mcpGrants/{uid} { allow read, write: if false; }
+
     // ── Helper ──
     function isFamilyMember(familyId) {
       let familyDoc = get(/databases/$(database)/documents/families/$(familyId));

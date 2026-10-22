@@ -2,11 +2,9 @@ import {
   buildCreditCardReminderPlan,
   creditCardNotificationBase,
   creditCardNotificationIdsForCancel,
-  lastOccurrenceOnOrBefore,
-  nextOccurrence,
-  statementDueAmount,
+  DUE_DAY_REMINDER_HOURS,
 } from './credit-card-reminders';
-import { DebtAccount, DebtAdjustment, DebtPayment, ExpenseEntry } from '../models';
+import { CardStatement, DebtAccount, DebtPayment, ExpenseEntry } from '../models';
 
 const money = (n: number) => `₹${n}`;
 
@@ -19,220 +17,152 @@ function card(overrides: Partial<DebtAccount> = {}): DebtAccount {
     remainingBalance: 5000,
     startDate: '2026-01-01',
     status: 'active',
-    billGenerationDay: 20,
-    paymentDueDay: 5,
+    billGenerationDay: 25,
+    paymentDueDay: 15,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
-function charge(amount: number, date: string): ExpenseEntry {
-  return {
-    id: `e-${date}-${amount}`,
-    date,
-    amount,
-    type: 'Miscellaneous',
-    limit: 0,
-    savings: 0,
-    timestamp: `${date}T10:00:00Z`,
-    debtId: 'cc-1',
-    source: 'widget',
-  };
-}
+const confirmed = (amount: number, extra: Partial<CardStatement> = {}): CardStatement => ({
+  billDateStr: '2026-08-25',
+  amount,
+  source: 'user',
+  updatedAt: '2026-08-26T00:00:00Z',
+  ...extra,
+});
 
 function payment(amount: number, date: string): DebtPayment {
-  return {
-    id: `p-${date}`,
-    debtId: 'cc-1',
-    expenseId: `pe-${date}`,
-    accountId: 'acc-1',
-    amount,
-    date,
-    createdAt: `${date}T10:00:00Z`,
-  };
+  return { id: `p-${date}`, debtId: 'cc-1', expenseId: `e-${date}`, accountId: 'bank', amount, date, createdAt: `${date}T10:00:00Z` };
 }
 
-describe('credit-card-reminders planner', () => {
-  describe('date helpers', () => {
-    it('nextOccurrence handles due days 1-3 without rolling into the wrong month (legacy bug)', () => {
-      // Legacy code did `new Date(y, m, dueDay - 3)` which for dueDay 2 gave day -1.
-      const now = new Date(2026, 6, 15); // 15 Jul 2026
-      const due = nextOccurrence(2, now);
-      expect(due.getMonth()).toBe(7); // August
-      expect(due.getDate()).toBe(2);
-    });
+function charge(amount: number, date: string): ExpenseEntry {
+  return { id: `c-${date}`, date, amount, type: 'Shopping', limit: 0, savings: 0, timestamp: `${date}T10:00:00Z`, debtId: 'cc-1', source: 'manual' };
+}
 
-    it('nextOccurrence clamps day 31 in short months', () => {
-      const now = new Date(2026, 3, 1); // 1 Apr
-      const due = nextOccurrence(31, now);
-      expect(due.getMonth()).toBe(3);
-      expect(due.getDate()).toBe(30);
-    });
+const stamp = (d: Date): string =>
+  `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')} ${`${d.getHours()}`.padStart(2, '0')}:00`;
 
-    it('lastOccurrenceOnOrBefore crosses month boundary backwards', () => {
-      const ref = new Date(2026, 6, 3); // 3 Jul, bill day 20 → 20 Jun
-      const bill = lastOccurrenceOnOrBefore(20, ref);
-      expect(bill.getMonth()).toBe(5);
-      expect(bill.getDate()).toBe(20);
-    });
+const plan = (
+  cards: DebtAccount[],
+  now: string,
+  payments: DebtPayment[] = [],
+  entries: ExpenseEntry[] = []
+) => buildCreditCardReminderPlan(cards, entries, payments, new Date(now), money);
+
+const slot = (items: ReturnType<typeof plan>, offset: number) =>
+  items.find((item) => item.id === creditCardNotificationBase('cc-1') + offset);
+
+describe('notification ids', () => {
+  it('keeps every card inside the 20000–29599 range with 16 slots', () => {
+    for (const id of ['a', 'cc-1', '7b1f0c1e-9d5e-4a53-8f43-0a4b2f1c9e77']) {
+      const base = creditCardNotificationBase(id);
+      expect(base).toBeGreaterThanOrEqual(20000);
+      expect(base + 15).toBeLessThan(29600);
+      expect((base - 20000) % 16).toBe(0);
+    }
   });
 
-  describe('statementDueAmount', () => {
-    it('excludes charges made after the bill date', () => {
-      const c = card({ remainingBalance: 5000 });
-      const entries = [charge(1200, '2026-06-25'), charge(300, '2026-06-10')];
-      // Bill 20 Jun: 1200 charged after bill → statement due = 5000 - 1200
-      expect(statementDueAmount(c, entries, new Date(2026, 5, 20))).toBe(3800);
-    });
+  it('cancels current slots, the previous 8-slot scheme and the legacy repeat id', () => {
+    const ids = creditCardNotificationIdsForCancel('cc-1');
+    const base = creditCardNotificationBase('cc-1');
+    for (let s = 0; s < 16; s++) expect(ids).toContain(base + s);
+    expect(ids.some((id) => id >= 10000 && id < 20000)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.length).toBeGreaterThanOrEqual(17);
+  });
+});
 
-    it('excludes debt-payment entries from charges', () => {
-      const c = card({ remainingBalance: 5000 });
-      const paymentEntry: ExpenseEntry = { ...charge(2000, '2026-06-25'), source: 'debt-payment' };
-      expect(statementDueAmount(c, [paymentEntry], new Date(2026, 5, 20))).toBe(5000);
-    });
-
-    it('never returns a negative due amount', () => {
-      const c = card({ remainingBalance: 100 });
-      expect(statementDueAmount(c, [charge(500, '2026-06-25')], new Date(2026, 5, 20))).toBe(0);
-    });
+describe('due reminders', () => {
+  it('fires 3, 2 and 1 days before, then at 06:00, 09:00, 12:00 and 18:00 on the due date', () => {
+    const items = plan([card({ statement: confirmed(5000) })], '2026-09-01T10:00:00');
+    expect([4, 5, 6].map((s) => stamp(slot(items, s)!.at))).toEqual(['2026-09-12 09:00', '2026-09-13 09:00', '2026-09-14 09:00']);
+    expect([7, 8, 9, 10].map((s) => stamp(slot(items, s)!.at))).toEqual([
+      '2026-09-15 06:00', '2026-09-15 09:00', '2026-09-15 12:00', '2026-09-15 18:00',
+    ]);
+    expect(DUE_DAY_REMINDER_HOURS).toEqual([6, 9, 12, 18]);
+    expect(slot(items, 4)!.body).toContain('₹5000 is due in 3 days');
+    expect(slot(items, 6)!.title).toBe('HDFC Card bill due tomorrow');
+    expect(slot(items, 7)!.body).toContain('₹5000 is due today');
+    expect(stamp(slot(items, 11)!.at)).toBe('2026-09-16 09:00');
   });
 
-  describe('buildCreditCardReminderPlan', () => {
-    const now = new Date(2026, 5, 25, 12, 0); // 25 Jun 2026 noon; bill 20 Jun passed; due 5 Jul upcoming
+  it('keeps reminding with the remaining amount after a part payment', () => {
+    const items = plan([card({ remainingBalance: 4900, statement: confirmed(5000) })], '2026-09-03T10:00:00', [payment(100, '2026-09-02')]);
+    expect(slot(items, 4)!.body).toContain('₹4900');
+    expect(slot(items, 10)).toBeDefined();
+    expect(slot(items, 11)).toBeDefined();
+  });
 
-    it('schedules the full ladder with statement amount for an unpaid cycle', () => {
-      const plan = buildCreditCardReminderPlan([card()], [], [], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      const ids = plan.map((p) => p.id);
+  it('stops every due and overdue reminder once the bill is paid in full', () => {
+    const items = plan([card({ remainingBalance: 800, statement: confirmed(5000) })], '2026-09-06T10:00:00', [payment(5000, '2026-09-05')], [charge(800, '2026-08-28')]);
+    for (const s of [4, 5, 6, 7, 8, 9, 10, 11]) expect(slot(items, s)).toBeUndefined();
+    // The unbilled 800 still earns the generic next-cycle safety net.
+    expect(stamp(slot(items, 12)!.at)).toBe('2026-10-12 09:00');
+  });
 
-      expect(ids).toContain(base); // bill-ready (20 Jul)
-      expect(ids).toContain(base + 1); // due-3 (2 Jul)
-      expect(ids).toContain(base + 2); // due day (5 Jul)
-      expect(ids).toContain(base + 3); // overdue (6 Jul)
-      expect(ids).toContain(base + 4); // next-cycle safety net
+  it('only schedules the reminders that are still in the future', () => {
+    const items = plan([card({ statement: confirmed(5000) })], '2026-09-15T10:30:00');
+    for (const s of [4, 5, 6, 7, 8]) expect(slot(items, s)).toBeUndefined();
+    expect([9, 10].map((s) => stamp(slot(items, s)!.at))).toEqual(['2026-09-15 12:00', '2026-09-15 18:00']);
+  });
 
-      const dueSoon = plan.find((p) => p.id === base + 1)!;
-      expect(dueSoon.at.getDate()).toBe(2);
-      expect(dueSoon.at.getMonth()).toBe(6); // July
-      expect(dueSoon.body).toContain('₹5000');
-    });
+  it("uses the bank's exact due date and the statement minimum due", () => {
+    const items = plan([card({ statement: confirmed(5000, { dueDateStr: '2026-09-14', minDue: 250 }) })], '2026-09-01T10:00:00');
+    expect(stamp(slot(items, 7)!.at)).toBe('2026-09-14 06:00');
+    expect(slot(items, 7)!.body).toContain('Min due ₹250.');
+  });
 
-    it('suppresses due-day and overdue when a payment exists this cycle', () => {
-      const plan = buildCreditCardReminderPlan([card()], [], [payment(5000, '2026-06-22')], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      const ids = plan.map((p) => p.id);
-      expect(ids).not.toContain(base + 2);
-      expect(ids).not.toContain(base + 3);
-      expect(ids).toContain(base + 1); // gentle due-3 heads-up still allowed
-    });
+  it('labels an unconfirmed amount as estimated', () => {
+    const items = plan([card()], '2026-09-01T10:00:00');
+    expect(slot(items, 4)!.body).toContain('₹5000 (estimated — confirm in Spenza)');
+  });
 
-    it('skips due notifications entirely when nothing is due', () => {
-      const plan = buildCreditCardReminderPlan(
-        [card({ remainingBalance: 0 })], [], [], now, money
-      );
-      expect(plan.length).toBe(0);
-    });
+  it('reminds on the raw outstanding when no bill day is configured', () => {
+    const items = plan([card({ billGenerationDay: undefined })], '2026-09-01T10:00:00');
+    expect(slot(items, 7)!.body).toContain('₹5000 outstanding is due today');
+    expect(stamp(slot(items, 7)!.at)).toBe('2026-09-15 06:00');
+    expect(slot(items, 0)).toBeUndefined();
+  });
+});
 
-    it('subtracts post-bill charges from the notified amount', () => {
-      const plan = buildCreditCardReminderPlan(
-        [card()], [charge(1200, '2026-06-24')], [], now, money
-      );
-      const base = creditCardNotificationBase('cc-1');
-      const dueSoon = plan.find((p) => p.id === base + 1)!;
-      expect(dueSoon.body).toContain('₹3800');
-    });
+describe('statement asks', () => {
+  it('asks on the 3 days after a bill date while the statement is unconfirmed', () => {
+    const items = plan([card()], '2026-08-25T10:00:00');
+    expect([0, 1, 2].map((s) => stamp(slot(items, s)!.at))).toEqual(['2026-08-26 09:00', '2026-08-27 09:00', '2026-08-28 09:00']);
+    expect(slot(items, 0)!.title).toBe('Has your HDFC Card bill been generated?');
+  });
 
-    it('ignores inactive cards and non-credit-card debts', () => {
-      const plan = buildCreditCardReminderPlan(
-        [card({ status: 'archived' }), card({ id: 'loan', type: 'personal-loan' })],
-        [], [], now, money
-      );
-      expect(plan.length).toBe(0);
-    });
+  it('stops asking once the statement is confirmed, but keeps the ask for the next bill', () => {
+    const items = plan([card({ statement: confirmed(5000) })], '2026-08-26T08:00:00');
+    for (const s of [0, 1, 2]) expect(slot(items, s)).toBeUndefined();
+    expect(stamp(slot(items, 3)!.at)).toBe('2026-09-26 09:00');
+  });
 
-    it('never schedules notifications in the past', () => {
-      const plan = buildCreditCardReminderPlan([card()], [], [], now, money);
-      expect(plan.every((p) => p.at > now)).toBe(true);
-    });
+  it('does not ask about a bill that predates the card', () => {
+    const items = plan([card({ startDate: '2026-08-27' })], '2026-08-27T08:00:00');
+    for (const s of [0, 1, 2]) expect(slot(items, s)).toBeUndefined();
+  });
+});
 
-    it('includes the min-due hint when configured', () => {
-      const plan = buildCreditCardReminderPlan(
-        [card({ minimumPaymentAmount: 250 })], [], [], now, money
-      );
-      const base = creditCardNotificationBase('cc-1');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹250');
-    });
+describe('plan hygiene', () => {
+  it('ignores loans, archived cards and zero-balance cards', () => {
+    const items = plan(
+      [
+        card({ id: 'loan', type: 'personal-loan' }),
+        card({ id: 'old', status: 'archived' }),
+        card({ id: 'zero', remainingBalance: 0, statement: confirmed(0) }),
+      ],
+      '2026-09-01T10:00:00'
+    );
+    expect(items).toEqual([]);
+  });
 
-    it('nets post-bill debt adjustments in the fallback estimate (fees up, refunds down)', () => {
-      const adjustments: DebtAdjustment[] = [
-        { id: 'a1', debtId: 'cc-1', kind: 'charge', amount: 500, date: '2026-06-24', createdAt: '2026-06-24T10:00:00Z' },
-        { id: 'a2', debtId: 'cc-1', kind: 'refund', amount: 200, date: '2026-06-23', createdAt: '2026-06-23T10:00:00Z' },
-      ];
-      // 5000 outstanding − 500 post-bill fee + 200 post-bill refund = 4700 statement due
-      const plan = buildCreditCardReminderPlan([card()], [], [], now, money, adjustments);
-      const base = creditCardNotificationBase('cc-1');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹4700');
-    });
-
-    it('labels derived amounts as estimates and asks for confirmation', () => {
-      const plan = buildCreditCardReminderPlan([card()], [], [], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('estimated');
-      expect(plan.find((p) => p.id === base + 2)!.body).toContain('estimated');
-    });
-
-    it('uses the statement snapshot amount when it covers the resolved bill', () => {
-      // Snapshot for the 20 Jun bill says the bank billed 4200 (user-corrected),
-      // even though outstanding is 5000. Reminder must show 4200, unlabeled.
-      const c = card({
-        statement: { billDateStr: '2026-06-20', amount: 4200, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
-      });
-      const plan = buildCreditCardReminderPlan([c], [charge(800, '2026-06-24')], [], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      const dueSoon = plan.find((p) => p.id === base + 1)!;
-      expect(dueSoon.body).toContain('₹4200');
-      expect(dueSoon.body).not.toContain('estimated');
-    });
-
-    it('subtracts payments made after the bill from the snapshot amount', () => {
-      const c = card({
-        statement: { billDateStr: '2026-06-20', amount: 4200, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
-      });
-      const plan = buildCreditCardReminderPlan([c], [], [payment(1200, '2026-06-22')], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      // due-day/overdue suppressed by the payment; due-3 shows 4200 − 1200
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹3000');
-    });
-
-    it('ignores a stale snapshot from a previous cycle', () => {
-      const c = card({
-        statement: { billDateStr: '2026-05-20', amount: 999, source: 'user', updatedAt: '2026-05-21T00:00:00Z' },
-      });
-      const plan = buildCreditCardReminderPlan([c], [], [], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹5000');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('estimated');
-    });
-
-    it('prefers the statement-level min due over the card static minimum', () => {
-      const c = card({
-        minimumPaymentAmount: 250,
-        statement: { billDateStr: '2026-06-20', amount: 4200, minDue: 420, source: 'user', updatedAt: '2026-06-21T00:00:00Z' },
-      });
-      const plan = buildCreditCardReminderPlan([c], [], [], now, money);
-      const base = creditCardNotificationBase('cc-1');
-      expect(plan.find((p) => p.id === base + 1)!.body).toContain('₹420');
-      expect(plan.find((p) => p.id === base + 1)!.body).not.toContain('₹250');
-    });
-
-    it('cancel IDs include the legacy monthly-repeat ID range', () => {
-      const ids = creditCardNotificationIdsForCancel('cc-1');
-      const legacy = ids[0];
-      expect(legacy).toBeGreaterThanOrEqual(10000);
-      expect(legacy).toBeLessThan(20000);
-      expect(ids.length).toBe(9);
-      ids.slice(1).forEach((id) => expect(id).toBeGreaterThanOrEqual(20000));
-    });
+  it('never schedules in the past and never reuses an id', () => {
+    const now = new Date('2026-09-13T10:00:00');
+    const items = buildCreditCardReminderPlan([card({ statement: confirmed(5000) }), card({ id: 'cc-2', name: 'Axis' })], [], [], now, money);
+    expect(items.every((item) => item.at > now)).toBe(true);
+    expect(new Set(items.map((item) => item.id)).size).toBe(items.length);
   });
 });

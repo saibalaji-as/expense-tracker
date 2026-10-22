@@ -4,6 +4,7 @@ export * from './budget-rule-summary.model';
 export * from './category-definitions';
 export * from './debt-account.model';
 export * from './pending-cc-expense.model';
+export * from './card-statement-detection.model';
 export * from './expense-entry.model';
 export * from './expense-limit.model';
 export * from './local-notification.model';

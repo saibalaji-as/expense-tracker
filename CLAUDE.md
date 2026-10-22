@@ -2,7 +2,12 @@
 
 Use project memory selectively. Do not load every `/ai` file in full at the start of each chat.
 
-For substantial code changes, read:
+Before ANY code change, read `ai/CODE_MAP.md` first. It is the navigation index:
+file/line anchors per screen, service, util and Function, a "where do I change X"
+table, the storage-key contract, and a change-safety checklist. Use it to jump
+straight to the region you need instead of scanning source.
+
+For substantial code changes, also read:
 - `ai/PROJECT_CONTEXT.md`
 - `ai/AI_RULES.md`
 
@@ -12,6 +17,8 @@ Use these as targeted lookups:
 - `ai/CURRENT_STATE.md`: check active bugs, blockers, unfinished work, and immediate next steps when relevant.
 - `ai/TASK_HISTORY.md`: search with `rg` when historical reasoning, prior fixes, or rejected approaches matter. Do not read the full archive by default.
 - `ai/ACCOUNT_BALANCES_DEBT_EMI_PLAN.md`: read only for finance-account or debt/EMI planning work.
+- `APPLICATION_GUIDE.md` (repo root): human-readable product guide - screens, business flows,
+  architecture. `VISUAL_ATLAS.html` (repo root): the same system drawn out; open in a browser.
 - `drive-ai.md`: maintenance guide for the memory system; do not load for normal feature work.
 
 Treat `/ai` as curated product and decision memory. Treat Graphify as generated live code intelligence.

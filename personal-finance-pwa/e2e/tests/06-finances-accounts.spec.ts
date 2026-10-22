@@ -3,6 +3,7 @@
  * TC-FIN-01 through TC-FIN-09
  */
 import { test, expect } from '../fixtures/auth.fixture';
+import { expandFinanceItems, openFinanceItem } from '../helpers/page-helpers';
 
 test.describe('Finances — Asset Accounts — TC-FIN', () => {
 
@@ -31,7 +32,10 @@ test.describe('Finances — Asset Accounts — TC-FIN', () => {
     // New-account submit is labelled "Add account"/"Create", not "Save"; target the form submit.
     const saveBtn = page.locator('button[type="submit"]:visible').first();
     await saveBtn.click();
-    await expect(page.locator('text=HDFC Salary')).toBeVisible({ timeout: 5000 });
+    // The fixture already seeds an "HDFC Salary" account, so the new one makes two rows.
+    await expect(
+      page.locator('[data-testid="finance-account-item"]').filter({ hasText: 'HDFC Salary' })
+    ).toHaveCount(2, { timeout: 5000 });
   });
 
   test('TC-FIN-02 — Cannot create account with empty name', async ({ proUserPage: page }) => {
@@ -52,7 +56,9 @@ test.describe('Finances — Asset Accounts — TC-FIN', () => {
   test('TC-FIN-03 — Edit account name', async ({ proUserPage: page }) => {
     await page.goto('/#/finances');
     await page.waitForURL(/finances/);
-    // HDFC Salary account is seeded in fixture. Edit buttons carry aria-label "Edit".
+    // HDFC Salary account is seeded in fixture. Edit buttons carry aria-label "Edit"
+    // and live inside the account's expanded details.
+    await expandFinanceItems(page);
     const editBtn = page.locator('button[aria-label*="edit" i]').first();
     if (await editBtn.isVisible({ timeout: 3000 })) {
       await editBtn.click();
@@ -89,17 +95,16 @@ test.describe('Finances — Asset Accounts — TC-FIN', () => {
   test('TC-FIN-05 — Adjust account balance (increase)', async ({ proUserPage: page }) => {
     await page.goto('/#/finances');
     await page.waitForURL(/finances/);
-    const adjustBtn = page.locator('button').filter({ hasText: /adjust.*balance|balance/i }).first()
-      .or(page.locator('[class*="account-item"]').first().locator('button').filter({ hasText: /adjust|credit|receive/i }).first());
+    // Seeded HDFC Salary = 25,000. Its "Adjust" action lives in the expanded row.
+    const account = await openFinanceItem(page, 'HDFC Salary');
+    const adjustBtn = account.getByRole('button', { name: /^\s*adjust\s*$/i });
     if (await adjustBtn.isVisible({ timeout: 3000 })) {
       await adjustBtn.click();
-      await page.locator('input[type="number"]').first().fill('5000');
-      const reasonInput = page.locator('input[placeholder*="reason" i], textarea').first();
-      if (await reasonInput.isVisible({ timeout: 1000 })) await reasonInput.fill('Salary received');
-      const saveBtn = page.locator('button').filter({ hasText: /save|confirm/i }).first();
-      await saveBtn.click();
-      // Balance should increase
-      await expect(page.locator('text=/30,000|30000|₹30/').first()).toBeVisible({ timeout: 5000 });
+      await account.locator('input[type="number"]').first().fill('5000');
+      await account.locator('input[formcontrolname="reason"]').fill('Salary received');
+      await account.locator('button[type="submit"]').click();
+      // Balance should increase to 30,000 on the account row itself
+      await expect(account.getByText(/30,000|30000/).first()).toBeVisible({ timeout: 5000 });
     } else {
       test.skip(true, 'Adjust balance button not found');
     }
@@ -117,11 +122,8 @@ test.describe('Finances — Asset Accounts — TC-FIN', () => {
       await page.locator('input[type="number"]:visible').first().fill('100');
       await page.locator('button[type="submit"]:visible').first().click();
       await expect(page.locator('text=Temp Account')).toBeVisible({ timeout: 5000 });
-      // Delete it: each account card has an icon-only delete button (aria-label "Delete").
-      const tempCard = page.locator('div')
-        .filter({ has: page.getByRole('heading', { name: 'Temp Account' }) })
-        .filter({ has: page.locator('button[aria-label*="delete" i]') })
-        .last();
+      // Delete it: open the account row, then use its icon-only delete button (aria-label "Delete").
+      const tempCard = await openFinanceItem(page, 'Temp Account');
       const deleteBtn = tempCard.locator('button[aria-label*="delete" i]').first();
       if (await deleteBtn.isVisible({ timeout: 2000 })) {
         await deleteBtn.click();

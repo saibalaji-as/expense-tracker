@@ -52,7 +52,20 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
 
         String text = collectText(notification);
-        SpendCandidate candidate = SpendCandidate.from(text, sbn.getPackageName(), currentCurrency());
+        String currency = currentCurrency();
+
+        // A bank's credit-card statement message is the truth for the bill, not
+        // a spend: hand its figures to the app instead of prompting.
+        SpendNotificationClassifier.Classification classification =
+            SpendNotificationClassifier.classify(text, sbn.getPackageName(), currency);
+        if (classification.type == SpendNotificationClassifier.Type.CARD_STATEMENT) {
+            if (classification.statement != null && CardStatementDetections.append(this, classification.statement)) {
+                showStatementDetected(classification.statement, currency);
+            }
+            return;
+        }
+
+        SpendCandidate candidate = SpendCandidate.from(text, sbn.getPackageName(), currency);
         if (candidate == null || isDuplicate(candidate)) return;
         // Persist BEFORE prompting: a swiped/cleared prompt (or a denied
         // POST_NOTIFICATIONS permission) must not lose the detection. The
@@ -166,6 +179,49 @@ public class SpendNotificationListenerService extends NotificationListenerServic
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify(42_200 + Math.abs(candidate.dedupeKey().hashCode() % 500), builder.build());
+        }
+    }
+
+    /** Tells the user a statement was captured; tapping opens the app, which confirms or asks. */
+    private void showStatementDetected(SpendNotificationClassifier.StatementInfo statement, String currency) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (launch == null) return;
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        NotificationChannelManager.createNotificationChannels(this);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            this,
+            42_900,
+            launch,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        String symbol = "USD".equals(currency) ? "$" : "AED".equals(currency) ? "AED " : "₹";
+        String body = "Total due " + symbol + String.format(Locale.US, "%,.2f", statement.amount)
+            + (statement.cardLast4 != null ? " on card ending " + statement.cardLast4 : "")
+            + ". Tap to confirm it in Spenza.";
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(
+            this,
+            NotificationChannelManager.CHANNEL_ID_SPEND_PROMPTS
+        )
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Credit card statement detected")
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE);
+
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) {
+            int suffix = statement.cardLast4 != null ? Math.abs(statement.cardLast4.hashCode() % 90) : 0;
+            manager.notify(42_900 + suffix, builder.build());
         }
     }
 

@@ -81,6 +81,7 @@ import {
 } from '../../core/models/category-definitions';
 import { compressBillImage, compressedBillToFile } from '../../core/utils/bill-image';
 import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
+import { dailyBudgetAmount, dailyTypeLimit } from '../../core/utils/budget-summary.util';
 import { Capacitor } from '@capacitor/core';
 
 interface SplitBillRow {
@@ -1712,10 +1713,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
   );
 
   // ─── Daily budget (monthly income / 30) ──────────────────────────────────
-  readonly dailyBudget = computed(() => {
-    const income = this.expenseStore.monthlyIncome();
-    return income > 0 ? Math.round(income / 30) : 0;
-  });
+  readonly dailyBudget = computed(() => dailyBudgetAmount(this.expenseStore.monthlyIncome()));
 
   // ─── Day percentage for progress ring ────────────────────────────────────
   readonly dayPct = computed(() => {
@@ -2072,15 +2070,7 @@ export class DailyExpenseComponent implements OnInit, OnDestroy {
 
   // ─── Helper: calculate daily limit for a category ────────────────────────
   calculateDailyLimit(type: string): number {
-    const limitEntry = this.expenseStore.limitMap()[type];
-    const income = this.expenseStore.monthlyIncome();
-    const monthlyLimit = limitEntry ? (limitEntry.userPercentage / 100) * income : 0;
-    
-    const now = new Date();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const dailyLimit = Math.ceil(monthlyLimit / daysInMonth);
-    
-    return dailyLimit;
+    return dailyTypeLimit(this.expenseStore.limitMap()[type], this.expenseStore.monthlyIncome());
   }
 
   // ─── Helper: map type name → CSS variable name ────────────────────────────

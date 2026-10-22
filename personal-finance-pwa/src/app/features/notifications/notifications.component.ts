@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   OnInit,
   computed,
   effect,
@@ -20,7 +21,11 @@ import {
   LucideAngularModule,
   LucideIconProvider,
   LUCIDE_ICONS,
+  Mic,
+  Pencil,
+  RotateCcw,
   Settings,
+  Sparkles,
   X,
 } from 'lucide-angular';
 import {
@@ -38,12 +43,15 @@ import { BackupModeService } from '../../core/services/backup-mode.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { UserFeedbackService } from '../../core/services/user-feedback.service';
+import { SubscriptionService } from '../../core/services/subscription.service';
+import { AiVoiceExpenseService } from '../../core/services/ai-voice-expense.service';
 import {
   ExpenseEntry,
   NotificationInboxItem,
   PREDEFINED_EXPENSE_TYPES,
 } from '../../core/models';
 import { inboxItemLocalDate } from '../../core/utils/notification-inbox.util';
+import { CommentSuggestion, commentSuggestionsFor } from '../../core/utils/comment-suggestions';
 import { formatLocalTime, parseLocalDate, toLocalDateString } from '../../core/utils/local-date';
 
 type InboxFilter = 'all' | 'expenses' | 'income' | 'cards';
@@ -52,6 +60,20 @@ interface PendingGroup {
   date: string;
   items: NotificationInboxItem[];
 }
+
+type VoiceMode = 'expense' | 'comment';
+
+/** What the log sheet edits: a new record from a detection, or an existing one. */
+type LogMode =
+  | { kind: 'create' }
+  | { kind: 'edit-entry'; entryId: string }
+  | { kind: 'edit-payment'; paymentId: string };
+
+/** How a handled history row can be acted on. */
+type HistoryAction = 'edit' | 'log-again' | 'log' | null;
+
+/** History lookback for personal comment suggestions. */
+const SUGGESTION_HISTORY_DAYS = 120;
 
 /**
  * Notification inbox screen: recovers spend detections whose Android prompt
@@ -77,7 +99,7 @@ interface PendingGroup {
       multi: true,
       useValue: new LucideIconProvider({
         ArrowDownLeft, Banknote, BellRing, Check, ChevronDown, ChevronUp,
-        CreditCard, Inbox, Settings, X,
+        CreditCard, Inbox, Mic, Pencil, RotateCcw, Settings, Sparkles, X,
       }),
     },
   ],
@@ -249,24 +271,48 @@ interface PendingGroup {
           } @else {
             <div class="flex flex-col gap-2">
               @for (item of handledFiltered(); track item.id) {
-                <div class="flex items-center gap-3 rounded-2xl border border-border/50 p-3 opacity-80">
-                  <span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                @let linked = linkedEntry(item);
+                @let action = historyAction(item);
+                <div class="flex items-start gap-3 rounded-2xl border border-border/50 p-3">
+                  <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
                     <lucide-icon [name]="kindIcon(item)" class="h-4 w-4" />
                   </span>
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium">{{ item.amount | currencyFormat }}</p>
+                    <div class="flex items-baseline justify-between gap-2">
+                      <p class="text-sm font-medium">{{ (linked?.amount ?? item.amount) | currencyFormat }}</p>
+                      <span
+                        class="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                        [class]="item.status === 'dismissed'
+                          ? 'bg-muted text-muted-foreground'
+                          : action === 'log-again'
+                            ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+                            : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'"
+                      >
+                        {{ (action === 'log-again' ? 'notifications.status.missing' : statusLabelKey(item)) | translate }}
+                      </span>
+                    </div>
                     <p class="text-[11px] text-muted-foreground">
-                      {{ formatDay(itemDate(item)) }} · {{ kindLabelKey(item) | translate }}
+                      {{ formatDay(itemDate(item)) }} · {{ (linked?.type ?? (kindLabelKey(item) | translate)) }}
                     </p>
+                    @if (linked?.comment) {
+                      <p class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ linked?.comment }}</p>
+                    } @else if (action === 'log-again') {
+                      <p class="mt-0.5 text-xs text-muted-foreground">{{ 'notifications.history.missingHint' | translate }}</p>
+                    }
+                    @if (action) {
+                      <div class="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-accent"
+                          [class]="action === 'edit' ? '' : 'border-primary/40 text-primary'"
+                          (click)="onHistoryAction(item, action)"
+                        >
+                          <lucide-icon [name]="action === 'edit' ? 'pencil' : 'rotate-ccw'" class="h-3.5 w-3.5" />
+                          {{ historyActionKey(action) | translate }}
+                        </button>
+                      </div>
+                    }
                   </div>
-                  <span
-                    class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                    [class]="item.status === 'dismissed'
-                      ? 'bg-muted text-muted-foreground'
-                      : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'"
-                  >
-                    {{ statusLabelKey(item) | translate }}
-                  </span>
                 </div>
               }
             </div>
@@ -279,15 +325,52 @@ interface PendingGroup {
       </app-section-card>
     </div>
 
-    <!-- ── Log modal ────────────────────────────────────────────── -->
+    <!-- ── Log / edit modal ─────────────────────────────────────── -->
     <app-modal
-      [title]="'notifications.log.title' | translate"
+      [title]="(logMode().kind === 'create' ? 'notifications.log.title' : 'notifications.log.editTitle') | translate"
       [isOpen]="logTarget() !== null"
       [showActions]="false"
       (cancelled)="closeLog()"
     >
       @if (logTarget(); as target) {
         <div class="flex flex-col gap-4">
+
+          <!-- Voice smart-fill (same as the widget / Daily form) -->
+          @if (isExpenseKind(target) && subscription.isPro()) {
+            <div class="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/10 via-primary-glow/5 to-success/10 p-3">
+              <div class="flex items-center gap-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow">
+                  <lucide-icon name="sparkles" class="h-4 w-4" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-semibold">{{ 'daily.voiceExpense.title' | translate }}</p>
+                  <p class="text-[11px] leading-snug text-muted-foreground">{{ 'daily.voiceExpense.hint' | translate }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition"
+                  [class]="voiceMode() === 'expense'
+                    ? 'border-destructive bg-destructive/10 text-destructive'
+                    : 'border-primary/30 bg-primary/10 text-primary'"
+                  [disabled]="isParsingVoice() || (voiceMode() !== null && voiceMode() !== 'expense')"
+                  [attr.aria-label]="'daily.voiceExpense.action' | translate"
+                  (click)="voiceMode() === 'expense' ? stopVoice() : startVoice('expense')"
+                >
+                  @if (isParsingVoice()) {
+                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                  } @else {
+                    <lucide-icon name="mic" class="h-4 w-4" />
+                  }
+                  {{ (voiceMode() === 'expense' ? 'daily.voice.stop' : 'daily.voiceExpense.action') | translate }}
+                </button>
+              </div>
+              @if (voiceMode() === 'expense') {
+                <p class="mt-2 text-xs font-medium text-destructive">{{ 'daily.voiceExpense.listening' | translate }}</p>
+              } @else if (isParsingVoice()) {
+                <p class="mt-2 text-xs font-medium text-primary">{{ 'daily.voiceParsing' | translate }}</p>
+              }
+            </div>
+          }
 
           <div>
             <label class="mb-1 block text-xs font-semibold text-muted-foreground" for="inbox-log-amount">
@@ -299,7 +382,8 @@ interface PendingGroup {
               inputmode="decimal"
               min="0"
               class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              [(ngModel)]="logAmount"
+              [ngModel]="logAmount()"
+              (ngModelChange)="logAmount.set($event)"
             />
           </div>
 
@@ -357,12 +441,16 @@ interface PendingGroup {
               <label class="mb-1 block text-xs font-semibold text-muted-foreground">
                 {{ 'notifications.log.card' | translate }}
               </label>
-              <app-themed-select
-                [options]="cardOptions()"
-                [placeholder]="'notifications.log.chooseCard' | translate"
-                [value]="logCardId()"
-                (valueChange)="logCardId.set($event)"
-              />
+              @if (logMode().kind === 'edit-payment') {
+                <p class="rounded-2xl border border-border bg-muted/40 px-4 py-2.5 text-sm">{{ cardLabel(logCardId()) }}</p>
+              } @else {
+                <app-themed-select
+                  [options]="cardOptions()"
+                  [placeholder]="'notifications.log.chooseCard' | translate"
+                  [value]="logCardId()"
+                  (valueChange)="logCardId.set($event)"
+                />
+              }
             </div>
           }
 
@@ -370,16 +458,67 @@ interface PendingGroup {
             <label class="mb-1 block text-xs font-semibold text-muted-foreground" for="inbox-log-comment">
               {{ 'notifications.log.comment' | translate }}
             </label>
-            <input
-              id="inbox-log-comment"
-              type="text"
-              class="w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              [(ngModel)]="logComment"
-            />
+            <div class="flex items-center gap-2">
+              <div class="relative flex-1">
+                <input
+                  id="inbox-log-comment"
+                  type="text"
+                  class="w-full rounded-2xl border border-border bg-background py-2.5 pl-4 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  [placeholder]="'daily.commentPlaceholder' | translate"
+                  [ngModel]="logComment()"
+                  (ngModelChange)="logComment.set($event)"
+                />
+                @if (logComment()) {
+                  <button
+                    type="button"
+                    class="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    [attr.aria-label]="'daily.clearComment' | translate"
+                    (click)="logComment.set('')"
+                  >
+                    <lucide-icon name="x" class="h-3.5 w-3.5" />
+                  </button>
+                }
+              </div>
+              <button
+                type="button"
+                class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border transition"
+                [class]="voiceMode() === 'comment'
+                  ? 'border-destructive bg-destructive/10 text-destructive'
+                  : 'border-border bg-background text-muted-foreground hover:text-primary'"
+                [disabled]="isParsingVoice() || (voiceMode() !== null && voiceMode() !== 'comment')"
+                [attr.aria-label]="'daily.commentVoice.action' | translate"
+                (click)="voiceMode() === 'comment' ? stopVoice() : startVoice('comment')"
+              >
+                <lucide-icon name="mic" class="h-4 w-4" />
+              </button>
+            </div>
+            @if (voiceMode() === 'comment') {
+              <p class="mt-1 text-xs text-destructive">{{ 'daily.commentVoice.listening' | translate }}</p>
+            }
+
+            @if (commentSuggestions().length > 0) {
+              <p class="mb-1.5 mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {{ 'notifications.log.suggestions' | translate }}
+              </p>
+              <div class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                @for (chip of commentSuggestions(); track chip.label) {
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+                    [class]="isChipApplied(chip)
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-foreground hover:bg-accent'"
+                    (click)="applySuggestion(chip)"
+                  >
+                    {{ chip.emoji }} {{ chip.label }}
+                  </button>
+                }
+              </div>
+            }
           </div>
 
           <p class="text-[11px] text-muted-foreground">
-            {{ i18n.t('notifications.log.dateHint', { date: formatDay(itemDate(target)) }) }}
+            {{ i18n.t('notifications.log.dateHint', { date: formatDay(logDate()) }) }}
           </p>
 
           <div class="flex justify-end gap-2 pt-1">
@@ -392,11 +531,14 @@ interface PendingGroup {
             </button>
             <button
               type="button"
-              class="gradient-primary rounded-full px-5 py-2 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
+              class="gradient-primary inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white shadow-glow disabled:opacity-60"
               [disabled]="isSaving()"
               (click)="saveLog()"
             >
-              {{ 'notifications.log.save' | translate }}
+              @if (isSaving()) {
+                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+              }
+              {{ (logMode().kind === 'create' ? 'notifications.log.save' : 'notifications.log.update') | translate }}
             </button>
           </div>
         </div>
@@ -404,15 +546,17 @@ interface PendingGroup {
     </app-modal>
   `,
 })
-export class NotificationsComponent implements OnInit {
+export class NotificationsComponent implements OnInit, OnDestroy {
   readonly inbox = inject(NotificationInboxService);
   readonly access = inject(SpendNotificationAccessService);
   readonly i18n = inject(I18nService);
   readonly currencyService = inject(CurrencyService);
+  readonly subscription = inject(SubscriptionService);
   private readonly store = inject(ExpenseStore);
   private readonly auth = inject(AuthService);
   private readonly backupMode = inject(BackupModeService);
   private readonly feedback = inject(UserFeedbackService);
+  private readonly aiVoice = inject(AiVoiceExpenseService);
 
   readonly filter = signal<InboxFilter>('all');
   readonly showHistory = signal(false);
@@ -426,13 +570,31 @@ export class NotificationsComponent implements OnInit {
 
   // ── Log modal state ─────────────────────────────────────────────
   readonly logTarget = signal<NotificationInboxItem | null>(null);
+  readonly logMode = signal<LogMode>({ kind: 'create' });
+  readonly logDate = signal(toLocalDateString());
   readonly logCategory = signal('Miscellaneous');
   readonly logPayment = signal('');
   readonly logAccountId = signal('');
   readonly logCardId = signal('');
+  readonly logAmount = signal<number | null>(null);
+  readonly logComment = signal('');
   readonly isSaving = signal(false);
-  logAmount: number | null = null;
-  logComment = '';
+
+  // ── Voice (mirrors the widget / Daily form) ─────────────────────
+  readonly voiceMode = signal<VoiceMode | null>(null);
+  readonly isParsingVoice = signal(false);
+  private recognition: { stop(): void; abort?(): void } | null = null;
+
+  /** Type-aware quick comments: user's frequent ones first, then the curated list. */
+  readonly commentSuggestions = computed<CommentSuggestion[]>(() => {
+    const target = this.logTarget();
+    if (!target || !this.isExpenseKind(target)) return [];
+    const since = new Date();
+    since.setDate(since.getDate() - SUGGESTION_HISTORY_DAYS);
+    const sinceDate = toLocalDateString(since);
+    const history = this.store.entries().filter((entry) => entry.date >= sinceDate);
+    return commentSuggestionsFor(this.logCategory(), { history });
+  });
 
   readonly setupNeeded = computed(
     () => this.access.supported() && (!this.access.permissionGranted() || !this.access.promptEnabled()),
@@ -509,6 +671,11 @@ export class NotificationsComponent implements OnInit {
     void this.access.refreshStatus();
   }
 
+  ngOnDestroy(): void {
+    this.recognition?.abort?.();
+    this.recognition = null;
+  }
+
   // ── Row helpers ─────────────────────────────────────────────────
   isExpenseKind(item: NotificationInboxItem): boolean {
     return item.kind === 'expense' || item.kind === 'cc-spend';
@@ -574,12 +741,12 @@ export class NotificationsComponent implements OnInit {
     this.feedback.info(this.i18n.t('notifications.feedback.dismissed'));
   }
 
+  /** Opens the sheet to log a NEW record from a detection. */
   openLog(item: NotificationInboxItem): void {
-    this.logTarget.set(item);
-    this.logAmount = item.amount;
-    this.logComment = item.comment;
+    this.resetSheet(item, { kind: 'create' });
+    this.logAmount.set(item.amount);
+    this.logComment.set(item.comment);
     this.logCategory.set('Miscellaneous');
-    this.isSaving.set(false);
 
     const cards = this.activeCards();
     const matchedCard = item.cardLast4
@@ -599,31 +766,227 @@ export class NotificationsComponent implements OnInit {
     }
   }
 
+  /** Opens the sheet on the record a handled detection created / matched. */
+  openEdit(item: NotificationInboxItem): void {
+    const payment = this.linkedPayment(item);
+    if (payment) {
+      const entry = this.store.entries().find((candidate) => candidate.id === payment.expenseId);
+      this.resetSheet(item, { kind: 'edit-payment', paymentId: payment.id });
+      this.logDate.set(payment.date);
+      this.logAmount.set(payment.amount);
+      this.logAccountId.set(payment.accountId);
+      this.logCardId.set(payment.debtId);
+      this.logComment.set(entry?.comment ?? '');
+      return;
+    }
+
+    const entry = this.linkedEntry(item);
+    if (!entry) {
+      this.openLog(item);
+      return;
+    }
+    this.resetSheet(item, { kind: 'edit-entry', entryId: entry.id });
+    this.logDate.set(entry.date);
+    this.logAmount.set(entry.amount);
+    this.logCategory.set(entry.type);
+    this.logComment.set(entry.comment ?? '');
+    this.logPayment.set(
+      entry.debtId ? `debt:${entry.debtId}` : entry.accountId ? `acct:${entry.accountId}` : '',
+    );
+  }
+
   closeLog(): void {
+    this.stopVoice();
     this.logTarget.set(null);
   }
 
+  // ── History helpers ─────────────────────────────────────────────
+  /** The expense entry a handled detection created or matched, if it still exists. */
+  linkedEntry(item: NotificationInboxItem): ExpenseEntry | null {
+    if (!item.linkedEntryId || item.status === 'pending' || item.status === 'dismissed') return null;
+    const payment = this.linkedPayment(item);
+    const entryId = payment ? payment.expenseId : item.linkedEntryId;
+    return this.store.entries().find((entry) => entry.id === entryId) ?? null;
+  }
+
+  private linkedPayment(item: NotificationInboxItem) {
+    if (item.kind !== 'cc-payment' || !item.linkedEntryId) return null;
+    return this.store.debtPayments().find((payment) => payment.id === item.linkedEntryId) ?? null;
+  }
+
+  historyAction(item: NotificationInboxItem): HistoryAction {
+    if (item.status === 'dismissed') return 'log';
+    if (item.kind === 'income' || item.kind === 'salary') return null; // adjustments aren't editable
+    if (item.kind === 'cc-payment') return this.linkedPayment(item) ? 'edit' : null;
+    const entry = this.linkedEntry(item);
+    // Debt-payment entries are owned by Finances (the store rejects edits here).
+    if (entry) return entry.source === 'debt-payment' ? null : 'edit';
+    // Logged/auto-matched but the entry is gone (e.g. lost before it reached
+    // storage, or deleted later): offer to log it again. Only once data has
+    // loaded, so a cold start never flags everything as missing.
+    if (item.linkedEntryId && this.store.driveFileId()) return 'log-again';
+    return null;
+  }
+
+  historyActionKey(action: HistoryAction): string {
+    switch (action) {
+      case 'edit': return 'notifications.action.edit';
+      case 'log-again': return 'notifications.action.logAgain';
+      default: return 'notifications.action.log';
+    }
+  }
+
+  onHistoryAction(item: NotificationInboxItem, action: HistoryAction): void {
+    if (action === 'edit') this.openEdit(item);
+    else if (action) this.openLog(item);
+  }
+
+  cardLabel(cardId: string): string {
+    return this.cardOptions().find((option) => option.value === cardId)?.label ?? '';
+  }
+
+  // ── Comment suggestions ─────────────────────────────────────────
+  isChipApplied(chip: CommentSuggestion): boolean {
+    return this.logComment().toLowerCase().includes(chip.label.toLowerCase());
+  }
+
+  applySuggestion(chip: CommentSuggestion): void {
+    const current = this.logComment().trim();
+    const detectionText = (this.logTarget()?.comment ?? '').trim();
+    if (!current || current === detectionText) {
+      // Replace the raw SMS text / empty field with a clean note.
+      this.logComment.set(chip.label);
+    } else if (this.isChipApplied(chip)) {
+      return;
+    } else {
+      this.logComment.set(`${current} · ${chip.label}`);
+    }
+  }
+
+  // ── Voice ───────────────────────────────────────────────────────
+  startVoice(mode: VoiceMode): void {
+    const w = window as unknown as Record<string, unknown>;
+    const Recognition = (w['SpeechRecognition'] ?? w['webkitSpeechRecognition']) as
+      | (new () => any)
+      | undefined;
+    if (!Recognition) {
+      this.feedback.warning(
+        this.i18n.t('daily.voiceUnsupportedTitle'),
+        this.i18n.t('daily.voice.unsupportedBrowser'),
+      );
+      return;
+    }
+
+    this.recognition?.abort?.();
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = this.i18n.speechRecognitionLang();
+    recognition.onstart = () => this.voiceMode.set(mode);
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[0]?.[0]?.transcript ?? '').trim();
+      if (!transcript || !this.logTarget()) return;
+      if (mode === 'expense') {
+        void this.applyVoiceExpense(transcript);
+      } else {
+        this.appendToComment(transcript);
+      }
+    };
+    recognition.onerror = () => this.voiceMode.set(null);
+    recognition.onend = () => this.voiceMode.set(null);
+    this.recognition = recognition;
+    recognition.start();
+  }
+
+  stopVoice(): void {
+    this.recognition?.stop();
+    this.voiceMode.set(null);
+  }
+
+  private appendToComment(text: string): void {
+    const current = this.logComment().trim();
+    const detectionText = (this.logTarget()?.comment ?? '').trim();
+    this.logComment.set(!current || current === detectionText ? text : `${current} ${text}`);
+  }
+
+  /**
+   * Gemini smart fill from the user's OWN speech only. The SMS-derived
+   * detection text is never sent (privacy rule: notification contents stay
+   * on device).
+   */
+  private async applyVoiceExpense(transcript: string): Promise<void> {
+    this.isParsingVoice.set(true);
+    try {
+      const attempt = await this.aiVoice.parse({
+        transcript,
+        locale: this.i18n.locale(),
+        currency: this.currencyService.currency(),
+        categories: this.categoryOptions().map((option) => option.value),
+        today: this.logDate(),
+      });
+      if (!this.logTarget()) return; // sheet closed meanwhile
+      const expense = attempt.expense;
+      if (!expense) {
+        this.appendToComment(transcript);
+        this.feedback.info(this.i18n.t('daily.voiceTranscriptSaved'), this.i18n.t('daily.voiceAiUnavailable'));
+        return;
+      }
+      if (expense.amount && expense.amount > 0) this.logAmount.set(expense.amount);
+      const type = this.matchCategory(expense.type);
+      if (type) this.logCategory.set(type);
+      this.logComment.set(expense.comment?.trim() || transcript);
+      this.feedback.success(this.i18n.t('daily.voiceFilledTitle'), this.i18n.t('daily.voiceFilledDetail'));
+    } catch {
+      if (this.logTarget()) {
+        this.appendToComment(transcript);
+        this.feedback.info(this.i18n.t('daily.voiceTranscriptSaved'), this.i18n.t('daily.voiceAiUnavailable'));
+      }
+    } finally {
+      this.isParsingVoice.set(false);
+    }
+  }
+
+  private matchCategory(type: string | null | undefined): string | null {
+    const key = (type ?? '').trim().toLowerCase();
+    if (!key) return null;
+    const options = this.categoryOptions().map((option) => option.value);
+    return options.find((name) => name.toLowerCase() === key)
+      ?? options.find((name) => name.toLowerCase().includes(key) || key.includes(name.toLowerCase()))
+      ?? null;
+  }
+
+  // ── Save ────────────────────────────────────────────────────────
   async saveLog(): Promise<void> {
     const item = this.logTarget();
     if (!item || this.isSaving()) return;
 
-    const amount = Number(this.logAmount);
+    const amount = Number(this.logAmount());
     if (!Number.isFinite(amount) || amount <= 0) {
       this.feedback.warning(this.i18n.t('notifications.feedback.invalidAmount'));
       return;
     }
 
+    this.stopVoice();
     this.isSaving.set(true);
+    const mode = this.logMode();
     try {
-      if (item.kind === 'income' || item.kind === 'salary') {
+      if (mode.kind === 'edit-entry') {
+        await this.updateExpense(mode.entryId, amount);
+      } else if (mode.kind === 'edit-payment') {
+        await this.updateCcPayment(mode.paymentId, amount);
+      } else if (item.kind === 'income' || item.kind === 'salary') {
         await this.saveIncome(item, amount);
       } else if (item.kind === 'cc-payment') {
         await this.saveCcPayment(item, amount);
       } else {
         await this.saveExpense(item, amount);
       }
-      this.feedback.success(this.i18n.t('notifications.feedback.logged'));
-      this.closeLog();
+      this.feedback.success(this.i18n.t(
+        mode.kind === 'create' ? 'notifications.feedback.logged' : 'notifications.feedback.updated',
+      ));
+      // Only reached once the record is in the durable local snapshot — closing
+      // the app or this sheet from here on can no longer lose it.
+      if (this.logTarget()?.id === item.id) this.closeLog();
     } catch (error) {
       const detail = error instanceof Error ? error.message : undefined;
       this.feedback.warning(this.i18n.t('notifications.feedback.logFailed'), detail);
@@ -632,8 +995,32 @@ export class NotificationsComponent implements OnInit {
     }
   }
 
+  /**
+   * Runs a store mutation and waits only until it is LOCALLY durable, not for
+   * the Drive round-trip (which the store retries in the background and never
+   * throws for). Store mutations validate and patch state synchronously, so a
+   * validation error still rejects here, and the inbox item is claimed in the
+   * same tick so the auto-match effect can't mislabel it "Already logged".
+   */
+  private async commitLocally(
+    item: NotificationInboxItem,
+    mutate: () => Promise<void>,
+    linkId: () => string | undefined,
+  ): Promise<void> {
+    const previous = item;
+    const operation = mutate();
+    operation.catch(() => undefined); // surfaced through the race below
+    void this.inbox.markLogged(item.id, linkId());
+    try {
+      await Promise.race([operation, this.store.whenLocallySaved()]);
+    } catch (error) {
+      await this.inbox.restore(previous);
+      throw error;
+    }
+  }
+
   private async saveExpense(item: NotificationInboxItem, amount: number): Promise<void> {
-    const date = this.itemDate(item);
+    const date = this.logDate();
     const type = this.logCategory() || 'Miscellaneous';
     const limit = this.calculateDailyLimit(type, date);
     const payment = this.logPayment();
@@ -647,7 +1034,7 @@ export class NotificationsComponent implements OnInit {
       limit,
       savings: limit - amount,
       timestamp: new Date().toISOString(),
-      comment: this.logComment.trim() || undefined,
+      comment: this.logComment().trim() || undefined,
       accountId: payment.startsWith('acct:') ? payment.slice(5) : undefined,
       debtId: payment.startsWith('debt:') ? payment.slice(5) : undefined,
       source: 'notification-prompt',
@@ -655,8 +1042,28 @@ export class NotificationsComponent implements OnInit {
       createdByRole: actor.role,
     };
 
-    await this.store.addEntry(entry);
-    await this.inbox.markLogged(item.id, entry.id);
+    await this.commitLocally(item, () => this.store.addEntry(entry), () => entry.id);
+  }
+
+  private async updateExpense(entryId: string, amount: number): Promise<void> {
+    const existing = this.store.entries().find((entry) => entry.id === entryId);
+    if (!existing) throw new Error(this.i18n.t('notifications.history.missingHint'));
+    const type = this.logCategory() || existing.type;
+    const limit = type === existing.type ? existing.limit : this.calculateDailyLimit(type, existing.date);
+    const payment = this.logPayment();
+    const updated: ExpenseEntry = {
+      ...existing,
+      amount,
+      type,
+      limit,
+      savings: limit - amount,
+      comment: this.logComment().trim() || undefined,
+      accountId: payment.startsWith('acct:') ? payment.slice(5) : undefined,
+      debtId: payment.startsWith('debt:') ? payment.slice(5) : undefined,
+    };
+    const operation = this.store.updateEntry(updated);
+    operation.catch(() => undefined);
+    await Promise.race([operation, this.store.whenLocallySaved()]);
   }
 
   private async saveIncome(item: NotificationInboxItem, amount: number): Promise<void> {
@@ -664,18 +1071,22 @@ export class NotificationsComponent implements OnInit {
     if (!accountId) {
       throw new Error(this.i18n.t('notifications.log.chooseAccount'));
     }
-    let reason = this.logComment.trim();
+    let reason = this.logComment().trim();
     if (item.kind === 'salary' && !reason.toLowerCase().includes('salary')) {
       // Tag salary credits so the missing-salary reminder sees this month as done.
       reason = reason ? `Salary · ${reason}` : 'Salary';
     }
-    await this.store.adjustAccountBalance({
-      accountId,
-      amount,
-      kind: 'increase',
-      reason: reason || undefined,
-    });
-    await this.inbox.markLogged(item.id);
+    const before = new Set(this.store.accountAdjustments().map((adjustment) => adjustment.id));
+    await this.commitLocally(
+      item,
+      () => this.store.adjustAccountBalance({
+        accountId,
+        amount,
+        kind: 'increase',
+        reason: reason || undefined,
+      }),
+      () => this.store.accountAdjustments().find((adjustment) => !before.has(adjustment.id))?.id,
+    );
   }
 
   private async saveCcPayment(item: NotificationInboxItem, amount: number): Promise<void> {
@@ -687,19 +1098,50 @@ export class NotificationsComponent implements OnInit {
     const card = this.activeCards().find((candidate) => candidate.id === cardId);
     if (!card) throw new Error(this.i18n.t('notifications.log.chooseCard'));
 
-    await this.store.recordDebtPayment({
-      debtId: cardId,
+    const before = new Set(this.store.debtPayments().map((payment) => payment.id));
+    await this.commitLocally(
+      item,
+      () => this.store.recordDebtPayment({
+        debtId: cardId,
+        accountId,
+        // The SMS amount can exceed tracked outstanding when older spends were
+        // never logged; cap so state stays consistent (same rule as auto-tally).
+        amount: Math.min(amount, card.remainingBalance),
+        date: this.logDate(),
+        comment: this.logComment().trim() || 'Credit card bill payment (from notification inbox)',
+      }),
+      () => this.store.debtPayments().find((payment) => !before.has(payment.id))?.id,
+    );
+  }
+
+  private async updateCcPayment(paymentId: string, amount: number): Promise<void> {
+    const payment = this.store.debtPayments().find((candidate) => candidate.id === paymentId);
+    if (!payment) throw new Error(this.i18n.t('notifications.history.missingHint'));
+    const accountId = this.logAccountId();
+    if (!accountId) throw new Error(this.i18n.t('notifications.log.chooseAccount'));
+    const operation = this.store.updateDebtPayment(paymentId, {
       accountId,
-      // The SMS amount can exceed tracked outstanding when older spends were
-      // never logged; cap so state stays consistent (same rule as auto-tally).
-      amount: Math.min(amount, card.remainingBalance),
-      date: this.itemDate(item),
-      comment: this.logComment.trim() || 'Credit card bill payment (from notification inbox)',
+      amount,
+      date: payment.date,
+      comment: this.logComment().trim() || undefined,
     });
-    await this.inbox.markLogged(item.id);
+    operation.catch(() => undefined);
+    await Promise.race([operation, this.store.whenLocallySaved()]);
   }
 
   // ── Internals ───────────────────────────────────────────────────
+  private resetSheet(item: NotificationInboxItem, mode: LogMode): void {
+    this.stopVoice();
+    this.isParsingVoice.set(false);
+    this.isSaving.set(false);
+    this.logMode.set(mode);
+    this.logDate.set(this.itemDate(item));
+    this.logPayment.set('');
+    this.logAccountId.set('');
+    this.logCardId.set('');
+    this.logTarget.set(item);
+  }
+
   private applyFilter(items: NotificationInboxItem[]): NotificationInboxItem[] {
     const filter = this.filter();
     if (filter === 'all') return items;

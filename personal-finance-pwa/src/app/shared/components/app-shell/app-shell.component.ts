@@ -20,6 +20,7 @@ import { Preferences } from '@capacitor/preferences';
 import { PENDING_CIRCLE_JOIN_KEY } from '../../../core/models/circle.model';
 import { SpenzaLogoComponent } from '../spenza-logo/spenza-logo.component';
 import { CreditCardPickerComponent } from '../credit-card-picker/credit-card-picker.component';
+import { CardStatementPromptComponent } from '../card-statement-prompt/card-statement-prompt.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { BackupModeService } from '../../../core/services/backup-mode.service';
 import { ExpenseStore, noCcAccountForExpense$ } from '../../../core/services/expense-store.service';
@@ -39,7 +40,7 @@ interface NavItem {
   selector: 'app-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LucideAngularModule, TranslatePipe, SpenzaLogoComponent, CreditCardPickerComponent],
+  imports: [RouterLink, RouterLinkActive, LucideAngularModule, TranslatePipe, SpenzaLogoComponent, CreditCardPickerComponent, CardStatementPromptComponent],
   providers: [
     {
       provide: LUCIDE_ICONS,
@@ -396,6 +397,9 @@ interface NavItem {
     @if (expenseStore.pendingCcExpenses().length > 0) {
       <app-credit-card-picker />
     }
+
+    <!-- ── Credit-card statement dialog: confirm the bank's bill amount ── -->
+    <app-card-statement-prompt />
   `,
 })
 export class AppShellComponent {
